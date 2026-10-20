@@ -36,7 +36,9 @@ class _XPNR:
     def uniform(binary, frequencies, delta_f, f_min, f_max, options):
         """``(h_+, h_x)`` at ``frequencies`` with LAL's set-up for the
         uniform grid of spacing ``delta_f`` from ``f_min`` to ``f_max`` (all
-        may be traced); NaN where LAL fails. As
+        may be traced); NaN where LAL fails. The values depend on the whole
+        array: the antisymmetric amplitude ratio is a moving average along
+        it (see :func:`._from_fd.model_frequencies`). As
         :func:`waveformjax.models.xpnr.model.polarizations`, one binary at
         a time under ``jax.vmap``, with the derivative of one binary."""
         from ..models.xpnr import model, pnr
