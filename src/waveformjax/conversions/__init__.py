@@ -32,11 +32,14 @@ epoch are those of a reference binary, while the starting frequencies given
 to the model and the cutoff of the high-pass filters that move continuously
 with the masses and spins follow the binary.
 
-Accuracy: lengths and epochs are LAL's. The high-pass filter, whose sections
-have poles near ``z = 1``, amplifies rounding differences of its input (from
-the Fourier transforms, which are not FFTW's) by ``~1e4``, so the
-time-domain waveforms agree with LAL to ``~1e-12`` of their peak; the
-frequency-domain ones to rounding.
+Accuracy: lengths, epochs and sampling are LAL's. Given LAL's own model, the
+conversions agree with LAL to rounding in the frequency domain; in the time
+domain, the high-pass filter, whose sections have poles near ``z = 1``,
+amplifies the rounding differences of its input (from the Fourier
+transforms, which are not FFTW's) by ``~1e4`` or more as ``f_min / f_s``
+decreases, so they agree to ``~1e-12`` of the peak (a few ``1e-11`` from 10 Hz
+at 8192 Hz, as waveformrs). With the JAX models, the agreement is that of the
+models.
 """
 
 from __future__ import annotations
