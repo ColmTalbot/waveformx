@@ -67,8 +67,8 @@ def test_arguments_are_checked():
         wf.polarizations("IMRPhenomXPNR", [30.0, 20.0], mass_1=30.0, mass_2=20.0)
     with pytest.raises(wf.UnsupportedError):
         wf.td_polarizations("IMRPhenomXPNR", 1 / 4096, 20.0, mass_1=30.0, mass_2=20.0)
-    with pytest.raises(wf.UnsupportedError):
-        wf.simulate_td("IMRPhenomXPNR", 1 / 4096, 20.0, mass_1=30.0, mass_2=20.0)
+    with pytest.raises(wf.InvalidParameterError):
+        wf.simulate_td("IMRPhenomXPNR", 1 / 4096, 0.0, mass_1=30.0, mass_2=20.0)
 
 
 def test_parameter_table():
