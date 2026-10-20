@@ -26,12 +26,14 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from .._math import DBL_MIN, Struct, isolated
 from .._transforms import while_loop
 from . import dynamics
 
-__all__ = ["evolve", "evolve_recorded", "omega", "sample", "steps", "ABSOLUTE_TOLERANCE", "RELATIVE_TOLERANCE"]
+__all__ = ["evolve", "evolve_recorded", "omega", "sample", "sample_full", "steps", "ABSOLUTE_TOLERANCE",
+           "RELATIVE_TOLERANCE"]
 
 ABSOLUTE_TOLERANCE = 1.0e-12
 RELATIVE_TOLERANCE = 1.0e-12
@@ -234,7 +236,7 @@ def _attempt(c, s, deltat):
     return new, row
 
 
-def evolve_recorded(c, y0, deltat, max_iterations, capacity):
+def evolve_recorded(c, y0, deltat, max_iterations, capacity, components=None, ring=0):
     """:func:`evolve` keeping every accepted step (at most ``capacity``):
     their start times ``t0`` and sizes ``h`` (constants for the
     derivatives) and the states ``y``, derivatives ``k1`` and stages ``k6``
@@ -243,15 +245,21 @@ def evolve_recorded(c, y0, deltat, max_iterations, capacity):
     so the derivatives are those of the solution, not of LAL's choice of
     steps.
 
+    With ``components`` (a number), only the first ``components`` variables
+    of ``y``, ``k1`` and ``k6`` are kept for every step, and the whole rows
+    of the last ``ring`` steps (:func:`sample_full`).
+
     Returns a :class:`~.._math.Struct` with ``rows``, the steps ``(t0, h,
-    y, k1, k6)`` (``capacity`` rows, see :func:`steps`), the keys of the
-    searches among them, ``y_end``, ``dydt_end``, ``accepted``,
+    y, k1, k6)`` (``capacity`` rows, see :func:`steps`), ``ring``, the keys
+    of the searches among them, ``y_end``, ``dydt_end``, ``accepted``,
     ``n_samples``, ``t_last`` (time of the last sample), ``t_end``,
     ``code`` and ``exhausted`` (out of iterations or capacity).
     """
     deltat = jax.lax.stop_gradient(deltat)
     k_init, _ = dynamics.derivatives(c, y0)
     nv = y0.shape[-1]
+    nc = nv if components is None else components
+    columns = np.concatenate([[0, 1], 2 + np.arange(nc), 2 + nv + np.arange(nc), 2 + 2 * nv + np.arange(nc)])
     state = Struct(
         iteration=jnp.zeros((), jnp.int64),
         accepted=jnp.zeros((), jnp.int64),
@@ -266,12 +274,12 @@ def evolve_recorded(c, y0, deltat, max_iterations, capacity):
         done=jnp.asarray(False),
         code=jnp.asarray(0),
     )
-    record = jnp.zeros((capacity, 2 + 3 * nv))
+    records = (jnp.zeros((capacity, 2 + 3 * nc)),) + ((jnp.zeros((ring, 2 + 3 * nv)),) if ring else ())
 
     def test(consts, s):
         return (~s.done) & (s.iteration < consts[2]) & (s.accepted < capacity)
 
-    def body(consts, s, record, active):
+    def body(consts, s, records, active):
         c, deltat, _ = consts
         # the attempt in a loop of its own (_math.isolated): its many small
         # operations then run on the calling thread
@@ -279,29 +287,39 @@ def evolve_recorded(c, y0, deltat, max_iterations, capacity):
         # written at every attempt: a rejected one is overwritten by the
         # next accepted step (inactive under jax.vmap: written back unchanged)
         i = jnp.minimum(s.accepted, capacity - 1)
-        row = jnp.where(active, row, record[i])
-        record = jax.lax.dynamic_update_slice(record, row[None], (i, jnp.zeros_like(i)))
-        return new, record
+        kept = row if components is None else row[columns]
+        record = records[0]
+        record = jax.lax.dynamic_update_slice(record, jnp.where(active, kept, record[i])[None], (i, jnp.zeros_like(i)))
+        if not ring:
+            return new, (record,)
+        j = s.accepted % ring
+        whole = records[1]
+        whole = jax.lax.dynamic_update_slice(whole, jnp.where(active, row, whole[j])[None], (j, jnp.zeros_like(j)))
+        return new, (record, whole)
 
-    s, record = while_loop(test, body, (c, deltat, max_iterations), state, record)
+    s, records = while_loop(test, body, (c, deltat, max_iterations), state, records)
+    record = records[0]
     # the keys of the searches among the steps, once (rather than masking
     # the whole record at every search): the start times (along the
     # direction of the run) and M omega, infinite beyond the steps taken
     valid = jnp.arange(capacity) < jnp.maximum(s.accepted, 1)
     direction = jnp.where(deltat >= 0, 1.0, -1.0)
     return Struct(
-        rows=record, key_t=jnp.where(valid, record[:, 0] * direction, jnp.inf),
+        rows=record, ring=records[1] if ring else None, key_t=jnp.where(valid, record[:, 0] * direction, jnp.inf),
         key_omega=jnp.where(valid, record[:, 3], jnp.inf), direction=direction, y_end=s.y, dydt_end=s.dydt,
         accepted=s.accepted, n_samples=s.n_samples, t_last=s.tintp, t_end=s.t, code=s.code, exhausted=~s.done,
         iterations=s.iteration,
     )
 
 
+def _split_row(rows, nc):
+    return rows[..., 0], rows[..., 1], rows[..., 2:2 + nc], rows[..., 2 + nc:2 + 2 * nc], rows[..., 2 + 2 * nc:]
+
+
 def steps(rec, i):
-    """``(t0, h, y, k1, k6)`` of the recorded steps ``i`` (an index array)."""
-    nv = rec.y_end.shape[-1]
-    rows = rec.rows[i]
-    return rows[..., 0], rows[..., 1], rows[..., 2:2 + nv], rows[..., 2 + nv:2 + 2 * nv], rows[..., 2 + 2 * nv:]
+    """``(t0, h, y, k1, k6)`` of the recorded steps ``i`` (an index array),
+    with the variables kept for every step."""
+    return _split_row(rec.rows[i], (rec.rows.shape[-1] - 2) // 3)
 
 
 def omega(rec, i):
@@ -309,11 +327,31 @@ def omega(rec, i):
     return rec.rows[i, 3]
 
 
-def sample(rec, t):
-    """LAL's samples at times ``t`` (an array) from the recorded steps."""
-    cap = rec.rows.shape[0]
+def _step_index(rec, t):
     n = jnp.maximum(rec.accepted, 1)
-    i = jnp.clip(jnp.searchsorted(rec.key_t, t * rec.direction, side="left") - 1, 0, n - 1)
+    return jnp.clip(jnp.searchsorted(rec.key_t, t * rec.direction, side="left") - 1, 0, n - 1), n
+
+
+def sample(rec, t):
+    """LAL's samples at times ``t`` (an array) from the recorded steps (the
+    variables kept for every step)."""
+    cap = rec.rows.shape[0]
+    i, n = _step_index(rec, t)
     t0, h, y0, k1, k6 = steps(rec, i)
-    y1 = jnp.where((i + 1 < n)[..., None], steps(rec, jnp.minimum(i + 1, cap - 1))[2], rec.y_end)
+    y1 = jnp.where((i + 1 < n)[..., None], steps(rec, jnp.minimum(i + 1, cap - 1))[2],
+                   rec.y_end[..., :y0.shape[-1]])
     return hermite(t0[..., None], h[..., None], y0, y1, k1, k6, t[..., None])
+
+
+def sample_full(rec, t):
+    """Every variable of LAL's samples at times ``t``, and whether the
+    steps holding them are recorded whole (the last steps of a run whose
+    record keeps only some of the variables, :func:`evolve_recorded`)."""
+    if rec.ring is None:
+        return sample(rec, t), jnp.ones(jnp.shape(t), bool)
+    ring = rec.ring.shape[0]
+    i, n = _step_index(rec, t)
+    nv = rec.y_end.shape[-1]
+    t0, h, y0, k1, k6 = _split_row(rec.ring[i % ring], nv)
+    y1 = jnp.where((i + 1 < n)[..., None], _split_row(rec.ring[(i + 1) % ring], nv)[2], rec.y_end)
+    return hermite(t0[..., None], h[..., None], y0, y1, k1, k6, t[..., None]), i >= rec.accepted - ring

@@ -66,6 +66,11 @@ STEP_ANGLE = 0.1
 BACKWARD_CAPACITY = 4096
 FORWARD_CAPACITY = 65536
 FINE_CAPACITY = 4096
+#: The variables of the state kept for every step of the forward run (the
+#: phase, M omega and LNhat: those of the knots), and the steps of its end
+#: kept whole (from which the fine run starts: ~250 steps in practice).
+KNOT_VARIABLES = 5
+FORWARD_RING = 1024
 MAX_REPLICA_ITERATIONS = 1000000
 #: Iterations of LAL's backward run tried to detect that it stops at once.
 EARLY_STOP_ITERATIONS = 8
@@ -143,8 +148,8 @@ def pn_solution(m1_si, m2_si, chi1, chi2, f_ref, f_min, f_cut, active=True):
     integration fails, where its waveform drivers fall back to the MSA
     angles) and ``incomplete`` (the capacities of this implementation were
     exceeded). Where ``active`` (traced) is false, the integrations take no
-    steps (under ``jax.vmap``, where both sides of a ``jax.lax.cond`` are
-    computed).
+    steps (under ``jax.vmap``, a branch of :func:`.._transforms.cond` runs for
+    the whole batch if any binary takes it).
     """
     max_iterations = jnp.where(active, MAX_REPLICA_ITERATIONS, 0)
     m_tot = m1_si + m2_si
@@ -163,7 +168,8 @@ def pn_solution(m1_si, m2_si, chi1, chi2, f_ref, f_min, f_cut, active=True):
 
     # LAL's forward coarse run, step for step
     c_fwd = dynamics.coefficients(m1_si, m2_si, f_start, f_cut)
-    fwd = replica.evolve_recorded(c_fwd, y_ref, dt_coarse, max_iterations, FORWARD_CAPACITY)
+    fwd = replica.evolve_recorded(c_fwd, y_ref, dt_coarse, max_iterations, FORWARD_CAPACITY, components=KNOT_VARIABLES,
+                                  ring=FORWARD_RING)
     n_fwd = _trim_forward(fwd, c_fwd, dt_coarse)
 
     # the backward run: does it stop at once (f_ref beyond the validity of
@@ -201,10 +207,8 @@ def pn_solution(m1_si, m2_si, chi1, chi2, f_ref, f_min, f_cut, active=True):
     zero_sample = ~no_backward & (copy_length >= split + n_fwd)
 
     # the fine run from the sample at t_c, step for step
-    state_c = jnp.where(
-        t_c >= 0, replica.sample(fwd, jnp.maximum(t_c, 0.0)[None])[0],
-        trajectory.evaluate_full(back, jnp.minimum(t_c, 0.0)[None], True)[0],
-    )
+    forward_c, recorded_c = replica.sample_full(fwd, jnp.maximum(t_c, 0.0)[None])
+    state_c = jnp.where(t_c >= 0, forward_c[0], trajectory.evaluate_full(back, jnp.minimum(t_c, 0.0)[None], True)[0])
     omega_c = state_c[1]
     # v^3 / piGM with v = cbrt(M omega): the frequency of the sample
     f_trans = jnp.cbrt(omega_c) ** 3 / pi_gm
@@ -258,7 +262,7 @@ def pn_solution(m1_si, m2_si, chi1, chi2, f_ref, f_min, f_cut, active=True):
         | (~no_backward & (f_min - 0.5 < 0))
     )
     # limits of this implementation
-    sol.incomplete = fwd.exhausted | fine.exhausted | ~covered_back
+    sol.incomplete = fwd.exhausted | fine.exhausted | ~covered_back | ((t_c >= 0) & ~recorded_c[0])
     return sol
 
 
@@ -352,7 +356,8 @@ def spline(sol, rotation, mf, mf_scale, context=None):
     (unwrapped) and ``cos(beta)`` against ``Mf`` in the J frame, and their
     derivatives, at ``mf`` (an array of a few points): from
     :func:`spline_table` up to :data:`GLOBAL_KNOTS` knots, else from
-    :func:`windowed_spline` (``jax.lax.cond``: both under ``jax.vmap``).
+    :func:`windowed_spline` (under ``jax.vmap``, each where some binary of
+    the batch needs it).
     Returns ``(alpha, dalpha, cosbeta, dcosbeta, inside)``."""
     if context is None:
         context = spline_context(sol, rotation, mf_scale)

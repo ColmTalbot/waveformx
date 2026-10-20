@@ -12,9 +12,11 @@ LAL changes the prescription of the Euler angles with the binary: version
 330 (SpinTaylor angles, the default), 223 (MSA, when the SpinTaylor
 integration fails) or 102 (NNLO, for in-plane spins below ``1e-6`` or when
 the MSA system fails), and below ``1e-7`` it switches the PNR machinery off.
-Here each prescription is a separate function of a *static* ``version``
-(the arguments called ``version`` below are Python ints), and the model
-(:mod:`.model`) chooses among them with ``jax.lax.cond``.
+Here each prescription is a function of a *static* ``version`` (the
+arguments called ``version`` below are Python ints), or of a
+:class:`Fallback` (versions 102 and 223 together, chosen by a traced flag),
+and the model (:mod:`.model`) chooses among them with
+:func:`._transforms.switch`.
 
 The set-up is split into :func:`common_setup` (before the SpinTaylor
 integration, which decides whether version 330 can be used) and
@@ -250,9 +252,55 @@ def spintaylor_solution(prec, wf, m1_si, m2_si, flow=None, fcut=None, active=Tru
 # ---------------------------------------------------------------------------
 
 
+class Fallback:
+    """Versions 102 and 223 of the PNR machinery as one: 223 (MSA angles)
+    where the traced ``msa`` is true, 102 (NNLO angles) elsewhere. The
+    functions below take it in place of a static ``version``: they compute
+    what the two versions compute differently both ways and select (the
+    versions LAL falls back to share their code, which halves what is
+    compiled for them). It compares unequal to 330 and refuses the other
+    comparisons, which must go through :func:`_by_version`."""
+
+    def __init__(self, msa):
+        self.msa = msa
+
+    def __eq__(self, other):
+        if other == 330:
+            return False
+        raise TypeError("a Fallback version is compared through _by_version")
+
+    def __ne__(self, other):
+        return not self == other
+
+    __hash__ = object.__hash__
+
+    def __ge__(self, other):
+        raise TypeError("a Fallback version is compared through _by_version")
+
+    __gt__ = __le__ = __lt__ = __floordiv__ = __ge__
+
+
+def _by_version(version, nnlo, msa, other=None):
+    """``nnlo()`` for version 102, ``msa()`` for 223, ``other()`` for 330;
+    for a :class:`Fallback`, both of the first two, selected leaf by leaf."""
+    if isinstance(version, Fallback):
+        a, b = msa(), nnlo()
+        return jax.tree_util.tree_map(lambda x, y: jnp.where(version.msa, x, y), a, b)
+    if version == 102:
+        return nnlo()
+    if version == 223:
+        return msa()
+    return other()
+
+
+def _at_least_200(version):
+    """``version >= 200`` (traced for a :class:`Fallback`)."""
+    return version.msa if isinstance(version, Fallback) else version >= 200
+
+
 def two_spin(prec, version):
     """``IMRPhenomX_PNR_CheckTwoSpin``."""
-    return (prec.chi1_norm != 0.0) & (prec.chi2_norm >= 1.0e-3) & (version >= 200)
+    return (prec.chi1_norm != 0.0) & (prec.chi2_norm >= 1.0e-3) & _at_least_200(version)
 
 
 def set_pnr_variables(prec, wf, version):
@@ -381,16 +429,10 @@ def interpolation_delta_f(prec, wf, f_min, version):
     denominator = fma(13.0, eta_term, 7.0)
     constant = 4.0 * jnp.sqrt(2.0 / 5.0)
     delta_f_alpha = mf_to_hz(constant * jnp.sqrt(jnp.sqrt(numerator / denominator)), wf.m_tot)
+    plain = jnp.maximum(delta_f_alpha, 1e-2)
+
     # two-spin oscillations: sample the period of the spin magnitude
-    if version // 100 == 3:
-        system = _msa.system(msa_inputs(prec, wf, prec.chi1, prec.chi2))
-        l_coeffs = _prec.three_pn(prec.eta, wf.delta, prec.chi1[2], prec.chi2[2])
-    elif version == 223:
-        system = prec.msa
-        l_coeffs = prec.l
-    else:
-        system = None
-    if system is not None:
+    def two_spin_period(system, l_coeffs):
         g0, deltam, psi1, psi2 = _msa.psi_terms(system)
         v0 = jnp.cbrt(PI * mf)
         v02 = v0 * v0
@@ -403,9 +445,13 @@ def interpolation_delta_f(prec, wf, f_min, version):
         dpsi_inv = jnp.where((beta_min < 0.01) & (safe_div(beta_min, beta_max) < 0.55), dpsi_inv / 4.0, dpsi_inv)
         delta_f_twospin = mf_to_hz(dpsi_inv / 4.0, wf.m_tot)
         use_twospin = two_spin(prec, version) & (delta_f_twospin < delta_f_alpha) & ~jnp.isnan(dpsi)
-        result = jnp.where(use_twospin, jnp.maximum(delta_f_twospin, 1e-2), jnp.maximum(delta_f_alpha, 1e-2))
+        return jnp.where(use_twospin, jnp.maximum(delta_f_twospin, 1e-2), plain)
+
+    if not isinstance(version, Fallback) and version // 100 == 3:
+        result = two_spin_period(_msa.system(msa_inputs(prec, wf, prec.chi1, prec.chi2)),
+                                 _prec.three_pn(prec.eta, wf.delta, prec.chi1[2], prec.chi2[2]))
     else:
-        result = jnp.maximum(delta_f_alpha, 1e-2)
+        result = _by_version(version, lambda: plain, lambda: two_spin_period(prec.msa, prec.l))
     aligned = (prec.chi1_perp == 0.0) & (prec.chi2_perp == 0.0)
     return jnp.where(aligned, jnp.where(wf.delta_f != 0.0, wf.delta_f, 0.1), result)
 
@@ -500,7 +546,6 @@ def finish_setup(prec, wf, version, st=None):
     returning new ``(prec, wf)``."""
     prec = _copy(prec)
     wf = _copy(wf)
-    prec.version = version
     prec.st = st
     chi1, chi2 = prec.chi1, prec.chi2
     pnr_on = prec.pnr_on
@@ -520,17 +565,18 @@ def finish_setup(prec, wf, version, st=None):
         prec.mfmin_integration = jnp.zeros(())
     set_pnr_variables(prec, wf, 330 if version == 330 else 223)
     wf = set_coprec_params(prec, wf, pnr_on, version)
-    if version == 223:
+    if isinstance(version, Fallback) or version == 223:
         prec.msa = _msa.system(msa_inputs(prec, wf, chi1, chi2))
     else:
         prec.msa = None
     prec, wf = set_remnant(prec, wf)
     eta, delta = wf.eta, wf.delta
     big_m = prec.m1 + prec.m2
-    if version == 223:
-        prec.l = _prec.three_pn_msa(eta, delta, chi1[2], chi2[2])
-    else:
+    if version == 330:
         prec.l = _prec.three_pn(eta, delta, chi1[2], chi2[2])
+    else:
+        prec.l = _by_version(version, lambda: _prec.three_pn(eta, delta, chi1[2], chi2[2]),
+                             lambda: _prec.three_pn_msa(eta, delta, chi1[2], chi2[2]))
     prec.l_ref = big_m * big_m * _prec.l_ansatz(prec.l, wf.v_ref, wf.eta / wf.v_ref)
     m1_2, m2_2 = prec.m1_2, prec.m2_2
     j0 = [fma(m1_2, chi1[0], m2_2 * chi2[0]), fma(m1_2, chi1[1], m2_2 * chi2[1]), fma(m1_2, chi1[2], m2_2 * chi2[2]) + prec.l_ref]
@@ -546,7 +592,7 @@ def finish_setup(prec, wf, version, st=None):
     j0_dot_n = fma(j0[2], n_sf[2], fma(j0[0], n_sf[0], j0[1] * n_sf[1]))
     prec.theta_jn = acos_safe(j0_dot_n / prec.j0_norm)
     prec.zeta_polarization = polarization_angle(prec, wf, jnp.sin(prec.theta_jn), jnp.cos(prec.theta_jn))
-    if version // 100 == 1:
+    if isinstance(version, Fallback) or version // 100 == 1:
         m1 = prec.m1
         prec.nnlo = _nnlo.coefficients(
             eta, delta, prec.q, wf.chi_eff, prec.chi_p, m1, m1 * m1, m1 ** 3, m1 ** 4, m1 ** 5, m1 ** 6, m1 ** 8
@@ -555,20 +601,22 @@ def finish_setup(prec, wf, version, st=None):
         prec.nnlo = None
     prec.epsilon0 = prec.phi_j_sf - PI
     omega_ref = wf.pi_m * wf.f_ref * 2.0 / 2.0
-    if version == 223:
+
+    def msa_offsets():
         angles = _msa.phi_zeta_costhetal(prec.msa, jnp.cbrt(omega_ref))
-        prec.alpha_offset = angles.phiz - prec.alpha0
-        prec.epsilon_offset = angles.zeta - prec.epsilon0
-    elif version == 102:
+        return angles.phiz - prec.alpha0, angles.zeta - prec.epsilon0
+
+    def nnlo_offsets():
         logomega_ref = jnp.log(omega_ref)
         omega_ref_cbrt = jnp.cbrt(omega_ref)
         alpha, epsilon = _nnlo.evaluate(prec.nnlo, omega_ref, logomega_ref, omega_ref_cbrt, omega_ref_cbrt * omega_ref_cbrt)
-        prec.alpha_offset = alpha - prec.alpha0
-        prec.epsilon_offset = epsilon - prec.epsilon0
-    else:
+        return alpha - prec.alpha0, epsilon - prec.epsilon0
+
+    def st_offsets():
         # version 330 without the NNLO coefficients: alpha = epsilon = 0
-        prec.alpha_offset = -prec.alpha0
-        prec.epsilon_offset = -prec.epsilon0
+        return -prec.alpha0, -prec.epsilon0
+
+    prec.alpha_offset, prec.epsilon_offset = _by_version(version, nnlo_offsets, msa_offsets, st_offsets)
     prec.use_mr_beta = jnp.asarray(False)
     return prec, wf
 
@@ -854,15 +902,19 @@ def nnlo_beta(prec, v):
 
 def pn_alpha(prec, wf, mf, version):
     """``IMRPhenomX_PNR_GetPNAlphaAtFreq``, with the error flag."""
-    omega = PI * mf
-    omega_cbrt = jnp.cbrt(omega)
-    if version == 102:
+    no_error = jnp.zeros(jnp.shape(mf), bool)
+
+    def nnlo():
+        omega = PI * mf
+        omega_cbrt = jnp.cbrt(omega)
         alpha, _ = _nnlo.evaluate(prec.nnlo, omega, jnp.log(omega), omega_cbrt, omega_cbrt * omega_cbrt)
-        return alpha - prec.alpha_offset, jnp.zeros(jnp.shape(mf), bool)
-    if version == 223:
-        return _msa_angles(prec.msa, mf).phiz, jnp.zeros(jnp.shape(mf), bool)
-    alpha, error = st_alpha(prec, wf, mf)
-    return alpha, error | ~jnp.isfinite(alpha)
+        return alpha - prec.alpha_offset, no_error
+
+    def st():
+        alpha, error = st_alpha(prec, wf, mf)
+        return alpha, error | ~jnp.isfinite(alpha)
+
+    return _by_version(version, nnlo, lambda: (_msa_angles(prec.msa, mf).phiz, no_error), st)
 
 
 def _single_beta(prec, mf):
@@ -880,35 +932,36 @@ def _single_beta(prec, mf):
 def pn_beta(prec, wf, mf, bp, version, use_mr_beta):
     """``IMRPhenomX_PNR_GetPNBetaAtFreq``: the PN ``beta`` with the two-spin
     oscillations tapered below the lower connection frequency."""
-    omega = PI * mf
-    omega_cbrt = jnp.cbrt(omega)
-    if version == 102:
-        return nnlo_beta(prec, omega_cbrt), jnp.zeros(jnp.shape(mf), bool)
-    if version == 223:
-        beta_full = acos_safe(_msa_angles(prec.msa, mf).cos_theta_l)
-        error = jnp.zeros(jnp.shape(mf), bool)
-    else:
+    no_error = jnp.zeros(jnp.shape(mf), bool)
+
+    def tapered(beta_full, version):
+        if prec.single is None:
+            return beta_full
+        beta_single = _single_beta(prec, mf)
+        oscillations = beta_full - beta_single
+        e = jnp.cos(2.0 * PI * mf / (4.0 * bp.mf_beta_lower))
+        tapered = jnp.where(mf <= bp.mf_beta_lower, fma(oscillations, e * e, beta_single), beta_single)
+        return jnp.where(two_spin(prec, version), tapered, beta_full)
+
+    def st():
         beta_full, error = st_beta(prec, wf, mf, bp, use_mr_beta)
-        error = error | ~jnp.isfinite(beta_full)
-    if prec.single is None:
-        return beta_full, error
-    beta_single = _single_beta(prec, mf)
-    oscillations = beta_full - beta_single
-    e = jnp.cos(2.0 * PI * mf / (4.0 * bp.mf_beta_lower))
-    tapered = jnp.where(mf <= bp.mf_beta_lower, fma(oscillations, e * e, beta_single), beta_single)
-    return jnp.where(two_spin(prec, version), tapered, beta_full), error
+        return tapered(beta_full, 330), error | ~jnp.isfinite(beta_full)
+
+    return _by_version(
+        version, lambda: (nnlo_beta(prec, jnp.cbrt(PI * mf)), no_error),
+        lambda: (tapered(acos_safe(_msa_angles(prec.msa, mf).cos_theta_l), 223), no_error), st)
 
 
 def pn_beta_fulltwospin(prec, wf, mf, bp, version, use_mr_beta):
     """``IMRPhenomX_PNR_GetPNBetaAtFreq_fulltwospin``."""
-    omega = PI * mf
-    omega_cbrt = jnp.cbrt(omega)
-    if version == 102:
-        return nnlo_beta(prec, omega_cbrt), jnp.zeros(jnp.shape(mf), bool)
-    if version == 223:
-        return acos_safe(_msa_angles(prec.msa, mf).cos_theta_l), jnp.zeros(jnp.shape(mf), bool)
-    beta, error = st_beta(prec, wf, mf, bp, use_mr_beta)
-    return beta, error | ~jnp.isfinite(beta)
+    no_error = jnp.zeros(jnp.shape(mf), bool)
+
+    def st():
+        beta, error = st_beta(prec, wf, mf, bp, use_mr_beta)
+        return beta, error | ~jnp.isfinite(beta)
+
+    return _by_version(version, lambda: (nnlo_beta(prec, jnp.cbrt(PI * mf)), no_error),
+                       lambda: (acos_safe(_msa_angles(prec.msa, mf).cos_theta_l), no_error), st)
 
 
 def waveform_beta(prec, wf, mf, pn_beta_value):
@@ -1046,7 +1099,7 @@ def populate_structs(prec, wf, version):
     """``IMRPhenomX_PNR_PopulateStructs``: the single-spin system of the
     two-spin map and the alpha and beta parameters (in place on ``prec``:
     ``single``, ``alpha_params``, ``beta_params``, ``error_structs``)."""
-    if version >= 200:
+    if isinstance(version, Fallback) or version >= 200:
         chi = prec.chi_single_spin
         costheta = prec.costheta_single_spin
         chi1 = [chi * safe_sqrt(1.0 - costheta * costheta, 1e-300), jnp.zeros_like(chi), chi * costheta]
@@ -1119,8 +1172,10 @@ def pnr_beta_at(prec, wf, mf, bp, version, use_mr_beta):
     beta_pn, error = pn_beta(prec, wf, mf, bp, version, use_mr_beta)
     beta_waveform = waveform_beta(prec, wf, mf, beta_pn)
     low = pa.arctan_window(beta_waveform * pa.rescale_beta(mf, bp))
-    if version == 223:
-        low = jnp.where(bp.beta_lower < 0.01 * bp.beta_upper, pa.arctan_window(pa.mr_beta(bp.mf_beta_lower, bp)), low)
+    if isinstance(version, Fallback) or version == 223:
+        msa = version.msa if isinstance(version, Fallback) else True
+        low = jnp.where(msa & (bp.beta_lower < 0.01 * bp.beta_upper),
+                        pa.arctan_window(pa.mr_beta(bp.mf_beta_lower, bp)), low)
     upper = pa.arctan_window(pa.mr_beta(bp.mf_beta_upper, bp))
     mid = pa.arctan_window(pa.mr_beta(mf, bp))
     below = mf <= bp.mf_beta_lower

@@ -28,6 +28,7 @@ import numpy as np
 
 from .._generated import dop853
 from . import dynamics
+from .._math import isolated
 from .integrate import fixed_steps
 
 __all__ = ["DENSE_COMPONENTS", "dop853_step", "integrate", "node_times", "evaluate", "evaluate_full"]
@@ -93,20 +94,20 @@ _A, _B, _D = _tables()
 
 def _stages_looped(c, y, h, k0):
     """:func:`_stages` and the extra stages of the dense output with the
-    stages in a ``jax.lax.fori_loop`` (one copy of the equations, for
-    :func:`evaluate_full`; the sums of the stages are rounded differently).
-    Returns the stages (rows; row 12 is the derivative at the new state)
-    and the new state."""
+    stages in a ``jax.lax.fori_loop`` (one copy of the equations; the sums
+    of the stages are rounded differently). Row 12 of ``A`` holds the
+    weights ``B``: stage 12 is the derivative at the new state. Each
+    derivative runs in a loop of its own (:func:`~.._math.isolated`), so
+    that the loop over the stages (whose stages make a buffer of more than
+    512 bytes) runs on the calling thread. Returns the stages (rows) and the
+    new state."""
     k = jnp.zeros((dop853.N_STAGES_EXTENDED,) + y.shape, y.dtype).at[0].set(k0)
 
     def stage(s, k):
-        return k.at[s].set(_rhs(c, y + h * (jnp.asarray(_A)[s] @ k)))
+        return k.at[s].set(isolated(_rhs, c, y + h * (jnp.asarray(_A)[s] @ k)))
 
-    k = jax.lax.fori_loop(1, dop853.N_STAGES, stage, k)
-    y_new = y + h * (jnp.asarray(_B) @ k)
-    k = k.at[dop853.N_STAGES].set(_rhs(c, y_new))
-    k = jax.lax.fori_loop(dop853.N_STAGES + 1, dop853.N_STAGES_EXTENDED, stage, k)
-    return k, y_new
+    k = jax.lax.fori_loop(1, dop853.N_STAGES_EXTENDED, stage, k)
+    return k, y + h * (jnp.asarray(_B) @ k)
 
 
 def _dense_looped(y, h, k, y_new, components=None):
@@ -141,9 +142,8 @@ def dop853_step(aux, state):
     c, du = aux
     y, k0 = state
     h = _step_in_time(du, y[1], k0[1])
-    stages, y_new, f_new = _stages(c, y, h, k0)
-    dense = _dense_coefficients(c, y, h, k0, stages, y_new, f_new, DENSE_COMPONENTS)
-    return (y_new, f_new), (h, dense)
+    k, y_new = _stages_looped(c, y, h, k0)
+    return (y_new, k[dop853.N_STAGES]), (h, _dense_looped(y, h, k, y_new, DENSE_COMPONENTS))
 
 
 def integrate(c, y0, du, n, capacity):
