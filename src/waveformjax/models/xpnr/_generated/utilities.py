@@ -10,7 +10,7 @@
 import jax.numpy as jnp
 
 from .._math import (DBL_MIN, EGAMMA, FRAC_PI_2, FRAC_PI_4, INF, LN_2, NAN, PI,
-                     POWERS_OF_LALPI, fma, fms, fnms)
+                     POWERS_OF_LALPI, fma, fms, fnms, sqrt_nonneg)
 
 
 def f_isco(chif):
@@ -33,7 +33,7 @@ def sign(x):
 
 def chi_eff(eta, chi1l, chi2l):
     """`XLALSimIMRPhenomXchiEff`: effective aligned spin."""
-    delta = jnp.sqrt(fma(-4.0, eta, 1.0))
+    delta = sqrt_nonneg(fma(-4.0, eta, 1.0))
     mm1 = 0.5 * (1.0 + delta)
     mm2 = 0.5 * (1.0 - delta)
     return fma(mm1, chi1l, mm2 * chi2l)
@@ -41,7 +41,7 @@ def chi_eff(eta, chi1l, chi2l):
 
 def chi_pn_hat(eta, chi1l, chi2l):
     """`XLALSimIMRPhenomXchiPNHat`: normalised PN reduced spin parameter."""
-    delta = jnp.sqrt(fma(-4.0, eta, 1.0))
+    delta = sqrt_nonneg(fma(-4.0, eta, 1.0))
     mm1 = 0.5 * (1.0 + delta)
     mm2 = 0.5 * (1.0 - delta)
     chi_eff = fma(mm1, chi1l, mm2 * chi2l)
@@ -50,7 +50,7 @@ def chi_pn_hat(eta, chi1l, chi2l):
 
 def s_tot_r(eta, chi1l, chi2l):
     """`XLALSimIMRPhenomXSTotR`: total spin normalised to [-1, 1]."""
-    delta = jnp.sqrt(fma(-4.0, eta, 1.0))
+    delta = sqrt_nonneg(fma(-4.0, eta, 1.0))
     m1 = 0.5 * (1.0 + delta)
     m2 = 0.5 * (1.0 - delta)
     m1s = m1 * m1
@@ -68,7 +68,7 @@ def f_meco(eta, chi1l, chi2l):
     eta2 = eta * eta
     eta3 = eta2 * eta
     eta4 = eta3 * eta
-    delta = jnp.sqrt(fma(-4.0, eta, 1.0))
+    delta = sqrt_nonneg(fma(-4.0, eta, 1.0))
     s = chi_pn_hat(eta, chi1l, chi2l)
     s2 = s * s
     s3 = s2 * s
@@ -82,7 +82,7 @@ def f_meco(eta, chi1l, chi2l):
 
 def erad_2017(eta, chi1l, chi2l):
     """`XLALSimIMRPhenomXErad2017`: radiated energy in units of the total mass."""
-    delta = jnp.sqrt(fma(-4.0, eta, 1.0))
+    delta = sqrt_nonneg(fma(-4.0, eta, 1.0))
     eta2 = eta * eta
     eta3 = eta2 * eta
     eta4 = eta3 * eta
@@ -100,7 +100,7 @@ def erad_2017(eta, chi1l, chi2l):
 
 def final_mass_2017(eta, chi1l, chi2l):
     """`XLALSimIMRPhenomXFinalMass2017`: remnant mass in units of the total mass."""
-    delta = jnp.sqrt(fma(-4.0, eta, 1.0))
+    delta = sqrt_nonneg(fma(-4.0, eta, 1.0))
     eta2 = eta * eta
     eta3 = eta2 * eta
     eta4 = eta3 * eta
@@ -118,7 +118,7 @@ def final_mass_2017(eta, chi1l, chi2l):
 
 def final_spin_2017(eta, chi1l, chi2l):
     """`XLALSimIMRPhenomXFinalSpin2017`: dimensionless remnant spin (Jimenez-Forteza et al. 2017)."""
-    delta = jnp.sqrt(fma(-4.0, eta, 1.0))
+    delta = sqrt_nonneg(fma(-4.0, eta, 1.0))
     m1 = 0.5 * (1.0 + delta)
     m2 = 0.5 * (1.0 - delta)
     m1sq = m1 * m1
@@ -162,5 +162,5 @@ def psi4_to_strain(eta, s, dchi):
     s4 = jnp.power(s, 4.0)
     no_spin = fma(16026.897939722587, eta4, fma(-9862.84178637907, eta3, fma(2097.425116152503, eta2, fma(-175.42481512989315, eta, 13.39320482758057))))
     eq_spin = fma(fma(-764.5242164872267, eta2, fma(149.30405703643288, eta, 13.097315867845788)), s4, fma(fma(-755.9566456906406, eta2, fma(137.33317057388916, eta, 15.649521097877374)), s3, fma(fma(609.5575850476959, eta2, fma(-163.04871764530466, eta, 4.7895602776763)), s, fma(376.9200932531847, eta2, fma(-97.51812681228478, eta, 1.3934428041390161)) * s2)))
-    uneq_spin = 105.37711654943146 * dchi * jnp.sqrt(fma(-4.0, eta, 1.0)) * eta2
+    uneq_spin = 105.37711654943146 * dchi * sqrt_nonneg(fma(-4.0, eta, 1.0)) * eta2
     return no_spin + eq_spin + uneq_spin

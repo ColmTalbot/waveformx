@@ -294,3 +294,25 @@ def chunked_map(function, xs, n, chunk):
 
     _, out = jax.lax.scan(body, None, (jnp.arange(n_chunks), chunks))
     return jax.tree_util.tree_map(lambda y: y.reshape((n_chunks * chunk,) + y.shape[2:])[:capacity], out)
+
+
+def barrier(tree):
+    """``jax.lax.optimization_barrier`` on the traced scalars (and small
+    arrays) of ``tree``; Python values and arrays pass unchanged (the same
+    objects). At the boundaries between the set-up (scalars) and the
+    evaluations at many frequencies it keeps XLA from duplicating the set-up
+    into every consumer, which costs compile time."""
+    leaves, treedef = jax.tree_util.tree_flatten(tree)
+    index = [i for i, leaf in enumerate(leaves) if isinstance(leaf, jax.Array) and leaf.size <= 16]
+    if index:
+        values = jax.lax.optimization_barrier([leaves[i] for i in index])
+        for i, value in zip(index, values):
+            leaves[i] = value
+    return jax.tree_util.tree_unflatten(treedef, leaves)
+
+
+def sqrt_nonneg(x):
+    """``sqrt(x)`` for ``x > 0`` and 0 otherwise, with a zero (rather than
+    infinite) derivative at ``x = 0``: ``sqrt(1 - 4 eta)`` at equal masses."""
+    positive = x > 0
+    return jnp.where(positive, jnp.sqrt(jnp.where(positive, x, 1.0)), 0.0)

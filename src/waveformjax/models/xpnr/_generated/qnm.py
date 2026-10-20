@@ -10,7 +10,7 @@
 import jax.numpy as jnp
 
 from .._math import (DBL_MIN, EGAMMA, FRAC_PI_2, FRAC_PI_4, INF, LN_2, NAN, PI,
-                     POWERS_OF_LALPI, fma, fms, fnms)
+                     POWERS_OF_LALPI, fma, fms, fnms, sqrt_nonneg)
 
 
 def fma_sum(constant, coefficients, powers):

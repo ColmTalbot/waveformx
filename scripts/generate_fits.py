@@ -44,7 +44,7 @@ HEADER = '''# SPDX-License-Identifier: GPL-3.0-or-later
 import jax.numpy as jnp
 
 from .._math import (DBL_MIN, EGAMMA, FRAC_PI_2, FRAC_PI_4, INF, LN_2, NAN, PI,
-                     POWERS_OF_LALPI, fma, fms, fnms)
+                     POWERS_OF_LALPI, fma, fms, fnms, sqrt_nonneg)
 '''
 
 # module -> (rust source relative to src/, docstring, functions (None: all),
@@ -142,6 +142,11 @@ def translate(path: Path, functions, excluded, consts):
 
 
 def clean(code: str) -> str:
+    # sqrt(1 - 4 eta) with a finite derivative at equal masses
+    code = code.replace("jnp.sqrt(fma(-4.0, eta, 1.0))", "sqrt_nonneg(fma(-4.0, eta, 1.0))")
+    code = code.replace("jnp.sqrt(fnms(4.0, eta, 1.0))", "sqrt_nonneg(fnms(4.0, eta, 1.0))")
+    # sqrt(eta (1 - 4 eta)), which also vanishes at equal masses
+    code = code.replace("jnp.sqrt(fma(-4.0, eta2, eta))", "sqrt_nonneg(fma(-4.0, eta2, eta))")
     code = re.sub(r"\bcrate\.[a-z_]+\.(?:[a-z_]+\.)*", "", code)
     code = re.sub(r"\bsuper\.(?:[a-z_]+\.)*", "", code)
     return code

@@ -15,7 +15,7 @@ deviations of the (2,2) mode (``LALSimIMRPhenomX_PNR_deviations.c``,
 import jax.numpy as jnp
 
 from .._math import (DBL_MIN, EGAMMA, FRAC_PI_2, FRAC_PI_4, INF, LN_2, NAN, PI,
-                     POWERS_OF_LALPI, fma, fms, fnms)
+                     POWERS_OF_LALPI, fma, fms, fnms, sqrt_nonneg)
 
 
 def evaluate(coeff, eta, chi, costheta):
