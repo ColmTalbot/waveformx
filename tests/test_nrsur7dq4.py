@@ -142,8 +142,8 @@ def test_rk4_start_nodes(lal):
     from waveformjax.models.nrsur7dq4 import _data, _driver
 
     binary = wf._binary.binary_from_keywords(BINARY)
-    _, _, _, chi_a, chi_b, q, m_tot_sec = _driver._host_labels(binary)
-    omegas = np.asarray(_driver._omegas(_data.default_data(), q, jnp.asarray(chi_a), jnp.asarray(chi_b)))
+    _, _, _, chi_a, chi_b, q, m_tot_sec = _driver._host_labels(_driver._intrinsic(binary))
+    omegas = np.asarray(_driver._omegas(_data.default_data(), q, chi_a, chi_b))
     for node, fraction in ((0, 0.3), (1, 0.4), (1, 0.6), (2, 0.5), (3, 0.5)):
         omega = omegas[node] + fraction * (omegas[node + 1] - omegas[node])
         case = dict(BINARY, f_ref=omega / (np.pi * m_tot_sec))

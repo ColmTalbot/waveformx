@@ -31,6 +31,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from ...exceptions import DataFileError, DataFileNotFoundError
+from ._spline import Knots, factorize
 
 __all__ = [
     "NRSurData",
@@ -108,6 +109,10 @@ class NRSurData:
       monomial (``ei_spins``);
     * ``ei_basis``: ``(n_ei, n_coorb)`` empirical-interpolation basis, with
       LAL's sign changes applied;
+    * ``ds_knots``, ``coorb_knots``: ``t_ds`` and ``t_coorb`` with their
+      factorised spline systems (:class:`._spline.Knots`);
+    * ``coorb_index``, ``coorb_delx``: the interval of ``t_ds`` of each time
+      of ``t_coorb`` and the offset from its left knot;
     * ``ei_bounds``: the empirical nodes of data piece ``p`` (:data:`PIECES`)
       are ``ei_bounds[p]:ei_bounds[p + 1]`` (static);
     * ``ei_spins``: the orders of the six spin parameters in each spin
@@ -122,6 +127,10 @@ class NRSurData:
     ei_time: jnp.ndarray
     ei_coefs: jnp.ndarray
     ei_basis: jnp.ndarray
+    ds_knots: Knots
+    coorb_knots: Knots
+    coorb_index: jnp.ndarray
+    coorb_delx: jnp.ndarray
     ei_bounds: Tuple[int, ...] = dataclasses.field(metadata=dict(static=True))
     ei_spins: Tuple[Tuple[int, ...], ...] = dataclasses.field(metadata=dict(static=True))
 
@@ -286,7 +295,16 @@ def _load_numpy(path: str) -> dict:
 def _load_cached(path: str) -> NRSurData:
     arrays = _load_numpy(path)
     static = {name: arrays.pop(name) for name in ("ei_bounds", "ei_spins")}
-    return NRSurData(**{name: jnp.asarray(value) for name, value in arrays.items()}, **static)
+    t_ds, t_coorb = arrays["t_ds"], arrays["t_coorb"]
+    index = np.clip(np.searchsorted(t_ds, t_coorb, side="right") - 1, 0, t_ds.size - 2)
+    return NRSurData(
+        **{name: jnp.asarray(value) for name, value in arrays.items()},
+        ds_knots=factorize(t_ds),
+        coorb_knots=factorize(t_coorb),
+        coorb_index=jnp.asarray(index, dtype=jnp.int32),
+        coorb_delx=jnp.asarray(t_coorb - t_ds[index]),
+        **static,
+    )
 
 
 def load(path=None) -> NRSurData:

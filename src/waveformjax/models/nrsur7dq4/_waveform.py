@@ -146,9 +146,8 @@ def _coorbital_dynamics(data: NRSurData, states, chi_a0, chi_b0):
     orbital phase and the spins rotated to the coorbital frame
     (``spline_array_interp``, ``PrecessingNRSur_normalize_results``,
     ``PrecessingNRSur_rotate_spins``)."""
-    index = locate(data.t_ds, data.t_coorb)
-    c = second_derivatives(data.t_ds, states)
-    series = evaluate(data.t_ds, states, c, index, data.t_coorb - data.t_ds[index])
+    c = second_derivatives(data.ds_knots, states)
+    series = evaluate(data.ds_knots, states, c, data.coorb_index, data.coorb_delx)
     quat = series[:, 0:4]
     phase = series[:, 4]
     norm_a = safe_norm(chi_a0)
@@ -208,11 +207,11 @@ def _resample(data: NRSurData, values, tau):
     """The natural splines through ``values`` (``(n_coorb, k)``) on
     ``t_coorb`` at the dimensionless times ``tau``, zero outside the
     surrogate."""
-    knots = data.t_coorb
-    index = locate(knots, tau)
+    knots = data.coorb_knots
+    index = locate(knots.x, tau)
     c = second_derivatives(knots, values)
-    out = evaluate(knots, values, c, index, tau - knots[index])
-    inside = (tau >= knots[0]) & (tau <= knots[-1])
+    out = evaluate(knots, values, c, index, tau - knots.x[index])
+    inside = (tau >= knots.x[0]) & (tau <= knots.x[-1])
     return jnp.where(inside[:, None], out, 0.0)
 
 

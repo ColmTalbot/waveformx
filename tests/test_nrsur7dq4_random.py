@@ -32,7 +32,7 @@ DRAWS = int(os.environ.get("NRSUR7DQ4_DRAWS", "64"))
 
 def draw(rng):
     """A random binary, ``delta_t`` and ``f_min``."""
-    from waveformjax.models.nrsur7dq4 import _data, _driver
+    from waveformjax.models.nrsur7dq4 import _driver
 
     q = rng.uniform(1.0, 6.0)
     total = rng.uniform(20.0, 300.0)
@@ -55,10 +55,7 @@ def draw(rng):
         f_ref=0.0,
     )
     delta_t = 1.0 / rng.choice([1024, 2048, 4096, 8192])
-    # the surrogate's starting frequency of this binary
-    labels = _driver._host_labels(wf._binary.binary_from_keywords(binary))
-    omegas = np.asarray(_driver._omegas(_data.default_data(), labels[5], np.asarray(labels[3]), np.asarray(labels[4])))
-    start = omegas[0] / (np.pi * labels[6])
+    start = _driver.start_frequency(wf._binary.binary_from_keywords(binary))
     f_min = 0.0 if rng.uniform() < 0.3 else start * rng.uniform(0.95, 1.5)
     if rng.uniform() < 0.6:
         binary["f_ref"] = max(f_min, start) * rng.uniform(1.0, 2.0)

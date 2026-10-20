@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import functools
 import math
+from collections import OrderedDict
 from typing import List, NamedTuple, Optional
 
 import jax
@@ -32,7 +33,16 @@ from . import _waveform
 from ._data import LMAX, NRSurData, default_data
 from ._dynamics import OMEGA_REF_MAX, OMEGA_REF_ZERO, START_TIME, reference_omegas
 
-__all__ = ["Setup", "setup", "check_mode_array", "td_polarizations", "td_modes", "batch_td_polarizations", "gps_epoch"]
+__all__ = [
+    "Setup",
+    "setup",
+    "start_frequency",
+    "check_mode_array",
+    "td_polarizations",
+    "td_modes",
+    "batch_td_polarizations",
+    "gps_epoch",
+]
 
 #: Largest mass ratio LAL allows without ``unlimited_extrapolation``.
 Q_MAX = 6.01
@@ -79,13 +89,20 @@ def gps_epoch(t: float) -> float:
     return float(whole) + float(total - 1_000_000_000 * whole) / 1e9
 
 
-def _host_labels(binary):
+def _intrinsic(binary) -> tuple:
+    """``(m1, m2, s1x, s1y, s1z, s2x, s2y, s2z, f_ref)`` as floats."""
+    spins = np.concatenate([np.asarray(binary.spin_1, dtype=float), np.asarray(binary.spin_2, dtype=float)])
+    return (float(binary.mass_1), float(binary.mass_2), *(float(x) for x in spins), float(binary.f_ref))
+
+
+def _host_labels(values: tuple):
     """``PrecessingNRSur_switch_labels_if_needed`` and the derived masses, in
-    numpy: ``(switched, m1_si, m2_si, chi_a, chi_b, q, m_tot_sec)``."""
-    m1 = float(binary.mass_1) * _waveform.MSUN_SI
-    m2 = float(binary.mass_2) * _waveform.MSUN_SI
-    s1 = np.asarray(binary.spin_1, dtype=float)
-    s2 = np.asarray(binary.spin_2, dtype=float)
+    numpy, from :func:`_intrinsic`: ``(switched, m1_si, m2_si, chi_a, chi_b,
+    q, m_tot_sec)``."""
+    m1 = values[0] * _waveform.MSUN_SI
+    m2 = values[1] * _waveform.MSUN_SI
+    s1 = np.array(values[2:5])
+    s2 = np.array(values[5:8])
     switched = m1 < m2
     if switched:
         m1, m2 = m2, m1
@@ -128,17 +145,40 @@ def _reference_time(t_ds: np.ndarray, omegas: np.ndarray, omega_ref: float) -> f
     return (t_min * (omega_max - omega_ref) + t_max * (omega_ref - omega_min)) / (omega_max - omega_min)
 
 
+#: The grids of the last binaries (``validate`` and the drivers share them).
+_GRIDS: "OrderedDict[tuple, tuple]" = OrderedDict()
+_GRIDS_SIZE = 4096
+
+
 def setup(binary, delta_t: float, f_min: float, options, data: Optional[NRSurData] = None) -> Setup:
     """LAL's checks for concrete values, in LAL's order, and the output grid
     (``XLALSimInspiralPrecessingNRSurPolarizations`` up to the
     interpolation). Raises :class:`~waveformjax.InvalidParameterError` where
     LAL fails with ``XLAL_EINVAL`` or ``XLAL_EDOM`` and
-    :class:`~waveformjax.ModelError` where it fails otherwise."""
+    :class:`~waveformjax.ModelError` where it fails otherwise. The grids of
+    the last few thousand binaries are kept."""
     check_mode_array(options.mode_array)
     if not (np.isfinite(delta_t) and delta_t > 0):
         raise InvalidParameterError(f"invalid sampling interval {delta_t}")
-    switched, m1_si, m2_si, chi_a, chi_b, q, m_tot_sec = _host_labels(binary)
-    f_ref = float(binary.f_ref)
+    if data is None:
+        data = default_data()
+    values = _intrinsic(binary)
+    key = (id(data), float(delta_t), float(f_min), values)
+    grid = _GRIDS.get(key)
+    if grid is None:
+        grid = _grid(values, float(delta_t), float(f_min), data)
+        if len(_GRIDS) >= _GRIDS_SIZE:
+            _GRIDS.popitem(last=False)
+        _GRIDS[key] = grid
+    f_ref, t0, dt, n, epoch, m_tot_sec = grid
+    return Setup(binary._replace(f_ref=f_ref), t0, dt, n, epoch, m_tot_sec)
+
+
+def _grid(values: tuple, delta_t: float, f_min: float, data: NRSurData) -> tuple:
+    """:func:`setup` for the intrinsic parameters ``values``
+    (:func:`_intrinsic`): ``(f_ref, t0, dt, n, epoch, m_tot_sec)``."""
+    switched, m1_si, m2_si, chi_a, chi_b, q, m_tot_sec = _host_labels(values)
+    f_ref = values[8]
     # get_dimless_omega
     omega_min = (m_tot_sec * f_min) * np.pi
     omega_ref = omega_min if f_ref == 0 else (m_tot_sec * f_ref) * np.pi
@@ -156,10 +196,8 @@ def setup(binary, delta_t: float, f_min: float, options, data: Optional[NRSurDat
                 f"too much extrapolation: spin magnitude |chi{label}| = {magnitude:.4f} > {CHI_MAX:.4f}, "
                 "the maximum allowed value"
             )
-    if data is None:
-        data = default_data()
     t_ds = np.asarray(data.t_ds)
-    omegas = np.asarray(_omegas(data, q, jnp.asarray(chi_a), jnp.asarray(chi_b)))
+    omegas = np.asarray(_omegas(data, q, chi_a, chi_b))
     _reference_time(t_ds, omegas, omega_ref)
     # the start of the output (PrecessingNRSur_StartFrequency with the
     # masses in kg)
@@ -167,7 +205,7 @@ def setup(binary, delta_t: float, f_min: float, options, data: Optional[NRSurDat
     if q_start == q:
         omega_start = omegas[0]
     else:
-        omega_start = float(_omegas(data, q_start, jnp.asarray(chi_a), jnp.asarray(chi_b))[0])
+        omega_start = float(_omegas(data, q_start, chi_a, chi_b)[0])
     start_freq = omega_start / (np.pi * (((m1_si + m2_si) / _waveform.MSUN_SI) * _waveform.MTSUN_SI))
     if f_min >= start_freq:
         t0 = _reference_time(t_ds, omegas, omega_min)
@@ -179,9 +217,19 @@ def setup(binary, delta_t: float, f_min: float, options, data: Optional[NRSurDat
         t0 = float(np.asarray(data.t_coorb)[0])
     dt = delta_t / m_tot_sec
     tf = float(np.asarray(data.t_coorb)[-1])
-    n = math.ceil((tf - t0) / dt)
-    effective = binary._replace(f_ref=f_ref if f_ref != 0 else float(f_min))
-    return Setup(effective, float(t0), float(dt), max(int(n), 0), gps_epoch(m_tot_sec * t0), float(m_tot_sec))
+    n = max(int(math.ceil((tf - t0) / dt)), 0)
+    effective = f_ref if f_ref != 0 else f_min
+    return float(effective), float(t0), float(dt), n, gps_epoch(m_tot_sec * t0), float(m_tot_sec)
+
+
+def start_frequency(binary, data: Optional[NRSurData] = None) -> float:
+    """``PrecessingNRSur_StartFrequency``: the gravitational-wave frequency
+    (Hz) at the first dynamics node for the reference spins, the smallest
+    non-zero ``f_min`` allowed for this binary."""
+    data = default_data() if data is None else data
+    _, m1_si, m2_si, chi_a, chi_b, _, _ = _host_labels(_intrinsic(binary))
+    omega = float(_omegas(data, m1_si / m2_si, chi_a, chi_b)[0])
+    return omega / (np.pi * (((m1_si + m2_si) / _waveform.MSUN_SI) * _waveform.MTSUN_SI))
 
 
 def bucket(n: int) -> int:
@@ -212,15 +260,17 @@ def _batch_polarizations_grid(data, binaries, t0, dt, n, mode_array):
     return jax.vmap(one)(binaries, t0, dt)
 
 
-def _as_jax(binary: Binary) -> Binary:
-    return Binary(*(jnp.asarray(value, dtype=jnp.float64) for value in binary))
+def _as_numpy(binary: Binary) -> Binary:
+    """The binary as numpy float64 values (cheaper to pass to a compiled
+    function than JAX arrays created one by one)."""
+    return Binary(*(np.asarray(value, dtype=np.float64) for value in binary))
 
 
 def td_polarizations(binary, delta_t: float, f_min: float, options) -> TimeSeriesPolarizations:
     """``SimInspiralChooseTDWaveform`` for NRSur7dq4."""
     data = default_data()
     grid = setup(binary, delta_t, f_min, options, data)
-    hp, hc = _polarizations_grid(data, _as_jax(grid.binary), grid.t0, grid.dt, bucket(grid.n), options.mode_array)
+    hp, hc = _polarizations_grid(data, _as_numpy(grid.binary), grid.t0, grid.dt, bucket(grid.n), options.mode_array)
     return TimeSeriesPolarizations(hp[: grid.n], hc[: grid.n], grid.epoch, float(delta_t))
 
 
@@ -229,7 +279,7 @@ def td_modes(binary, delta_t: float, f_min: float, options) -> TimeSeriesModes:
     modes of every ``ell`` that has a coorbital mode in the mode array."""
     data = default_data()
     grid = setup(binary, delta_t, f_min, options, data)
-    modes = _modes_grid(data, _as_jax(grid.binary), grid.t0, grid.dt, bucket(grid.n), options.mode_array)
+    modes = _modes_grid(data, _as_numpy(grid.binary), grid.t0, grid.dt, bucket(grid.n), options.mode_array)
     return TimeSeriesModes({mode: h[: grid.n] for mode, h in modes.items()}, grid.epoch, float(delta_t))
 
 
