@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "waveformjax"
+version = "0.1.0"
+description = "IMRPhenomXPNR and NRSur7dq4 in JAX: jit-compiled, vectorised and differentiable, with the API of waveformrs"
+readme = "README.md"
+requires-python = ">=3.10"
+# derived from LALSuite and GSL (see NOTICE.md)
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE", "NOTICE.md"]
+dependencies = ["jax>=0.4.30", "numpy>=1.24", "h5py>=3.8"]
+
+[project.optional-dependencies]
+# the comparisons with LALSimulation also need python-lalsimulation 6.2.0
+# (conda-forge)
+test = ["pytest"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
