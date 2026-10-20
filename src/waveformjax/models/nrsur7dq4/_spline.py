@@ -92,7 +92,7 @@ def second_derivatives(knots: Knots, y):
 def locate(x, t):
     """The interval ``i`` with ``x[i] <= t < x[i + 1]`` (``n - 2`` at the
     last knot, and clipped outside), as ``gsl_interp_accel_find``."""
-    index = jnp.searchsorted(x, t, side="right", method="scan_unrolled") - 1
+    index = jnp.searchsorted(x, t, side="right") - 1
     return jnp.clip(index, 0, x.shape[0] - 2)
 
 

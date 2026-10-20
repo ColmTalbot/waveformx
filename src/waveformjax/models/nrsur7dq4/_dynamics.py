@@ -33,7 +33,9 @@ integration.
 
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
+import numpy as np
 from jax import lax
 
 from ._fits import monomials_at
@@ -60,23 +62,49 @@ def safe_norm(v, axis=-1):
     return jnp.where(positive, jnp.sqrt(jnp.where(positive, square, 1.0)), 0.0)
 
 
-def _rescale(v, norm):
-    """``v norm / |v|`` (``PrecessingNRSur_normalize_y``), zero for ``v =
-    0`` (where LAL divides by zero)."""
-    square = jnp.sum(v * v, axis=-1, keepdims=True)
-    positive = square > 0
-    n = jnp.sqrt(jnp.where(positive, square, 1.0))
-    return jnp.where(positive, v * norm / n, 0.0)
+# Index tables that write the small per-state operations below as a few
+# vector operations (XLA fuses them into one kernel per step).
+# The groups of the state: quaternion, phase, chiA, chiB.
+_GROUP = np.array([0, 0, 0, 0, 1, 2, 2, 2, 3, 3, 3])
+# The pairs of components rotated by the orbital phase in a fit vector
+# (Omega_x, Omega_y), (chiA_dot x, y), (chiB_dot x, y), and in a state
+# (chiA x, y), (chiB x, y).
+_FIT_PARTNER = np.array([0, 2, 1, 4, 3, 5, 7, 6, 8])
+_FIT_FIRST = np.array([0, 1, 0, 1, 0, 0, 1, 0, 0], dtype=bool)
+_FIT_SECOND = np.array([0, 0, 1, 0, 1, 0, 0, 1, 0], dtype=bool)
+_STATE_PARTNER = np.array([0, 1, 2, 3, 4, 6, 5, 7, 9, 8, 10])
+_STATE_FIRST = np.array([0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0], dtype=bool)
+_STATE_SECOND = np.array([0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0], dtype=bool)
+# dydt[i] = A[i] y[IA[i]] r[RA[i]] + B[i] y[IB[i]] r[RB[i]] with the rotated
+# fits r and the state y extended by a one (index 11)
+_A = np.array([-0.5, -0.5, 0.5, 0.5, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
+_IA = np.array([1, 3, 3, 1, 11, 11, 11, 11, 11, 11, 11])
+_RA = np.array([1, 2, 1, 2, 0, 3, 4, 5, 6, 7, 8])
+_B = np.array([-0.5, 0.5, 0.5, -0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+_IB = np.array([2, 0, 0, 2, 11, 11, 11, 11, 11, 11, 11])
+_RB = np.array([2, 1, 2, 1, 0, 0, 0, 0, 0, 0, 0])
+
+
+def _rotate(v, partner, first, second, sp, cp, sign):
+    """``v`` with the pairs ``(first, second)`` rotated: ``x cp - sign y
+    sp``, ``sign x sp + y cp`` (``sign = 1`` from the coorbital to the
+    coprecessing frame, ``-1`` back)."""
+    c = jnp.where(first | second, cp, 1.0)
+    s = jnp.where(first, -sign * sp, jnp.where(second, sign * sp, 0.0))
+    return v * c + v[..., partner] * s
 
 
 def normalize_y(y, norm_a, norm_b):
     """``PrecessingNRSur_normalize_y``: the quaternion to unit length and
-    the spins to their magnitudes at the reference point."""
-    quat = y[..., 0:4]
-    quat = quat / jnp.sqrt(jnp.sum(quat * quat, axis=-1, keepdims=True))
-    chi_a = _rescale(y[..., 5:8], norm_a)
-    chi_b = _rescale(y[..., 8:11], norm_b)
-    return jnp.concatenate([quat, y[..., 4:5], chi_a, chi_b], axis=-1)
+    the spins to their magnitudes at the reference point (zero where a spin
+    vanishes, where LAL divides by zero)."""
+    squares = jax.ops.segment_sum(y * y, _GROUP, num_segments=4, indices_are_sorted=True)
+    positive = squares > 0
+    norms = jnp.sqrt(jnp.where(positive, squares, 1.0))
+    target = jnp.stack([jnp.ones_like(norm_a), jnp.ones_like(norm_a), norm_a, norm_b])
+    scale = jnp.where(positive, target / norms, 0.0)
+    scale = scale.at[1].set(1.0)
+    return y * scale[_GROUP]
 
 
 def _coorbital_spins(y):
@@ -85,34 +113,18 @@ def _coorbital_spins(y):
     phase."""
     sp = jnp.sin(y[4])
     cp = jnp.cos(y[4])
-    chi_a = jnp.stack([y[5] * cp + y[6] * sp, -y[5] * sp + y[6] * cp, y[7]])
-    chi_b = jnp.stack([y[8] * cp + y[9] * sp, -y[8] * sp + y[9] * cp, y[10]])
-    return chi_a, chi_b, sp, cp
+    x = _rotate(y, _STATE_PARTNER, _STATE_FIRST, _STATE_SECOND, sp, cp, -1.0)
+    return x[5:8], x[8:11], sp, cp
 
 
 def _assemble(y, fits, sp, cp):
     """``PrecessingNRSur_assemble_dydt`` from the nine fits ``(omega,
-    Omega_x, Omega_y, chiA_dot (3), chiB_dot (3))`` (last axis)."""
-    omega = fits[..., 0]
-    ox, oy = fits[..., 1], fits[..., 2]
-    oqx = ox * cp - oy * sp
-    oqy = ox * sp + oy * cp
-    return jnp.stack(
-        [
-            (-0.5) * y[1] * oqx - 0.5 * y[2] * oqy,
-            (-0.5) * y[3] * oqy + 0.5 * y[0] * oqx,
-            0.5 * y[3] * oqx + 0.5 * y[0] * oqy,
-            0.5 * y[1] * oqy - 0.5 * y[2] * oqx,
-            omega,
-            fits[..., 3] * cp - fits[..., 4] * sp,
-            fits[..., 3] * sp + fits[..., 4] * cp,
-            fits[..., 5],
-            fits[..., 6] * cp - fits[..., 7] * sp,
-            fits[..., 6] * sp + fits[..., 7] * cp,
-            fits[..., 8],
-        ],
-        axis=-1,
-    )
+    Omega_x, Omega_y, chiA_dot (3), chiB_dot (3))`` (last axis): the
+    coorbital components rotated to the coprecessing frame, and the
+    quaternion derivative ``q Omega / 2``."""
+    r = _rotate(fits, _FIT_PARTNER, _FIT_FIRST, _FIT_SECOND, sp, cp, 1.0)
+    ye = jnp.concatenate([y, jnp.ones_like(y[:1])])
+    return _A * ye[_IA] * r[..., _RA] + _B * ye[_IB] * r[..., _RB]
 
 
 def derivatives(data, q, nodes, y):
