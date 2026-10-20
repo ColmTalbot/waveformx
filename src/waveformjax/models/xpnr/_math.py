@@ -257,3 +257,40 @@ def hz_to_mf(f, m_tot):
 def mf_to_hz(mf, m_tot):
     """``XLALSimIMRPhenomXUtilsMftoHz``."""
     return mf / (MTSUN_SI * m_tot)
+
+
+def chunked_map(function, xs, n, chunk):
+    """``function(xs)`` for arrays ``xs`` (a pytree with a leading axis of
+    static length ``capacity``) of which only the first ``n`` (traced)
+    entries are needed: evaluated in chunks of ``chunk`` with
+    ``jax.lax.cond`` skipping the chunks beyond ``n`` (under ``jax.jit``;
+    under ``jax.vmap`` every chunk is computed). The skipped entries are
+    zeros."""
+    leaves = jax.tree_util.tree_leaves(xs)
+    capacity = leaves[0].shape[0]
+    n_chunks = -(-capacity // chunk)
+    pad = n_chunks * chunk - capacity
+
+    def pad_leaf(x):
+        if pad:
+            x = jnp.concatenate([x, jnp.broadcast_to(x[:1], (pad,) + x.shape[1:])])
+        return x.reshape((n_chunks, chunk) + x.shape[1:])
+
+    chunks = jax.tree_util.tree_map(pad_leaf, xs)
+    first = jax.tree_util.tree_map(lambda x: jnp.broadcast_to(x[:1], (chunk,) + x.shape[1:]), xs)
+    out_shape = jax.eval_shape(function, first)
+
+    def body(_, inputs):
+        index, x = inputs
+        active = index * chunk < n
+
+        def compute(x):
+            return function(x)
+
+        def skip(x):
+            return jax.tree_util.tree_map(lambda s: jnp.zeros(s.shape, s.dtype), out_shape)
+
+        return None, jax.lax.cond(active, compute, skip, x)
+
+    _, out = jax.lax.scan(body, None, (jnp.arange(n_chunks), chunks))
+    return jax.tree_util.tree_map(lambda y: y.reshape((n_chunks * chunk,) + y.shape[2:])[:capacity], out)

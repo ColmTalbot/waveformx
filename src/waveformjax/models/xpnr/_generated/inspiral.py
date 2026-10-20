@@ -14,6 +14,7 @@ from .._math import (DBL_MIN, EGAMMA, FRAC_PI_2, FRAC_PI_4, INF, LN_2, NAN, PI,
 
 
 def amp_22_v2(eta, s, dchi, delta):
+    """`IMRPhenomX_Inspiral_Amp_22_v2`: collocation point at 2/4 of the inspiral amplitude region."""
     eta2 = eta * eta
     eta3 = eta2 * eta
     eta4 = eta3 * eta
@@ -26,6 +27,7 @@ def amp_22_v2(eta, s, dchi, delta):
 
 
 def amp_22_v3(eta, s, dchi, delta):
+    """`IMRPhenomX_Inspiral_Amp_22_v3`: collocation point at 3/4 of the inspiral amplitude region."""
     eta2 = eta * eta
     eta3 = eta2 * eta
     eta4 = eta3 * eta
@@ -36,6 +38,7 @@ def amp_22_v3(eta, s, dchi, delta):
 
 
 def amp_22_v4(eta, s, dchi, delta):
+    """`IMRPhenomX_Inspiral_Amp_22_v4`: collocation point at the end of the inspiral amplitude region."""
     eta2 = eta * eta
     eta3 = eta2 * eta
     eta4 = eta3 * eta
@@ -47,11 +50,13 @@ def amp_22_v4(eta, s, dchi, delta):
 
 
 def pow_7_of(x):
+    """`pow_7_of` from `LALSimIMRPhenomXUtilities.c`."""
     pow2 = x * x
     return pow2 * pow2 * pow2 * x
 
 
 def amp_22_rho1(v1, v2, v3, f1, f2, f3):
+    """`IMRPhenomX_Inspiral_Amp_22_rho1`: pseudo-PN amplitude coefficient of f^(7/3) from the collocation values `v1..v3` at `f1..f3`."""
     f1p1o3 = jnp.cbrt(f1)
     f2p1o3 = jnp.cbrt(f2)
     f3p1o3 = jnp.cbrt(f3)
@@ -65,6 +70,7 @@ def amp_22_rho1(v1, v2, v3, f1, f2, f3):
 
 
 def amp_22_rho2(v1, v2, v3, f1, f2, f3):
+    """`IMRPhenomX_Inspiral_Amp_22_rho2`: pseudo-PN amplitude coefficient of f^(8/3)."""
     f1p1o3 = jnp.cbrt(f1)
     f2p1o3 = jnp.cbrt(f2)
     f3p1o3 = jnp.cbrt(f3)
@@ -75,6 +81,7 @@ def amp_22_rho2(v1, v2, v3, f1, f2, f3):
 
 
 def amp_22_rho3(v1, v2, v3, f1, f2, f3):
+    """`IMRPhenomX_Inspiral_Amp_22_rho3`: pseudo-PN amplitude coefficient of f^3."""
     f1p1o3 = jnp.cbrt(f1)
     f2p1o3 = jnp.cbrt(f2)
     f3p1o3 = jnp.cbrt(f3)
@@ -88,16 +95,19 @@ def amp_22_rho3(v1, v2, v3, f1, f2, f3):
 
 
 def amp_22_rho(v, f):
+    """`IMRPhenomX_Inspiral_Amp_22_rho1`, `_rho2` and `_rho3`: pseudo-PN amplitude coefficients of f^(7/3), f^(8/3) and f^3 from the values `v` of the collocation points at frequencies `f`."""
     (v1, v2, v3) = v
     (f1, f2, f3) = f
     return [amp_22_rho1(v1, v2, v3, f1, f2, f3), amp_22_rho2(v1, v2, v3, f1, f2, f3), amp_22_rho3(v1, v2, v3, f1, f2, f3)]
 
 
 def amp_22_ansatz(mf, powers, amp):
+    """`IMRPhenomX_Inspiral_Amp_22_Ansatz`: TaylorF2 PN amplitude plus pseudo-PN terms (without the f^(-7/6) and normalisation prefactors)."""
     return amp.pn_initial + powers.two_thirds * amp.pn_two_thirds + mf * amp.pn_three_thirds + mf * (powers.one_third * amp.pn_four_thirds + powers.two_thirds * amp.pn_five_thirds + mf * amp.pn_six_thirds + mf * (powers.one_third * amp.rho1 + powers.two_thirds * amp.rho2 + mf * amp.rho3))
 
 
 def amp_22_ansatz_exact(mf, powers, amp):
+    """`IMRPhenomX_Inspiral_Amp_22_Ansatz` evaluated operation by operation as in LALSimulation (including its fused multiply-adds), for the coefficient computations that must agree with LAL to the last bit."""
     inner = fma(powers.one_third, amp.rho1, powers.two_thirds * amp.rho2)
     inner = fma(mf, amp.rho3, inner)
     middle = fma(powers.one_third, amp.pn_four_thirds, powers.two_thirds * amp.pn_five_thirds)
@@ -110,6 +120,7 @@ def amp_22_ansatz_exact(mf, powers, amp):
 
 
 def amp_22_dansatz(mf, wf, amp):
+    """`IMRPhenomX_Inspiral_Amp_22_DAnsatz`: derivative of the inspiral amplitude ansatz with respect to Mf."""
     eta = wf.eta
     chi1l = wf.chi1l
     chi2l = wf.chi2l
@@ -128,6 +139,7 @@ def amp_22_dansatz(mf, wf, amp):
 
 
 def phase_22_v3(eta, s, dchi, delta):
+    """`IMRPhenomX_Inspiral_Phase_22_v3`: value of the phase collocation point v3 (InsPhaseVersion 104)."""
     eta2 = eta * eta
     eta3 = eta2 * eta
     eta4 = eta3 * eta
@@ -141,6 +153,7 @@ def phase_22_v3(eta, s, dchi, delta):
 
 
 def phase_22_d13(eta, s, dchi, delta):
+    """`IMRPhenomX_Inspiral_Phase_22_d13`: difference v1 - v3 of the phase collocation points (InsPhaseVersion 104)."""
     eta2 = eta * eta
     s2 = s * s
     s3 = s2 * s
@@ -152,6 +165,7 @@ def phase_22_d13(eta, s, dchi, delta):
 
 
 def phase_22_d23(eta, s, dchi, delta):
+    """`IMRPhenomX_Inspiral_Phase_22_d23`: difference v2 - v3 of the phase collocation points (InsPhaseVersion 104)."""
     eta2 = eta * eta
     eta3 = eta2 * eta
     s2 = s * s
@@ -163,6 +177,7 @@ def phase_22_d23(eta, s, dchi, delta):
 
 
 def phase_22_d43(eta, s, dchi, delta):
+    """`IMRPhenomX_Inspiral_Phase_22_d43`: difference v4 - v3 of the phase collocation points (InsPhaseVersion 104)."""
     eta2 = eta * eta
     eta3 = eta2 * eta
     s2 = s * s
@@ -173,10 +188,12 @@ def phase_22_d43(eta, s, dchi, delta):
 
 
 def inspiral_dphase_norm():
+    """Leading-order normalisation of the inspiral phase derivative, 5 / (128 pi^(5/3)) with pi^(5/3) as in `powers_of_lalpi`."""
     return 5.0 / (128.0 * POWERS_OF_LALPI.five_thirds)
 
 
 def phase_22_ansatz_exact(mf, powers, phase):
+    """`IMRPhenomX_Inspiral_Phase_22_Ansatz` evaluated operation by operation as in LALSimulation (including its fused multiply-adds), for the coefficient computations that must agree with LAL to the last bit.  Terms with vanishing coefficients are skipped: `fma(0, x, y) == y`."""
     phase_in = phase.dphi0
     phase_in = fma(phase.dphi2, powers.two_thirds, phase_in)
     phase_in = fma(phase.dphi3, mf, phase_in)
@@ -195,6 +212,7 @@ def phase_22_ansatz_exact(mf, powers, phase):
 
 
 def phase_22_ansatz_int_exact(mf, powers, phase):
+    """`IMRPhenomX_Inspiral_Phase_22_AnsatzInt` evaluated operation by operation as in LALSimulation, see [`phase_22_ansatz_exact`]; also used for the phase at each frequency."""
     phasing = phase.phi0
     phasing = fma(phase.phi2, powers.two_thirds, phasing)
     phasing = fma(phase.phi3, mf, phasing)

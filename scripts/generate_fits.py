@@ -48,7 +48,8 @@ from .._math import (DBL_MIN, EGAMMA, FRAC_PI_2, FRAC_PI_4, INF, LN_2, NAN, PI,
 '''
 
 # module -> (rust source relative to src/, docstring, functions (None: all),
-#            excluded functions, consts (None: all), extra prelude)
+#            excluded functions, consts (None: all), extra prelude); the
+# other parts of the model add theirs in scripts/fits_*.py
 MODULES = {
     "inspiral": (
         "imrphenomx/inspiral.rs",
@@ -99,6 +100,20 @@ def fma_sum(constant, coefficients, powers):
 ''',
     ),
 }
+
+
+def load_specs():
+    """``MODULES`` here and in every ``scripts/fits_*.py`` (one per part of
+    the model; each defines a ``MODULES`` dict in the format above)."""
+    modules = dict(MODULES)
+    for path in sorted(Path(__file__).resolve().parent.glob("fits_*.py")):
+        namespace = {}
+        exec(compile(path.read_text(), str(path), "exec"), namespace)
+        for name, spec in namespace["MODULES"].items():
+            if name in modules:
+                raise ValueError(f"module {name} is generated twice ({path.name})")
+            modules[name] = spec
+    return modules
 
 
 def translate(path: Path, functions, excluded, consts):
@@ -154,7 +169,7 @@ def main(argv=None):
     commit = subprocess.run(
         ["git", "-C", str(waveformrs), "rev-parse", "--short", "HEAD"], capture_output=True, text=True
     ).stdout.strip()
-    for module, (source, doc, functions, excluded, consts, prelude) in MODULES.items():
+    for module, (source, doc, functions, excluded, consts, prelude) in load_specs().items():
         if args.modules and module not in args.modules:
             continue
         out, names = translate(waveformrs / "src" / source, functions, excluded, consts)

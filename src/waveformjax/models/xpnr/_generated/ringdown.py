@@ -14,6 +14,7 @@ from .._math import (DBL_MIN, EGAMMA, FRAC_PI_2, FRAC_PI_4, INF, LN_2, NAN, PI,
 
 
 def amp_22_gamma2(eta, s, dchi, delta):
+    """`IMRPhenomX_Ringdown_Amp_22_gamma2`: ringdown amplitude coefficient gamma_2 (lambda in arXiv:2001.11412)."""
     s2 = s * s
     eta2 = eta * eta
     no_spin = fma(-18.256121237800397, eta2, fma(7.480371544268765, eta, 0.8312293675316895)) / fma(-30.578409433912874, eta2, fma(10.915453595496611, eta, 1.0))
@@ -23,6 +24,7 @@ def amp_22_gamma2(eta, s, dchi, delta):
 
 
 def amp_22_gamma3(eta, s, dchi, delta):
+    """`IMRPhenomX_Ringdown_Amp_22_gamma3`: ringdown amplitude coefficient gamma_3 (sigma in arXiv:2001.11412)."""
     eta2 = eta * eta
     eta3 = eta2 * eta
     no_spin = fma(-4.222259944408823, eta3, fma(2.109081209912545, eta2, fma(-4.091333144596439, eta, 1.3666000000000007))) / fma(-2.7440263888207594, eta, 1.0)
@@ -32,6 +34,7 @@ def amp_22_gamma3(eta, s, dchi, delta):
 
 
 def amp_22_v1(eta, s, dchi, delta):
+    """`IMRPhenomX_Ringdown_Amp_22_v1`: amplitude collocation point at the peak frequency."""
     eta2 = eta * eta
     eta3 = eta2 * eta
     s2 = s * s
@@ -44,11 +47,13 @@ def amp_22_v1(eta, s, dchi, delta):
 
 
 def amp_22_ansatz(mf, amp):
+    """`IMRPhenomX_Ringdown_Amp_22_Ansatz`: deformed Lorentzian ringdown amplitude (without the f^(-7/6) and normalisation prefactors)."""
     dfr = mf - amp.f_ring
     return jnp.exp((-dfr * amp.gamma_r)) * amp.gamma_d13 / (dfr * dfr + amp.gamma_d2)
 
 
 def amp_22_ansatz_exact(mf, f_ring, f_damp, amp):
+    """`XLALSimIMRPhenomXRingdownAmplitude22AnsatzAnalytical`: the ringdown amplitude ansatz evaluated operation by operation as in LALSimulation (including its fused multiply-add), from the coefficients `gamma1..3`."""
     gamma_d13 = f_damp * amp.gamma1 * amp.gamma3
     gamma_r = amp.gamma2 / (amp.gamma3 * f_damp)
     gamma_d2 = (f_damp * amp.gamma3) * (f_damp * amp.gamma3)
@@ -57,6 +62,7 @@ def amp_22_ansatz_exact(mf, f_ring, f_damp, amp):
 
 
 def amp_22_dansatz(mf, f_ring, f_damp, amp):
+    """`IMRPhenomX_Ringdown_Amp_22_DAnsatz`: derivative of the ringdown amplitude ansatz."""
     g1 = amp.gamma1
     g2 = amp.gamma2
     g3 = amp.gamma3
@@ -71,10 +77,12 @@ def amp_22_dansatz(mf, f_ring, f_damp, amp):
 
 
 def amp_22_peak_frequency(gamma2, gamma3, frd, fda):
+    """`IMRPhenomX_Ringdown_Amp_22_PeakFrequency`: frequency of the peak of the ringdown amplitude, Eq. 5.14 of arXiv:2001.11412."""
     return jnp.where(gamma2 <= 1.0, jnp.abs((frd + fda * gamma3 * (jnp.sqrt(fma(-gamma2, gamma2, 1.0)) - 1.0) / gamma2)), jnp.abs((frd + fda * (-1.0) * gamma3 / gamma2)))
 
 
 def phase_22_v4(eta, s, dchi, delta):
+    """`IMRPhenomX_Ringdown_Phase_22_v4`: ringdown phase collocation point at the ringdown frequency."""
     eta2 = eta * eta
     eta3 = eta2 * eta
     eta4 = eta3 * eta
@@ -89,6 +97,7 @@ def phase_22_v4(eta, s, dchi, delta):
 
 
 def phase_22_d12(eta, s, dchi, delta):
+    """`IMRPhenomX_Ringdown_Phase_22_d12`: difference v1 - v2 of the ringdown phase collocation points."""
     eta2 = eta * eta
     eta3 = eta2 * eta
     eta4 = eta3 * eta
@@ -103,6 +112,7 @@ def phase_22_d12(eta, s, dchi, delta):
 
 
 def phase_22_d24(eta, s, dchi, delta):
+    """`IMRPhenomX_Ringdown_Phase_22_d24`: difference v2 - v4 of the ringdown phase collocation points."""
     eta2 = eta * eta
     eta3 = eta2 * eta
     eta4 = eta3 * eta
@@ -115,6 +125,7 @@ def phase_22_d24(eta, s, dchi, delta):
 
 
 def phase_22_d34(eta, s, dchi, delta):
+    """`IMRPhenomX_Ringdown_Phase_22_d34`: difference v3 - v4 of the ringdown phase collocation points."""
     eta2 = eta * eta
     eta3 = eta2 * eta
     eta5 = eta3 * eta2
@@ -128,6 +139,7 @@ def phase_22_d34(eta, s, dchi, delta):
 
 
 def phase_22_d54(eta, s, dchi, delta):
+    """`IMRPhenomX_Ringdown_Phase_22_d54`: difference v5 - v4 of the ringdown phase collocation points."""
     eta2 = eta * eta
     eta3 = eta2 * eta
     no_spin = eta * fma(119.43820622871043, eta2, fma(22.455288821807095, eta, 7.05731400277692)) / fma(1.0, eta, 0.26026709603623255)
@@ -137,6 +149,7 @@ def phase_22_d54(eta, s, dchi, delta):
 
 
 def phase_22_ansatz_exact(mf, powers, phase):
+    """`IMRPhenomX_Ringdown_Phase_22_Ansatz` evaluated operation by operation as in LALSimulation (including its fused multiply-adds), for the coefficient computations that must agree with LAL to the last bit."""
     fda = phase.f_damp
     dfr = mf - phase.f_ring
     phase_rd = fma(phase.c1, powers.m_one_third, phase.c0)
@@ -146,6 +159,7 @@ def phase_22_ansatz_exact(mf, powers, phase):
 
 
 def phase_22_ansatz_int_exact(mf, powers, phase):
+    """`IMRPhenomX_Ringdown_Phase_22_AnsatzInt` evaluated operation by operation as in LALSimulation, see [`phase_22_ansatz_exact`]; also used for the phase at each frequency."""
     phase_rd = fma(phase.c0, mf, 1.5 * phase.c1 * powers.two_thirds)
     phase_rd = fma(-phase.c2, powers.m_one, phase_rd)
     phase_rd = fma(-phase.c4_ov3, powers.m_three, phase_rd)

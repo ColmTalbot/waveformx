@@ -14,6 +14,7 @@ from .._math import (DBL_MIN, EGAMMA, FRAC_PI_2, FRAC_PI_4, INF, LN_2, NAN, PI,
 
 
 def amp_22_va(eta, s, dchi, delta):
+    """`IMRPhenomX_Intermediate_Amp_22_vA`: value of the amplitude collocation point at the centre of the intermediate region (IntAmpVersion 104)."""
     eta2 = eta * eta
     eta3 = eta2 * eta
     s2 = s * s
@@ -24,6 +25,7 @@ def amp_22_va(eta, s, dchi, delta):
 
 
 def amp_22_delta0(d1, d4, v1, v2, v4, f1, f2, f4):
+    """`IMRPhenomX_Intermediate_Amp_22_delta0` (IntAmpVersion 104)."""
     f12 = f1 * f1
     f42 = f4 * f4
     f1mf2 = f1 - f2
@@ -36,6 +38,7 @@ def amp_22_delta0(d1, d4, v1, v2, v4, f1, f2, f4):
 
 
 def amp_22_delta1(d1, d4, v1, v2, v4, f1, f2, f4):
+    """`IMRPhenomX_Intermediate_Amp_22_delta1` (IntAmpVersion 104)."""
     f12 = f1 * f1
     f13 = f12 * f1
     f14 = f13 * f1
@@ -55,6 +58,7 @@ def amp_22_delta1(d1, d4, v1, v2, v4, f1, f2, f4):
 
 
 def amp_22_delta2(d1, d4, v1, v2, v4, f1, f2, f4):
+    """`IMRPhenomX_Intermediate_Amp_22_delta2` (IntAmpVersion 104)."""
     f12 = f1 * f1
     f13 = f12 * f1
     f14 = f13 * f1
@@ -76,6 +80,7 @@ def amp_22_delta2(d1, d4, v1, v2, v4, f1, f2, f4):
 
 
 def amp_22_delta3(d1, d4, v1, v2, v4, f1, f2, f4):
+    """`IMRPhenomX_Intermediate_Amp_22_delta3` (IntAmpVersion 104)."""
     f12 = f1 * f1
     f13 = f12 * f1
     f14 = f13 * f1
@@ -95,6 +100,7 @@ def amp_22_delta3(d1, d4, v1, v2, v4, f1, f2, f4):
 
 
 def amp_22_delta4(d1, d4, v1, v2, v4, f1, f2, f4):
+    """`IMRPhenomX_Intermediate_Amp_22_delta4` (IntAmpVersion 104)."""
     f12 = f1 * f1
     f13 = f12 * f1
     f22 = f2 * f2
@@ -111,15 +117,18 @@ def amp_22_delta4(d1, d4, v1, v2, v4, f1, f2, f4):
 
 
 def amp_22_deltas(d1, d4, v1, v2, v4, f1, f2, f4):
+    """`IMRPhenomX_Intermediate_Amp_22_delta0` to `_delta5` for IntAmpVersion 104: coefficients of the fourth order polynomial for the inverse amplitude given the boundary derivatives `d1`, `d4` and the inverse amplitudes `v1`, `v2`, `v4` at `f1`, `f2`, `f4`.  The value `v3` at `f3` is unused for this version and `delta5 = 0`."""
     return [amp_22_delta0(d1, d4, v1, v2, v4, f1, f2, f4), amp_22_delta1(d1, d4, v1, v2, v4, f1, f2, f4), amp_22_delta2(d1, d4, v1, v2, v4, f1, f2, f4), amp_22_delta3(d1, d4, v1, v2, v4, f1, f2, f4), amp_22_delta4(d1, d4, v1, v2, v4, f1, f2, f4), 0.0]
 
 
 def amp_22_ansatz(mf, powers, amp):
+    """`IMRPhenomX_Intermediate_Amp_22_Ansatz` (IntAmpVersion 104): f^(7/6) divided by a fourth order polynomial."""
     polynomial = amp.delta0 + mf * (amp.delta1 + mf * (amp.delta2 + mf * (amp.delta3 + mf * amp.delta4)))
     return powers.seven_sixths / polynomial
 
 
 def phase_22_v2(eta, s, dchi, delta):
+    """`IMRPhenomX_Intermediate_Phase_22_v2` (IntPhaseVersion 105): direct fit to the second phase collocation point."""
     eta2 = eta * eta
     eta3 = eta2 * eta
     s2 = s * s
@@ -132,6 +141,7 @@ def phase_22_v2(eta, s, dchi, delta):
 
 
 def phase_22_v2m_rdv4(eta, s, dchi, delta):
+    """`IMRPhenomX_Intermediate_Phase_22_v2mRDv4` (IntPhaseVersion 105): difference between the second intermediate collocation point and the fourth ringdown collocation point."""
     eta2 = eta * eta
     eta3 = eta2 * eta
     s2 = s * s
@@ -142,6 +152,7 @@ def phase_22_v2m_rdv4(eta, s, dchi, delta):
 
 
 def phase_22_v3m_rdv4(eta, s, dchi, delta):
+    """`IMRPhenomX_Intermediate_Phase_22_v3mRDv4` (IntPhaseVersion 105): difference between the third intermediate collocation point and the fourth ringdown collocation point."""
     eta2 = eta * eta
     eta3 = eta2 * eta
     eta6 = eta3 * eta3
@@ -153,6 +164,7 @@ def phase_22_v3m_rdv4(eta, s, dchi, delta):
 
 
 def phase_22_d43(eta, s, dchi, delta):
+    """`IMRPhenomX_Intermediate_Phase_22_d43` (IntPhaseVersion 105): difference between the fourth and third intermediate collocation points."""
     eta2 = eta * eta
     eta3 = eta2 * eta
     eta4 = eta3 * eta
@@ -164,6 +176,7 @@ def phase_22_d43(eta, s, dchi, delta):
 
 
 def phase_22_ansatz_exact(mf, powers, phase):
+    """`IMRPhenomX_Intermediate_Phase_22_Ansatz` evaluated operation by operation as in LALSimulation (including its fused multiply-adds), for the coefficient computations that must agree with LAL to the last bit."""
     fda = phase.f_damp
     dfr = mf - phase.f_ring
     lorentzian = (4.0 * phase.c_l_gr) / fma(4.0 * fda, fda, dfr * dfr)
@@ -175,6 +188,7 @@ def phase_22_ansatz_exact(mf, powers, phase):
 
 
 def phase_22_ansatz_int_exact(mf, powers, phase):
+    """`IMRPhenomX_Intermediate_Phase_22_AnsatzInt` evaluated operation by operation as in LALSimulation, see [`phase_22_ansatz_exact`]; also used for the phase at each frequency."""
     fda = phase.f_damp
     phase_out = fma(phase.b0, mf, phase.b1 * powers.log)
     phase_out = fma(-phase.b2, powers.m_one, phase_out)

@@ -22,6 +22,7 @@ def fma_sum(constant, coefficients, powers):
 
 
 def fring22(af):
+    """`evaluate_QNMfit_fring22`: ringdown frequency of the (2,2) mode for dimensionless final spin `af`, |af| <= 1."""
     x2 = af * af
     x3 = x2 * af
     x4 = x2 * x2
@@ -34,6 +35,7 @@ def fring22(af):
 
 
 def fdamp22(af):
+    """`evaluate_QNMfit_fdamp22`: damping frequency of the (2,2) mode for dimensionless final spin `af`, |af| <= 1."""
     x2 = af * af
     x3 = x2 * af
     x4 = x2 * x2

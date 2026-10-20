@@ -1236,7 +1236,7 @@ def doc_comment(src: str, pos: int) -> str:
         s = line.strip()
         if s.startswith("#["):
             continue
-        if s.startswith("pub") and not s.startswith("pub("):
+        if s.startswith("pub") or s in ("", "const", "unsafe"):
             continue
         if s.startswith("///"):
             doc.append(s[3:].strip())

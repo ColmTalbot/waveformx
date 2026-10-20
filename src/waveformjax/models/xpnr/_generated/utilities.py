@@ -27,10 +27,12 @@ def f_isco(chif):
 
 
 def sign(x):
+    """`XLALSimIMRPhenomXsign`: sign of `x`, zero for zero."""
     return jnp.where(x > 0.0, 1.0, jnp.where(x < 0.0, -1.0, 0.0))
 
 
 def chi_eff(eta, chi1l, chi2l):
+    """`XLALSimIMRPhenomXchiEff`: effective aligned spin."""
     delta = jnp.sqrt(fma(-4.0, eta, 1.0))
     mm1 = 0.5 * (1.0 + delta)
     mm2 = 0.5 * (1.0 - delta)
@@ -38,6 +40,7 @@ def chi_eff(eta, chi1l, chi2l):
 
 
 def chi_pn_hat(eta, chi1l, chi2l):
+    """`XLALSimIMRPhenomXchiPNHat`: normalised PN reduced spin parameter."""
     delta = jnp.sqrt(fma(-4.0, eta, 1.0))
     mm1 = 0.5 * (1.0 + delta)
     mm2 = 0.5 * (1.0 - delta)
@@ -46,6 +49,7 @@ def chi_pn_hat(eta, chi1l, chi2l):
 
 
 def s_tot_r(eta, chi1l, chi2l):
+    """`XLALSimIMRPhenomXSTotR`: total spin normalised to [-1, 1]."""
     delta = jnp.sqrt(fma(-4.0, eta, 1.0))
     m1 = 0.5 * (1.0 + delta)
     m2 = 0.5 * (1.0 - delta)
@@ -55,10 +59,12 @@ def s_tot_r(eta, chi1l, chi2l):
 
 
 def dchi(chi1l, chi2l):
+    """`XLALSimIMRPhenomXdchi`: spin difference."""
     return chi1l - chi2l
 
 
 def f_meco(eta, chi1l, chi2l):
+    """`XLALSimIMRPhenomXfMECO`: hybrid minimum energy circular orbit frequency (Cabero et al. 2017), in units of the total mass."""
     eta2 = eta * eta
     eta3 = eta2 * eta
     eta4 = eta3 * eta
@@ -75,6 +81,7 @@ def f_meco(eta, chi1l, chi2l):
 
 
 def erad_2017(eta, chi1l, chi2l):
+    """`XLALSimIMRPhenomXErad2017`: radiated energy in units of the total mass."""
     delta = jnp.sqrt(fma(-4.0, eta, 1.0))
     eta2 = eta * eta
     eta3 = eta2 * eta
@@ -92,6 +99,7 @@ def erad_2017(eta, chi1l, chi2l):
 
 
 def final_mass_2017(eta, chi1l, chi2l):
+    """`XLALSimIMRPhenomXFinalMass2017`: remnant mass in units of the total mass."""
     delta = jnp.sqrt(fma(-4.0, eta, 1.0))
     eta2 = eta * eta
     eta3 = eta2 * eta
@@ -109,6 +117,7 @@ def final_mass_2017(eta, chi1l, chi2l):
 
 
 def final_spin_2017(eta, chi1l, chi2l):
+    """`XLALSimIMRPhenomXFinalSpin2017`: dimensionless remnant spin (Jimenez-Forteza et al. 2017)."""
     delta = jnp.sqrt(fma(-4.0, eta, 1.0))
     m1 = 0.5 * (1.0 + delta)
     m2 = 0.5 * (1.0 - delta)
@@ -128,6 +137,7 @@ def final_spin_2017(eta, chi1l, chi2l):
 
 
 def linb(eta, s, dchi, delta):
+    """`XLALSimIMRPhenomXLinb`: fit of the linear-in-frequency phase term (time shift) used to align the model to the calibration hybrids.  `s` is `STotR` and `delta` the PN symmetry parameter of the waveform."""
     eta2 = eta * eta
     eta3 = eta2 * eta
     eta4 = eta3 * eta
@@ -143,6 +153,7 @@ def linb(eta, s, dchi, delta):
 
 
 def psi4_to_strain(eta, s, dchi):
+    """`XLALSimIMRPhenomXPsi4ToStrain`: fit of the time difference between the peaks of the strain and of psi4.  LAL computes the powers with `pow`, reproduced here with `powf`."""
     eta2 = eta * eta
     eta3 = jnp.power(eta, 3.0)
     eta4 = jnp.power(eta, 4.0)
