@@ -385,13 +385,15 @@ def _coprecessing_modes(wf, modes, frequencies):
     wf = barrier(wf)
     mf = wf.m_sec * frequencies
     phase22 = phase_coefficients(wf)
+    higher = [mode for mode in modes if mode != (2, 2)]
+    coefficients = dict(zip(higher, hm.modes_coefficients(wf, phase22, higher)))
     out = []
     for ell, emm in modes:
         if (ell, emm) == (2, 2):
             xas = xas_setup(wf)
             out.append(h22(mf, wf, xas, phif_ref(wf, xas), mf_cut=jnp.inf))
         else:
-            out.append(hm.mode_h(hm.mode_coefficients(wf, phase22, ell, emm), mf))
+            out.append(hm.mode_h(coefficients[(ell, emm)], mf))
     return out
 
 

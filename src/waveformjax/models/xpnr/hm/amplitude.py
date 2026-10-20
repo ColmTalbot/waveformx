@@ -39,7 +39,7 @@ from . import roots
 from .finite_differences import value_and_nd_derivative
 from .inspiral import pn21_coefficients, pn_amp_rescaled, pn_amplitude_coefficients
 
-__all__ = ["amplitude_coefficients", "amplitude"]
+__all__ = ["amplitude_coefficients", "amplitude", "choose_polynomial", "finish_amplitude"]
 
 def select(condition, a, b):
     """``a`` where ``condition`` else ``b``, leaf by leaf."""
@@ -229,13 +229,15 @@ def _rho(version, iv, p_cut, p, p_orig):
     ]
 
 
-def amplitude_coefficients(wf, hm, rotate=None):
+def amplitude_coefficients(wf, hm, rotate=None, defer=False):
     """``IMRPhenomXHM_GetAmplitudeCoefficients`` for the 122019 release.
 
     ``hm`` is :func:`~.variables.hm_waveform_struct`; for the (3,2) mode
     ``rotate(mf, rd)`` is the spherical ringdown (``SpheroidalToSpherical``,
     ``(re, im)`` rescaled by the leading order of the 22) for the ringdown
-    coefficients ``rd``, at the frequencies ``mf``."""
+    coefficients ``rd``, at the frequencies ``mf``. With ``defer`` the
+    intermediate polynomial is left to :func:`choose_polynomial` and
+    :func:`finish_amplitude`."""
     tag = hm.mode_tag
     mode_int = hm.mode_int
     amp_norm = wf.amp_norm
@@ -427,10 +429,30 @@ def amplitude_coefficients(wf, hm, rotate=None):
     f3 = jnp.where(c, f2, f3)
     v2 = jnp.where(c, 1.0, v2)
     inputs = Struct(d1=d1, d4=d4, v1=v1, v2=v2, v3=v3, v4=v4, f1=f1, f2=f2, f3=f3, f4=f4)
+    amp.intermediate_amp_version = version
+    amp.f_amp_match_in = f_amp_match_in
+    amp.f_amp_match_im = f_im
+    amp.poly_inputs = inputs
+    # what choose_polynomial needs (computed later for several modes at once
+    # with defer)
+    amp.choice = Struct(x=jnp.stack([jnp.asarray(getattr(inputs, name), jnp.float64) for name in _INPUTS]),
+                        f3_105=freqs_inter[1], fstart=f_amp_match_in, fend=f_im, version=version)
+    if not defer:
+        amp = finish_amplitude(amp, choose_polynomial(amp.choice))
+    return amp
+
+
+def choose_polynomial(choice):
+    """The intermediate polynomial of ``choice`` (``amp.choice`` of
+    :func:`amplitude_coefficients`): ``(delta, order, error_poly_roots)``,
+    LAL's ``ChoosePolOrder``. The same code for every mode (``jax.vmap``
+    computes it for several at once)."""
+    inputs = Struct(**dict(zip(_INPUTS, [choice.x[k] for k in range(len(_INPUTS))])))
+    version = choice.version
     candidates = {
         # the fifth order needs four distinct frequencies (it is only used
         # without vetoes, when F3 is the original one)
-        105: polynomial_coefficients(inputs.replace(f3=freqs_inter[1]), 105),
+        105: polynomial_coefficients(inputs.replace(f3=choice.f3_105), 105),
         104: polynomial_coefficients(inputs, 1042),
         103: polynomial_coefficients(inputs, 1032),
         102: polynomial_coefficients(inputs, 102),
@@ -440,7 +462,7 @@ def amplitude_coefficients(wf, hm, rotate=None):
     # ChoosePolOrder: lower the order until the polynomial does not cross
     # zero in [fAmpMatchIN, fAmpMatchIM]
     sg = lax.stop_gradient
-    fstart, fend = sg(f_amp_match_in), sg(f_im)
+    fstart, fend = sg(choice.fstart), sg(choice.fend)
     cz5, ok5 = roots.cross_zero_p5(sg(jnp.stack(candidates[105])), fstart, fend)
     cz4 = roots.cross_zero_p4(sg(jnp.stack(candidates[104])), fstart, fend)
     cz3 = roots.cross_zero_p3(sg(jnp.stack(candidates[103])), fstart, fend)
@@ -456,13 +478,14 @@ def amplitude_coefficients(wf, hm, rotate=None):
     delta = [candidates[101][k] for k in range(6)]
     for o in (102, 103, 104, 105):
         delta = [jnp.where(order == o, candidates[o][k], delta[k]) for k in range(6)]
-    amp.delta = delta
-    amp.intermediate_amp_version = version
-    amp.inter_amp_pol_order = order
-    amp.error_poly_roots = (version == 105) & ~ok5
-    amp.f_amp_match_in = f_amp_match_in
-    amp.f_amp_match_im = f_im
-    amp.poly_inputs = inputs
+    return jnp.stack(delta), order, (version == 105) & ~ok5
+
+
+def finish_amplitude(amp, chosen):
+    """``amp`` with the polynomial chosen by :func:`choose_polynomial`."""
+    delta, order, error = chosen
+    amp = amp.replace(delta=[delta[k] for k in range(6)], inter_amp_pol_order=order, error_poly_roots=error)
+    del amp._fields["choice"]
     return amp
 
 
