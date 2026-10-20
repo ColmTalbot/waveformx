@@ -14,7 +14,7 @@
   Every model function takes a `Binary` pytree and returns arrays without
   Python control flow on traced values, so that `jax.jit`, `jax.vmap` and
   `jax.grad` (with respect to the binary's parameters) work. Run
-  `tests/test_transforms.py` after changing a model.
+  the model's `tests/test_transforms_<model>.py` after changing it.
 - **Run LALSimulation single-threaded** (`OMP_NUM_THREADS=1`) when comparing:
   its PNR and MSA angles race under OpenMP.
 - The reference implementation is the Rust crate waveformrs
