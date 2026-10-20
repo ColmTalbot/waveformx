@@ -17,13 +17,35 @@ from __future__ import annotations
 
 import math
 
-import jax
 import jax.numpy as jnp
 import numpy as np
 
 from . import _conditioning as c
 
 __all__ = ["XPNR", "NRSUR7DQ4", "GENERATORS"]
+
+
+_UNIFORM = {}
+
+
+def _uniform_function(options):
+    """:meth:`_XPNR.uniform` of ``((binary, delta_f, f_min, f_max),
+    frequencies)`` for ``options``: the derivatives of the model are
+    forward-mode Jacobians (:func:`waveformjax.models.xpnr._transforms.differentiable`),
+    here with respect to the binary and the three scalars of the set-up."""
+    from ..models.xpnr import model, pnr
+    from ..models.xpnr._transforms import differentiable
+
+    def single(params, frequencies):
+        binary, delta_f, f_min, f_max = params
+        pnr.clear_cache()
+        modes = model.coprecessing_modes(options.mode_array)
+        data = model._decide(binary, frequencies, delta_f, f_min, f_max, modes, options.pnr_parity_fix)
+        hp, hc = model._twist_polarizations(data, modes, frequencies)
+        nan = jnp.asarray(jnp.nan + 1j * jnp.nan, jnp.complex128)
+        return jnp.where(data.error, nan, hp), jnp.where(data.error, nan, hc)
+
+    return differentiable(single)
 
 
 class _XPNR:
@@ -39,34 +61,14 @@ class _XPNR:
         may be traced); NaN where LAL fails. The values depend on the whole
         array: the antisymmetric amplitude ratio is a moving average along
         it (see :func:`._from_fd.model_frequencies`). As
-        :func:`waveformjax.models.xpnr.model.polarizations`, one binary at
-        a time under ``jax.vmap``, with the derivative of one binary."""
-        from ..models.xpnr import model, pnr
-
-        def raw(binary, frequencies, delta_f, f_min, f_max):
-            pnr.clear_cache()
-            modes = model.coprecessing_modes(options.mode_array)
-            data = model._decide(binary, frequencies, delta_f, f_min, f_max, modes, options.pnr_parity_fix)
-            hp, hc = model._twist_polarizations(data, modes, frequencies)
-            nan = jnp.asarray(jnp.nan + 1j * jnp.nan, jnp.complex128)
-            return jnp.where(data.error, nan, hp), jnp.where(data.error, nan, hc)
-
-        sequential = jax.custom_batching.sequential_vmap
-
-        @jax.custom_vjp
-        def evaluate(*args):
-            return sequential(raw)(*args)
-
-        def forward(*args):
-            return sequential(raw)(*args), args
-
-        def backward(args, cotangents):
-            return sequential(lambda *a: jax.vjp(raw, *a[:-1])[1](a[-1]))(*args, cotangents)
-
-        evaluate.defvjp(forward, backward)
-        f = jnp.asarray(frequencies, jnp.float64)
-        return evaluate(binary, f, jnp.asarray(delta_f, jnp.float64), jnp.asarray(f_min, jnp.float64),
-                        jnp.asarray(f_max, jnp.float64))
+        :func:`waveformjax.models.xpnr.model.polarizations`, batched under
+        ``jax.vmap``, with derivatives from forward-mode Jacobians with
+        respect to the binary and to ``delta_f``, ``f_min`` and ``f_max``
+        (which may depend on the binary)."""
+        if options not in _UNIFORM:
+            _UNIFORM[options] = _uniform_function(options)
+        scalars = tuple(jnp.asarray(x, jnp.float64) for x in (delta_f, f_min, f_max))
+        return _UNIFORM[options]((binary,) + scalars, jnp.asarray(frequencies, jnp.float64))
 
     @staticmethod
     def cutoff(binary):
