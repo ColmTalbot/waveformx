@@ -402,11 +402,11 @@ def barrier(tree):
     evaluations at many frequencies it keeps XLA from duplicating the set-up
     into every consumer, which costs compile time."""
     leaves, treedef = jax.tree_util.tree_flatten(tree)
-    index = [i for i, leaf in enumerate(leaves) if isinstance(leaf, jax.Array) and leaf.size <= 16]
-    if index:
-        values = jax.lax.optimization_barrier([leaves[i] for i in index])
-        for i, value in zip(index, values):
-            leaves[i] = value
+    # one barrier per value: a barrier mixing differentiated values with
+    # others (constants, integers) cannot be transposed
+    for i, leaf in enumerate(leaves):
+        if isinstance(leaf, jax.Array) and leaf.size <= 16 and jnp.issubdtype(leaf.dtype, jnp.inexact):
+            leaves[i] = jax.lax.optimization_barrier(leaf)
     return jax.tree_util.tree_unflatten(treedef, leaves)
 
 
