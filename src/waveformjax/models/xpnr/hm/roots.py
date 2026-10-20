@@ -12,8 +12,9 @@ callers and they return booleans. ``CrossZeroP3`` and ``CrossZeroP4`` use
 the closed-form roots in complex arithmetic as LAL does; ``CrossZeroP5``
 uses the roots of GSL's ``gsl_poly_complex_solve`` (``poly/zsolve.c``: the
 eigenvalues of the balanced companion matrix from the Francis double-shift
-QR algorithm), ported with a fixed number of masked iterations so that the
-roots come out in GSL's order, which LAL's quirky indexing of the roots
+QR algorithm), ported step for step (in ``jax.lax.while_loop`` loops ending
+where GSL's loops end, with masked iterations under ``jax.vmap``) so that
+the roots come out in GSL's order, which LAL's quirky indexing of the roots
 depends on.
 """
 
@@ -30,10 +31,10 @@ __all__ = ["cross_zero_p2", "cross_zero_p3", "cross_zero_p4", "cross_zero_p5", "
 # pow(10., -15): imaginary parts below this make a root real
 ROOT_THRESHOLD = 1e-15
 
-# number of sweeps of balance_companion_matrix, of the doubling loops inside
-# a sweep, and of the passes of qr_companion (each finds one or two roots or
-# makes one QR step); GSL loops until convergence (at most 120 QR steps per
-# root)
+# the most sweeps of balance_companion_matrix, iterations of the doubling
+# loops inside a sweep, and passes of qr_companion (each finds one or two
+# roots or makes one QR step); GSL loops until convergence (at most 120 QR
+# steps per root)
 BALANCE_SWEEPS = 32
 BALANCE_DOUBLINGS = 64
 QR_STEPS = 100
@@ -134,18 +135,21 @@ def _balance(m, nc):
     matrix, only its sub-diagonal and last column are non-zero)."""
 
     def doublings(col_norm, f, g, up):
-        def body(_, state):
-            col_norm, f = state
+        def more(state):
+            col_norm, _, count = state
+            return ((col_norm < g) if up else (col_norm > g)) & (count < BALANCE_DOUBLINGS)
+
+        def body(state):
+            col_norm, f, count = state
             if up:
-                more = col_norm < g
-                return jnp.where(more, col_norm * 4.0, col_norm), jnp.where(more, f * 2.0, f)
-            more = col_norm > g
-            return jnp.where(more, col_norm / 4.0, col_norm), jnp.where(more, f / 2.0, f)
+                return col_norm * 4.0, f * 2.0, count + 1
+            return col_norm / 4.0, f / 2.0, count + 1
 
-        return lax.fori_loop(0, BALANCE_DOUBLINGS, body, (col_norm, f))
+        col_norm, f, _ = lax.while_loop(more, body, (col_norm, jnp.asarray(f, jnp.float64), jnp.asarray(0)))
+        return col_norm, f
 
-    def sweep(_, state):
-        m, not_converged = state
+    def sweep(state):
+        m, not_converged, count = state
         changed = jnp.asarray(False)
         for i in range(nc):
             if i != nc - 1:
@@ -177,9 +181,11 @@ def _balance(m, nc):
                     m = m.at[j, i].set(jnp.where(do, m[j, i] * f, m[j, i]))
             else:
                 m = m.at[i + 1, i].set(jnp.where(do, m[i + 1, i] * f, m[i + 1, i]))
-        return m, changed
+        return m, changed, count + 1
 
-    m, _ = lax.fori_loop(0, BALANCE_SWEEPS, sweep, (m, jnp.asarray(True)))
+    # (a sweep that changes nothing ends the loop: GSL's "not_converged")
+    m, _, _ = lax.while_loop(lambda state: state[1] & (state[2] < BALANCE_SWEEPS), sweep,
+                             (m, jnp.asarray(True), jnp.asarray(0)))
     return m
 
 
@@ -202,8 +208,8 @@ def _qr_companion(h, nc):
         z = z.at[2 * k].set(jnp.where(cond, re, z[2 * k]))
         return z.at[2 * k + 1].set(jnp.where(cond, im, z[2 * k + 1]))
 
-    def step(_, state):
-        h, t, n, its, z, failed = state
+    def step(state):
+        h, t, n, its, z, failed, count = state
         active = (n > 0) & ~failed
 
         # look for a small sub-diagonal element (the largest e <= n)
@@ -330,10 +336,15 @@ def _qr_companion(h, nc):
         its = jnp.where(iterate, its + 1, jnp.where(one_root | two_roots, 0, its))
         n = n - jnp.where(one_root, 1, 0) - jnp.where(two_roots, 2, 0)
         failed = failed | fail_now
-        return h, t, n, its, z, failed
+        return h, t, n, its, z, failed, count + 1
 
-    state = (h, jnp.asarray(0.0), jnp.asarray(nc), jnp.asarray(0), jnp.zeros(2 * nc), jnp.asarray(False))
-    h, t, n, its, z, failed = lax.fori_loop(0, QR_STEPS, step, state)
+    def active(state):
+        _, _, n, _, _, failed, count = state
+        return (n > 0) & ~failed & (count < QR_STEPS)
+
+    state = (h, jnp.asarray(0.0), jnp.asarray(nc), jnp.asarray(0), jnp.zeros(2 * nc), jnp.asarray(False),
+             jnp.asarray(0))
+    h, t, n, its, z, failed, _ = lax.while_loop(active, step, state)
     return z, ~failed & (n == 0)
 
 
