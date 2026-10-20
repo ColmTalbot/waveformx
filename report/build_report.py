@@ -412,6 +412,12 @@ def build(args):
     values["xpnr_vs_lal"] = factor(x["lal"] / x["pure"])
     values["xpnr_vs_rs"] = factor(x["pure"] / x["waveformrs_grid"]) if x.get("waveformrs_grid") else "–"
     values["xpnr_cpu_share"] = f"{x['cpu_share']:.1f}"
+    values["xpnr_checks"] = duration(x.get("checks"))
+    td = single.get("simulate_td IMRPhenomXPNR", {})
+    values["td_lal"] = duration(td.get("lal"))
+    values["td_lal_mb"] = duration(td.get("lal_multibanding"))
+    values["td_jax"] = duration(td.get("public"))
+    values["td_rs"] = duration(td.get("waveformrs"))
     n = single.get("NRSur7dq4", {})
     values["nrsur_compile"] = duration(n.get("first_call"))
     values["nrsur_pure"] = duration(n.get("pure"))
@@ -478,13 +484,16 @@ def build(args):
     values["n_skipped"] = str(totals["skipped"])
     values["test_minutes"] = f"{total_seconds / 60:.0f}"
 
-    if pending:
-        items = "".join(f"<li>{item}</li>" for item in pending)
-        values["preliminary_note"] = (
-            '<div class="callout"><p><strong>Preliminary version.</strong> The accuracy comparisons, the tests and the '
-            "batch timings are complete. Still to be re-measured:</p><ul>" + items + "</ul></div>")
-    else:
-        values["preliminary_note"] = ""
+    # open questions that the measurements do not settle yet
+    pending.append("why finite differences of the full IMRPhenomXPNR waveform disagree with its derivatives in the "
+                   'in-plane spins (<a href="#gradients">the derivatives section</a>)')
+    pending.append("JAX on one core: setting XLA's thread flags (<code>--xla_cpu_multi_thread_eigen=false "
+                   "intra_op_parallelism_threads=1</code>) did not change the ~3 cores it keeps busy, so the "
+                   "per-core comparison with LAL and waveformrs is still to be made")
+    items = "".join(f"<li>{item}</li>" for item in pending)
+    values["preliminary_note"] = (
+        '<div class="callout"><p><strong>Open items.</strong> The tests, the accuracy comparisons, the derivative '
+        "checks and the timings below are complete. Still open:</p><ul>" + items + "</ul></div>")
     values["accuracy_svg"] = svg("accuracy", "Relative error against total mass for IMRPhenomXPNR and NRSur7dq4")
     values["batch_svg"] = svg("batch", "Waveforms per second against the number of binaries per call")
 

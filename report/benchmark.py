@@ -27,7 +27,8 @@ conversions of IMRPhenomXPNR are timed with multibanding off (the work
 waveformjax and waveformrs do) and with its default, multibanding on. Run
 with ``XLA_FLAGS="--xla_cpu_multi_thread_eigen=false
 intra_op_parallelism_threads=1" ... --parts single --output
-timings_one_core.json`` for JAX on one core.
+timings_one_core.json`` to try JAX on one core (with jax 0.11.2 on macOS
+these flags did not reduce the cores XLA keeps busy).
 
 LALSimulation runs with ``OMP_NUM_THREADS=1``. The times are medians of
 several repeats on an otherwise idle machine.

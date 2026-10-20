@@ -224,7 +224,7 @@ ol.pipeline .step-body { font-size: 0.97rem; }
   <h1>IMRPhenomXPNR and NRSur7dq4 in JAX, checked against LALSimulation</h1>
   <p class="dek">How two precessing waveform models, and LALSimulation's conversions between the time and frequency domains, were written as pure JAX functions that compile, vectorise and differentiate. The report covers how they compare with LALSimulation 6.2.0 and with waveformrs, how their derivatives compare with finite differences, and what they cost.</p>
   <dl class="meta">
-    <div><dt>Repository</dt><dd><code>waveformjax</code>, branch <code>main</code> at <code>0a93b55</code> (39 commits)</dd></div>
+    <div><dt>Repository</dt><dd><code>waveformjax</code>, branch <code>main</code> at <code>823cfa2</code> (39 commits)</dd></div>
     <div><dt>Reference</dt><dd>lalsimulation 6.2.0, lal 7.7.0 (conda-forge, osx-arm64), and waveformrs's Python bindings</dd></div>
     <div><dt>Platform</dt><dd>Apple M2 Ultra, 24 cores; JAX 0.11.2 on the CPU; Python 3.12.15</dd></div>
     <div><dt>Generated</dt><dd>20 October 2026</dd></div>
@@ -256,13 +256,13 @@ ol.pipeline .step-body { font-size: 0.97rem; }
 <section id="summary">
   <h2>Summary</h2>
   <p class="lede">waveformjax implements the frequency-domain model IMRPhenomXPNR and the time-domain surrogate NRSur7dq4 in JAX, with the interface of waveformrs's Python bindings and LALSimulation's conventions. Every model is a pure function of a <code>Binary</code> pytree, so it can be compiled with <code>jax.jit</code>, evaluated for many binaries at once with <code>jax.vmap</code>, and differentiated with respect to all twelve parameters of the binary with <code>jax.grad</code>, <code>jax.jvp</code> and <code>jax.jacfwd</code>. LALSimulation's <code>SimInspiralTD</code> and <code>SimInspiralFD</code> are reproduced as well, with LAL's lengths and start times, and are differentiable too. The models follow LAL's code branch for branch, with each branch written as traced arithmetic. They agree with LALSimulation 6.2.0 to rounding for NRSur7dq4, and for IMRPhenomXPNR to the level at which different builds of LAL agree with each other.</p>
-  <div class="callout"><p><strong>Preliminary version.</strong> The accuracy comparisons, the tests and the batch timings are complete. Still to be re-measured:</p><ul><li>the derivative checks: the run was interrupted, so only the largest error per binary is shown, the per-parameter figure is missing, and the conversions were not checked</li><li>the single-waveform timings over a cycle of different binaries (waveformrs's NRSur7dq4 times are left out, since repeated calls of one binary reuse its last result; LAL's <code>simulate_td</code> of IMRPhenomXPNR, marked *, used its default multibanding) and JAX on one core</li></ul></div>
+  <div class="callout"><p><strong>Open items.</strong> The tests, the accuracy comparisons, the derivative checks and the timings below are complete. Still open:</p><ul><li>why finite differences of the full IMRPhenomXPNR waveform disagree with its derivatives in the in-plane spins (<a href="#gradients">the derivatives section</a>)</li><li>JAX on one core: setting XLA's thread flags (<code>--xla_cpu_multi_thread_eigen=false intra_op_parallelism_threads=1</code>) did not change the ~3 cores it keeps busy, so the per-core comparison with LAL and waveformrs is still to be made</li></ul></div>
   <div class="cards">
     <div class="card"><span class="label">IMRPhenomXPNR against LAL 6.2.0</span><span class="value">≤ 6.6×10<sup>-5</sup></span><span class="note">Largest relative error, |h − h<sub>LAL</sub>| / max |h<sub>LAL</sub>|, over 200 random binaries (median 5.0×10<sup>-7</sup>); largest mismatch 4.9×10<sup>-9</sup>. With the parity fix, against LAL patched with it: ≤ 2.7×10<sup>-5</sup>.</span></div>
     <div class="card"><span class="label">NRSur7dq4 against LAL 6.2.0</span><span class="value">≤ 2.9×10<sup>-12</sup></span><span class="note">Over 200 random binaries, with LAL's length and epoch in 200 of them; largest mismatch 3.3×10<sup>-16</sup>.</span></div>
     <div class="card"><span class="label">NRSur7dq4 derivatives</span><span class="value">≤ 2.9×10<sup>-8</sup></span><span class="note">Largest disagreement of any column of the Jacobian with finite differences, over four binaries, wherever the waveform is differentiable. For IMRPhenomXPNR the finite differences disagree by up to 1.5×10<sup>-1</sup>, which is still being investigated (<a href="#gradients">section 8</a>).</span></div>
-    <div class="card"><span class="label">One IMRPhenomXPNR waveform</span><span class="value">15.62 ms</span><span class="note">Compiled, on 8033 frequencies, against 12.70 ms for LALSimulation and 2.82 ms for waveformrs. The first call compiles for 34.6 s.</span></div>
-    <div class="card"><span class="label">Batches with <code>jax.vmap</code></span><span class="value">105 / s</span><span class="note">IMRPhenomXPNR waveforms per second at best over batch sizes, against 4,357 / s for waveformrs on all threads and 77 / s for LALSimulation on one.</span></div>
+    <div class="card"><span class="label">One IMRPhenomXPNR waveform</span><span class="value">16.18 ms</span><span class="note">Compiled, on 8033 frequencies, against 13.54 ms for LALSimulation and 3.10 ms for waveformrs. The first call compiles for 37.6 s.</span></div>
+    <div class="card"><span class="label">Batches with <code>jax.vmap</code></span><span class="value">102 / s</span><span class="note">IMRPhenomXPNR waveforms per second at best over batch sizes, against 4,293 / s for waveformrs on all threads and 72 / s for LALSimulation on one.</span></div>
     <div class="card"><span class="label">Tests</span><span class="value">452 / 452 pass</span><span class="note">pytest, including the slow random-draw tests, in 24 minutes. They compare every part of the models with LALSimulation and the reference data of waveformrs.</span></div>
   </div>
   <div class="table-wrap wide">
@@ -280,7 +280,7 @@ ol.pipeline .step-body { font-size: 0.97rem; }
   </div>
   <p>In short:</p>
   <ul>
-    <li><strong>Implementation.</strong> 67 Python modules (19,183 lines, of which 4,381 are parameter-space fits generated from waveformrs's Rust by a translator) cover the two models, their checks and the conversions (<a href="#design">sections 2</a>–<a href="#conversions">5</a>).</li>
+    <li><strong>Implementation.</strong> 67 Python modules (19,243 lines, of which 4,381 are parameter-space fits generated from waveformrs's Rust by a translator) cover the two models, their checks and the conversions (<a href="#design">sections 2</a>–<a href="#conversions">5</a>).</li>
     <li><strong>Accuracy.</strong> NRSur7dq4 agrees with LAL at rounding level. IMRPhenomXPNR's (2,2) mode agrees to ~1e-9. Its higher modes agree to ~1e-5, because LAL takes derivatives by finite differences whose rounding noise JAX's different, but valid, arithmetic changes (<a href="#accuracy">section 7</a>).</li>
     <li><strong>Derivatives.</strong> IMRPhenomXPNR is differentiated in forward mode, and its reverse-mode gradient is the transpose of that forward-mode Jacobian. NRSur7dq4 is differentiated directly in either mode. NRSur7dq4's derivatives agree with finite differences to ~1e-8. For IMRPhenomXPNR, finite differences of the full waveform disagree with the derivatives by up to 1.5×10<sup>-1</sup>, most in the in-plane spins; the transform tests, which use the (2,2) mode, agree to ~1e-7. This is still being investigated (<a href="#gradients">section 8</a>).</li>
     <li><strong>Cost.</strong> A compiled IMRPhenomXPNR waveform costs about as much as LALSimulation's, and a few times as much as waveformrs's. <code>jax.vmap</code> over many binaries is how JAX code would use it. Compilation takes tens of seconds for the model and minutes for its gradient (<a href="#performance">section 9</a>).</li>
@@ -1882,21 +1882,1031 @@ z
 <section id="gradients">
   <h2>Derivatives</h2>
   <p class="lede">For each model and four binaries, every column of the Jacobian (<code>jax.jacfwd</code>) is compared with central finite differences of the compiled model. The error of a column is max |J<sub>i</sub> − D<sub>i</sub>| / max |J<sub>i</sub>| over the frequencies or times and both polarizations. The finite difference is the better of a second-order difference with a step of 1e-6 and a fourth-order difference with a step of 1e-4, both relative for the masses, the distance and f<sub>ref</sub>. The first is limited by rounding, the second by the model's discontinuities.</p>
-  <div class="callout"><p><strong>Pending.</strong> The figure of the error of every column, per parameter and binary, needs the full run.</p></div>
+  <figure class="wide">
+    <div class="plot"><svg role="img" aria-label="Agreement of each column of the Jacobian with finite differences" xmlns:xlink="http://www.w3.org/1999/xlink" width="599.76pt" height="225.36pt" viewBox="0 0 599.76 225.36" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 225.36 
+L 599.76 225.36 
+L 599.76 0 
+L 0 0 
+L 0 225.36 
+z
+" style="fill: none"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 52.402109 173.770709 
+L 313.690717 173.770709 
+L 313.690717 20.038594 
+L 52.402109 20.038594 
+L 52.402109 173.770709 
+z
+" style="fill: none"/>
+   </g>
+   <g id="PathCollection_1">
+    <defs>
+     <path id="m89f7d77793" d="M 0 1.732051 
+C 0.459345 1.732051 0.899939 1.549551 1.224745 1.224745 
+C 1.549551 0.899939 1.732051 0.459345 1.732051 0 
+C 1.732051 -0.459345 1.549551 -0.899939 1.224745 -1.224745 
+C 0.899939 -1.549551 0.459345 -1.732051 0 -1.732051 
+C -0.459345 -1.732051 -0.899939 -1.549551 -1.224745 -1.224745 
+C -1.549551 -0.899939 -1.732051 -0.459345 -1.732051 0 
+C -1.732051 0.459345 -1.549551 0.899939 -1.224745 1.224745 
+C -0.899939 1.549551 -0.459345 1.732051 0 1.732051 
+z
+"/>
+    </defs>
+    <g clip-path="url(#pce3814fad4)">
+     <use xlink:href="#m89f7d77793" x="64.278864" y="58.067677" style="fill: #3b7dd8"/>
+     <use xlink:href="#m89f7d77793" x="85.639934" y="59.344282" style="fill: #3b7dd8"/>
+     <use xlink:href="#m89f7d77793" x="107.001004" y="59.676933" style="fill: #3b7dd8"/>
+     <use xlink:href="#m89f7d77793" x="128.362074" y="61.415487" style="fill: #3b7dd8"/>
+     <use xlink:href="#m89f7d77793" x="149.723144" y="60.35367" style="fill: #3b7dd8"/>
+     <use xlink:href="#m89f7d77793" x="171.084214" y="57.949202" style="fill: #3b7dd8"/>
+     <use xlink:href="#m89f7d77793" x="192.445284" y="52.890476" style="fill: #3b7dd8"/>
+     <use xlink:href="#m89f7d77793" x="213.806354" y="58.575244" style="fill: #3b7dd8"/>
+     <use xlink:href="#m89f7d77793" x="235.167424" y="163.239783" style="fill: #3b7dd8"/>
+     <use xlink:href="#m89f7d77793" x="256.528494" y="141.748997" style="fill: #3b7dd8"/>
+     <use xlink:href="#m89f7d77793" x="277.889564" y="147.380819" style="fill: #3b7dd8"/>
+    </g>
+   </g>
+   <g id="PathCollection_2">
+    <defs>
+     <path id="ma734fed2de" d="M 0 1.732051 
+C 0.459345 1.732051 0.899939 1.549551 1.224745 1.224745 
+C 1.549551 0.899939 1.732051 0.459345 1.732051 0 
+C 1.732051 -0.459345 1.549551 -0.899939 1.224745 -1.224745 
+C 0.899939 -1.549551 0.459345 -1.732051 0 -1.732051 
+C -0.459345 -1.732051 -0.899939 -1.549551 -1.224745 -1.224745 
+C -1.549551 -0.899939 -1.732051 -0.459345 -1.732051 0 
+C -1.732051 0.459345 -1.549551 0.899939 -1.224745 1.224745 
+C -0.899939 1.549551 -0.459345 1.732051 0 1.732051 
+z
+"/>
+    </defs>
+    <g clip-path="url(#pce3814fad4)">
+     <use xlink:href="#ma734fed2de" x="66.842193" y="58.538043" style="fill: #d0612f"/>
+     <use xlink:href="#ma734fed2de" x="88.203263" y="76.524697" style="fill: #d0612f"/>
+     <use xlink:href="#ma734fed2de" x="109.564333" y="64.737624" style="fill: #d0612f"/>
+     <use xlink:href="#ma734fed2de" x="130.925402" y="61.45793" style="fill: #d0612f"/>
+     <use xlink:href="#ma734fed2de" x="152.286472" y="73.469419" style="fill: #d0612f"/>
+     <use xlink:href="#ma734fed2de" x="173.647542" y="56.660769" style="fill: #d0612f"/>
+     <use xlink:href="#ma734fed2de" x="195.008612" y="56.140081" style="fill: #d0612f"/>
+     <use xlink:href="#ma734fed2de" x="216.369682" y="78.036007" style="fill: #d0612f"/>
+     <use xlink:href="#ma734fed2de" x="237.730752" y="162.500889" style="fill: #d0612f"/>
+     <use xlink:href="#ma734fed2de" x="259.091822" y="135.898214" style="fill: #d0612f"/>
+     <use xlink:href="#ma734fed2de" x="280.452892" y="150.9249" style="fill: #d0612f"/>
+     <use xlink:href="#ma734fed2de" x="301.813962" y="66.856714" style="fill: #d0612f"/>
+    </g>
+   </g>
+   <g id="PathCollection_3">
+    <defs>
+     <path id="me211d5a109" d="M 0 1.732051 
+C 0.459345 1.732051 0.899939 1.549551 1.224745 1.224745 
+C 1.549551 0.899939 1.732051 0.459345 1.732051 0 
+C 1.732051 -0.459345 1.549551 -0.899939 1.224745 -1.224745 
+C 0.899939 -1.549551 0.459345 -1.732051 0 -1.732051 
+C -0.459345 -1.732051 -0.899939 -1.549551 -1.224745 -1.224745 
+C -1.549551 -0.899939 -1.732051 -0.459345 -1.732051 0 
+C -1.732051 0.459345 -1.549551 0.899939 -1.224745 1.224745 
+C -0.899939 1.549551 -0.459345 1.732051 0 1.732051 
+z
+"/>
+    </defs>
+    <g clip-path="url(#pce3814fad4)">
+     <use xlink:href="#me211d5a109" x="69.405521" y="75.736641" style="fill: #2f9e6e"/>
+     <use xlink:href="#me211d5a109" x="90.766591" y="73.883515" style="fill: #2f9e6e"/>
+     <use xlink:href="#me211d5a109" x="112.127661" y="70.875626" style="fill: #2f9e6e"/>
+     <use xlink:href="#me211d5a109" x="133.488731" y="70.731967" style="fill: #2f9e6e"/>
+     <use xlink:href="#me211d5a109" x="154.849801" y="83.791709" style="fill: #2f9e6e"/>
+     <use xlink:href="#me211d5a109" x="176.210871" y="70.484173" style="fill: #2f9e6e"/>
+     <use xlink:href="#me211d5a109" x="197.571941" y="62.913448" style="fill: #2f9e6e"/>
+     <use xlink:href="#me211d5a109" x="218.933011" y="73.609097" style="fill: #2f9e6e"/>
+     <use xlink:href="#me211d5a109" x="240.294081" y="108.678938" style="fill: #2f9e6e"/>
+     <use xlink:href="#me211d5a109" x="261.655151" y="106.93204" style="fill: #2f9e6e"/>
+     <use xlink:href="#me211d5a109" x="283.016221" y="109.573468" style="fill: #2f9e6e"/>
+    </g>
+   </g>
+   <g id="PathCollection_4">
+    <defs>
+     <path id="mf3d13a6ac2" d="M 0 1.732051 
+C 0.459345 1.732051 0.899939 1.549551 1.224745 1.224745 
+C 1.549551 0.899939 1.732051 0.459345 1.732051 0 
+C 1.732051 -0.459345 1.549551 -0.899939 1.224745 -1.224745 
+C 0.899939 -1.549551 0.459345 -1.732051 0 -1.732051 
+C -0.459345 -1.732051 -0.899939 -1.549551 -1.224745 -1.224745 
+C -1.549551 -0.899939 -1.732051 -0.459345 -1.732051 0 
+C -1.732051 0.459345 -1.549551 0.899939 -1.224745 1.224745 
+C -0.899939 1.549551 -0.459345 1.732051 0 1.732051 
+z
+"/>
+    </defs>
+    <g clip-path="url(#pce3814fad4)">
+     <use xlink:href="#mf3d13a6ac2" x="71.968849" y="75.712557" style="fill: #9b59c9"/>
+     <use xlink:href="#mf3d13a6ac2" x="93.329919" y="79.389605" style="fill: #9b59c9"/>
+     <use xlink:href="#mf3d13a6ac2" x="114.690989" y="60.246292" style="fill: #9b59c9"/>
+     <use xlink:href="#mf3d13a6ac2" x="136.052059" y="57.871354" style="fill: #9b59c9"/>
+     <use xlink:href="#mf3d13a6ac2" x="157.413129" y="75.166609" style="fill: #9b59c9"/>
+     <use xlink:href="#mf3d13a6ac2" x="178.774199" y="58.424419" style="fill: #9b59c9"/>
+     <use xlink:href="#mf3d13a6ac2" x="200.135269" y="64.846981" style="fill: #9b59c9"/>
+     <use xlink:href="#mf3d13a6ac2" x="221.496339" y="74.809436" style="fill: #9b59c9"/>
+     <use xlink:href="#mf3d13a6ac2" x="242.857409" y="121.03551" style="fill: #9b59c9"/>
+     <use xlink:href="#mf3d13a6ac2" x="264.218479" y="114.406875" style="fill: #9b59c9"/>
+     <use xlink:href="#mf3d13a6ac2" x="285.579549" y="121.052549" style="fill: #9b59c9"/>
+    </g>
+   </g>
+   <g id="matplotlib.axis_1">
+    <g id="xtick_1">
+     <g id="line2d_1">
+      <path d="M 68.123857 173.770709 
+L 68.123857 20.038594 
+" clip-path="url(#pce3814fad4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_2">
+      <defs>
+       <path id="ma34b9a95b0" d="M 0 0 
+L 0 3.5 
+" style="stroke: var(--muted); stroke-width: 0.8"/>
+      </defs>
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="68.123857" y="173.770709" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_1">
+      <text style="font-size: 7.5px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: var(--fg)" transform="translate(52.444739 208.074223) rotate(-60)">mass_1</text>
+     </g>
+    </g>
+    <g id="xtick_2">
+     <g id="line2d_3">
+      <path d="M 89.484927 173.770709 
+L 89.484927 20.038594 
+" clip-path="url(#pce3814fad4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_4">
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="89.484927" y="173.770709" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_2">
+      <text style="font-size: 7.5px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: var(--fg)" transform="translate(73.805809 208.074223) rotate(-60)">mass_2</text>
+     </g>
+    </g>
+    <g id="xtick_3">
+     <g id="line2d_5">
+      <path d="M 110.845997 173.770709 
+L 110.845997 20.038594 
+" clip-path="url(#pce3814fad4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_6">
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="110.845997" y="173.770709" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_3">
+      <text style="font-size: 7.5px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: var(--fg)" transform="translate(95.052621 208.272416) rotate(-60)">spin_1x</text>
+     </g>
+    </g>
+    <g id="xtick_4">
+     <g id="line2d_7">
+      <path d="M 132.207067 173.770709 
+L 132.207067 20.038594 
+" clip-path="url(#pce3814fad4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_8">
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="132.207067" y="173.770709" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_4">
+      <text style="font-size: 7.5px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: var(--fg)" transform="translate(116.413691 208.272416) rotate(-60)">spin_1y</text>
+     </g>
+    </g>
+    <g id="xtick_5">
+     <g id="line2d_9">
+      <path d="M 153.568137 173.770709 
+L 153.568137 20.038594 
+" clip-path="url(#pce3814fad4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_10">
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="153.568137" y="173.770709" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_5">
+      <text style="font-size: 7.5px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: var(--fg)" transform="translate(138.026128 207.837035) rotate(-60)">spin_1z</text>
+     </g>
+    </g>
+    <g id="xtick_6">
+     <g id="line2d_11">
+      <path d="M 174.929207 173.770709 
+L 174.929207 20.038594 
+" clip-path="url(#pce3814fad4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_12">
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="174.929207" y="173.770709" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_6">
+      <text style="font-size: 7.5px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: var(--fg)" transform="translate(159.135831 208.272416) rotate(-60)">spin_2x</text>
+     </g>
+    </g>
+    <g id="xtick_7">
+     <g id="line2d_13">
+      <path d="M 196.290277 173.770709 
+L 196.290277 20.038594 
+" clip-path="url(#pce3814fad4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_14">
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="196.290277" y="173.770709" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_7">
+      <text style="font-size: 7.5px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: var(--fg)" transform="translate(180.496901 208.272416) rotate(-60)">spin_2y</text>
+     </g>
+    </g>
+    <g id="xtick_8">
+     <g id="line2d_15">
+      <path d="M 217.651346 173.770709 
+L 217.651346 20.038594 
+" clip-path="url(#pce3814fad4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_16">
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="217.651346" y="173.770709" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_8">
+      <text style="font-size: 7.5px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: var(--fg)" transform="translate(202.109338 207.837035) rotate(-60)">spin_2z</text>
+     </g>
+    </g>
+    <g id="xtick_9">
+     <g id="line2d_17">
+      <path d="M 239.012416 173.770709 
+L 239.012416 20.038594 
+" clip-path="url(#pce3814fad4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_18">
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="239.012416" y="173.770709" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_9">
+      <text style="font-size: 7.5px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: var(--fg)" transform="translate(221.562009 211.142478) rotate(-60)">distance</text>
+     </g>
+    </g>
+    <g id="xtick_10">
+     <g id="line2d_19">
+      <path d="M 260.373486 173.770709 
+L 260.373486 20.038594 
+" clip-path="url(#pce3814fad4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_20">
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="260.373486" y="173.770709" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_10">
+      <text style="font-size: 7.5px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: var(--fg)" transform="translate(239.391634 217.259121) rotate(-60)">inclination</text>
+     </g>
+    </g>
+    <g id="xtick_11">
+     <g id="line2d_21">
+      <path d="M 281.734556 173.770709 
+L 281.734556 20.038594 
+" clip-path="url(#pce3814fad4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_22">
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="281.734556" y="173.770709" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_11">
+      <text style="font-size: 7.5px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: var(--fg)" transform="translate(267.413641 205.722039) rotate(-60)">phi_ref</text>
+     </g>
+    </g>
+    <g id="xtick_12">
+     <g id="line2d_23">
+      <path d="M 303.095626 173.770709 
+L 303.095626 20.038594 
+" clip-path="url(#pce3814fad4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_24">
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="303.095626" y="173.770709" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_12">
+      <text style="font-size: 7.5px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: var(--fg)" transform="translate(293.253618 197.964346) rotate(-60)">f_ref</text>
+     </g>
+    </g>
+   </g>
+   <g id="matplotlib.axis_2">
+    <g id="ytick_1">
+     <g id="line2d_25">
+      <path d="M 52.402109 167.523111 
+L 313.690717 167.523111 
+" clip-path="url(#pce3814fad4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_26">
+      <defs>
+       <path id="m2760d60649" d="M 0 0 
+L -3.5 0 
+" style="stroke: var(--muted); stroke-width: 0.8"/>
+      </defs>
+      <g>
+       <use xlink:href="#m2760d60649" x="52.402109" y="167.523111" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_13">
+      <!-- $\mathdefault{10^{-12}}$ -->
+      <g style="fill: var(--fg)" transform="translate(20.292109 171.753111)">
+       <text>
+        <tspan x="0" y="-0.60175" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">1</tspan>
+        <tspan x="5.726074" y="-0.60175" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">0</tspan>
+        <tspan x="11.538281" y="-4.31875" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">−</tspan>
+        <tspan x="16.816992" y="-4.31875" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">1</tspan>
+        <tspan x="20.825244" y="-4.31875" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">2</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_2">
+     <g id="line2d_27">
+      <path d="M 52.402109 146.989313 
+L 313.690717 146.989313 
+" clip-path="url(#pce3814fad4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_28">
+      <g>
+       <use xlink:href="#m2760d60649" x="52.402109" y="146.989313" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_14">
+      <!-- $\mathdefault{10^{-10}}$ -->
+      <g style="fill: var(--fg)" transform="translate(20.292109 151.219313)">
+       <text>
+        <tspan x="0" y="-0.60175" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">1</tspan>
+        <tspan x="5.726074" y="-0.60175" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">0</tspan>
+        <tspan x="11.538281" y="-4.31875" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">−</tspan>
+        <tspan x="16.816992" y="-4.31875" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">1</tspan>
+        <tspan x="20.825244" y="-4.31875" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">0</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_3">
+     <g id="line2d_29">
+      <path d="M 52.402109 126.455514 
+L 313.690717 126.455514 
+" clip-path="url(#pce3814fad4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_30">
+      <g>
+       <use xlink:href="#m2760d60649" x="52.402109" y="126.455514" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_15">
+      <!-- $\mathdefault{10^{-8}}$ -->
+      <g style="fill: var(--fg)" transform="translate(24.252109 130.685514)">
+       <text>
+        <tspan x="0" y="-0.60175" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">1</tspan>
+        <tspan x="5.726074" y="-0.60175" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">0</tspan>
+        <tspan x="11.538281" y="-4.31875" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">−</tspan>
+        <tspan x="16.816992" y="-4.31875" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">8</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_4">
+     <g id="line2d_31">
+      <path d="M 52.402109 105.921716 
+L 313.690717 105.921716 
+" clip-path="url(#pce3814fad4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_32">
+      <g>
+       <use xlink:href="#m2760d60649" x="52.402109" y="105.921716" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_16">
+      <!-- $\mathdefault{10^{-6}}$ -->
+      <g style="fill: var(--fg)" transform="translate(24.252109 110.151716)">
+       <text>
+        <tspan x="0" y="-0.60175" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">1</tspan>
+        <tspan x="5.726074" y="-0.60175" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">0</tspan>
+        <tspan x="11.538281" y="-4.31875" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">−</tspan>
+        <tspan x="16.816992" y="-4.31875" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">6</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_5">
+     <g id="line2d_33">
+      <path d="M 52.402109 85.387918 
+L 313.690717 85.387918 
+" clip-path="url(#pce3814fad4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_34">
+      <g>
+       <use xlink:href="#m2760d60649" x="52.402109" y="85.387918" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_17">
+      <!-- $\mathdefault{10^{-4}}$ -->
+      <g style="fill: var(--fg)" transform="translate(24.252109 89.572918)">
+       <text>
+        <tspan x="0" y="-0.68925" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">1</tspan>
+        <tspan x="5.726074" y="-0.68925" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">0</tspan>
+        <tspan x="11.538281" y="-4.40625" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">−</tspan>
+        <tspan x="16.816992" y="-4.40625" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">4</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_6">
+     <g id="line2d_35">
+      <path d="M 52.402109 64.854119 
+L 313.690717 64.854119 
+" clip-path="url(#pce3814fad4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_36">
+      <g>
+       <use xlink:href="#m2760d60649" x="52.402109" y="64.854119" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_18">
+      <!-- $\mathdefault{10^{-2}}$ -->
+      <g style="fill: var(--fg)" transform="translate(24.252109 69.084119)">
+       <text>
+        <tspan x="0" y="-0.60175" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">1</tspan>
+        <tspan x="5.726074" y="-0.60175" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">0</tspan>
+        <tspan x="11.538281" y="-4.31875" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">−</tspan>
+        <tspan x="16.816992" y="-4.31875" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">2</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_7">
+     <g id="line2d_37">
+      <path d="M 52.402109 44.320321 
+L 313.690717 44.320321 
+" clip-path="url(#pce3814fad4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_38">
+      <g>
+       <use xlink:href="#m2760d60649" x="52.402109" y="44.320321" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_19">
+      <!-- $\mathdefault{10^{0}}$ -->
+      <g style="fill: var(--fg)" transform="translate(29.562109 48.550321)">
+       <text>
+        <tspan x="0" y="-0.60175" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">1</tspan>
+        <tspan x="5.726074" y="-0.60175" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">0</tspan>
+        <tspan x="11.538281" y="-4.31875" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">0</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_8">
+     <g id="line2d_39">
+      <path d="M 52.402109 23.786523 
+L 313.690717 23.786523 
+" clip-path="url(#pce3814fad4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_40">
+      <g>
+       <use xlink:href="#m2760d60649" x="52.402109" y="23.786523" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_20">
+      <!-- $\mathdefault{10^{2}}$ -->
+      <g style="fill: var(--fg)" transform="translate(29.562109 28.016523)">
+       <text>
+        <tspan x="0" y="-0.60175" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">1</tspan>
+        <tspan x="5.726074" y="-0.60175" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">0</tspan>
+        <tspan x="11.538281" y="-4.31875" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">2</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="text_21">
+     <!-- max |J − J$_{FD}$| / max |J| -->
+     <g style="fill: var(--fg)" transform="translate(14.13 144.874652) rotate(-90)">
+      <text>
+       <tspan x="0" y="-0.125" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">m</tspan>
+       <tspan x="8.76709" y="-0.125" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">a</tspan>
+       <tspan x="14.282227" y="-0.125" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">x</tspan>
+       <tspan x="19.608398" y="-0.125" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)"> </tspan>
+       <tspan x="22.469238" y="-0.125" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">|</tspan>
+       <tspan x="25.501465" y="-0.125" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">J</tspan>
+       <tspan x="28.155762" y="-0.125" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)"> </tspan>
+       <tspan x="31.016602" y="-0.125" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">−</tspan>
+       <tspan x="38.557617" y="-0.125" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)"> </tspan>
+       <tspan x="41.418457" y="-0.125" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">J</tspan>
+       <tspan x="52.879834" y="-0.125" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">|</tspan>
+       <tspan x="55.912061" y="-0.125" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)"> </tspan>
+       <tspan x="58.7729" y="-0.125" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">/</tspan>
+       <tspan x="61.805127" y="-0.125" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)"> </tspan>
+       <tspan x="64.665967" y="-0.125" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">m</tspan>
+       <tspan x="73.433057" y="-0.125" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">a</tspan>
+       <tspan x="78.948193" y="-0.125" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">x</tspan>
+       <tspan x="84.274365" y="-0.125" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)"> </tspan>
+       <tspan x="87.135205" y="-0.125" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">|</tspan>
+       <tspan x="90.167432" y="-0.125" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">J</tspan>
+       <tspan x="92.821729" y="-0.125" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">|</tspan>
+       <tspan x="44.158887" y="1.224996" style="font-style: oblique; font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">F</tspan>
+       <tspan x="47.782617" y="1.224996" style="font-style: oblique; font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">D</tspan>
+      </text>
+     </g>
+    </g>
+   </g>
+   <g id="patch_3">
+    <path d="M 52.402109 173.770709 
+L 52.402109 20.038594 
+" style="fill: none; stroke: var(--muted); stroke-width: 0.6; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="patch_4">
+    <path d="M 52.402109 173.770709 
+L 313.690717 173.770709 
+" style="fill: none; stroke: var(--muted); stroke-width: 0.6; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="text_22">
+    <text style="font-size: 9px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle; fill: var(--fg)" x="183.046413" y="14.038594" transform="rotate(-0 183.046413 14.038594)">IMRPhenomXPNR</text>
+   </g>
+   <g id="legend_1">
+    <g id="PathCollection_5">
+     <g>
+      <use xlink:href="#m89f7d77793" x="65.702109" y="29.82" style="fill: #3b7dd8"/>
+     </g>
+    </g>
+    <g id="text_23">
+     <text style="font-size: 7px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start; fill: var(--fg)" x="78.302109" y="31.6575" transform="rotate(-0 78.302109 31.6575)">36+29, precessing</text>
+    </g>
+    <g id="PathCollection_6">
+     <g>
+      <use xlink:href="#ma734fed2de" x="65.702109" y="40.320547" style="fill: #d0612f"/>
+     </g>
+    </g>
+    <g id="text_24">
+     <text style="font-size: 7px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start; fill: var(--fg)" x="78.302109" y="42.158047" transform="rotate(-0 78.302109 42.158047)">40+20, precessing</text>
+    </g>
+    <g id="PathCollection_7">
+     <g>
+      <use xlink:href="#me211d5a109" x="65.702109" y="50.821094" style="fill: #2f9e6e"/>
+     </g>
+    </g>
+    <g id="text_25">
+     <text style="font-size: 7px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start; fill: var(--fg)" x="78.302109" y="52.658594" transform="rotate(-0 78.302109 52.658594)">q = 1/6, strongly precessing</text>
+    </g>
+    <g id="PathCollection_8">
+     <g>
+      <use xlink:href="#mf3d13a6ac2" x="65.702109" y="61.321641" style="fill: #9b59c9"/>
+     </g>
+    </g>
+    <g id="text_26">
+     <text style="font-size: 7px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start; fill: var(--fg)" x="78.302109" y="63.159141" transform="rotate(-0 78.302109 63.159141)">nearly aligned spins</text>
+    </g>
+   </g>
+  </g>
+  <g id="axes_2">
+   <g id="patch_5">
+    <path d="M 331.271392 173.770709 
+L 592.56 173.770709 
+L 592.56 20.038594 
+L 331.271392 20.038594 
+L 331.271392 173.770709 
+z
+" style="fill: none"/>
+   </g>
+   <g id="PathCollection_9">
+    <g clip-path="url(#p403ff2a4f4)">
+     <use xlink:href="#m89f7d77793" x="343.148147" y="128.161906" style="fill: #3b7dd8"/>
+     <use xlink:href="#m89f7d77793" x="364.057927" y="127.721958" style="fill: #3b7dd8"/>
+     <use xlink:href="#m89f7d77793" x="384.967707" y="140.231889" style="fill: #3b7dd8"/>
+     <use xlink:href="#m89f7d77793" x="405.877487" y="139.838135" style="fill: #3b7dd8"/>
+     <use xlink:href="#m89f7d77793" x="426.787266" y="145.555207" style="fill: #3b7dd8"/>
+     <use xlink:href="#m89f7d77793" x="447.697046" y="137.973641" style="fill: #3b7dd8"/>
+     <use xlink:href="#m89f7d77793" x="468.606826" y="130.471434" style="fill: #3b7dd8"/>
+     <use xlink:href="#m89f7d77793" x="489.516605" y="147.742696" style="fill: #3b7dd8"/>
+     <use xlink:href="#m89f7d77793" x="510.426385" y="163.270021" style="fill: #3b7dd8"/>
+     <use xlink:href="#m89f7d77793" x="531.336165" y="161.884219" style="fill: #3b7dd8"/>
+     <use xlink:href="#m89f7d77793" x="552.245945" y="166.475303" style="fill: #3b7dd8"/>
+     <use xlink:href="#m89f7d77793" x="573.155724" y="121.708301" style="fill: #3b7dd8"/>
+    </g>
+   </g>
+   <g id="PathCollection_10">
+    <g clip-path="url(#p403ff2a4f4)">
+     <use xlink:href="#ma734fed2de" x="345.657321" y="138.333091" style="fill: #d0612f"/>
+     <use xlink:href="#ma734fed2de" x="366.567101" y="128.504616" style="fill: #d0612f"/>
+     <use xlink:href="#ma734fed2de" x="387.47688" y="140.274132" style="fill: #d0612f"/>
+     <use xlink:href="#ma734fed2de" x="408.38666" y="135.301253" style="fill: #d0612f"/>
+     <use xlink:href="#ma734fed2de" x="429.29644" y="155.654644" style="fill: #d0612f"/>
+     <use xlink:href="#ma734fed2de" x="450.20622" y="147.063125" style="fill: #d0612f"/>
+     <use xlink:href="#ma734fed2de" x="471.115999" y="146.022991" style="fill: #d0612f"/>
+     <use xlink:href="#ma734fed2de" x="492.025779" y="148.691862" style="fill: #d0612f"/>
+     <use xlink:href="#ma734fed2de" x="512.935559" y="162.278803" style="fill: #d0612f"/>
+     <use xlink:href="#ma734fed2de" x="533.845339" y="161.573574" style="fill: #d0612f"/>
+     <use xlink:href="#ma734fed2de" x="554.755118" y="164.772533" style="fill: #d0612f"/>
+     <use xlink:href="#ma734fed2de" x="575.664898" y="124.571254" style="fill: #d0612f"/>
+    </g>
+   </g>
+   <g id="PathCollection_11">
+    <g clip-path="url(#p403ff2a4f4)">
+     <use xlink:href="#me211d5a109" x="348.166494" y="133.057432" style="fill: #2f9e6e"/>
+     <use xlink:href="#me211d5a109" x="369.076274" y="133.573826" style="fill: #2f9e6e"/>
+     <use xlink:href="#me211d5a109" x="389.986054" y="141.383809" style="fill: #2f9e6e"/>
+     <use xlink:href="#me211d5a109" x="410.895834" y="144.056161" style="fill: #2f9e6e"/>
+     <use xlink:href="#me211d5a109" x="431.805613" y="151.896972" style="fill: #2f9e6e"/>
+     <use xlink:href="#me211d5a109" x="452.715393" y="144.675871" style="fill: #2f9e6e"/>
+     <use xlink:href="#me211d5a109" x="473.625173" y="136.665501" style="fill: #2f9e6e"/>
+     <use xlink:href="#me211d5a109" x="494.534953" y="155.211825" style="fill: #2f9e6e"/>
+     <use xlink:href="#me211d5a109" x="515.444732" y="163.822157" style="fill: #2f9e6e"/>
+     <use xlink:href="#me211d5a109" x="536.354512" y="164.29789" style="fill: #2f9e6e"/>
+     <use xlink:href="#me211d5a109" x="557.264292" y="165.709146" style="fill: #2f9e6e"/>
+     <use xlink:href="#me211d5a109" x="578.174072" y="126.29764" style="fill: #2f9e6e"/>
+    </g>
+   </g>
+   <g id="PathCollection_12">
+    <g clip-path="url(#p403ff2a4f4)">
+     <use xlink:href="#mf3d13a6ac2" x="350.675668" y="130.855022" style="fill: #9b59c9"/>
+     <use xlink:href="#mf3d13a6ac2" x="371.585448" y="132.509526" style="fill: #9b59c9"/>
+     <use xlink:href="#mf3d13a6ac2" x="392.495227" y="47.292683" style="fill: #9b59c9"/>
+     <use xlink:href="#mf3d13a6ac2" x="413.405007" y="27.026417" style="fill: #9b59c9"/>
+     <use xlink:href="#mf3d13a6ac2" x="434.314787" y="68.760099" style="fill: #9b59c9"/>
+     <use xlink:href="#mf3d13a6ac2" x="455.224567" y="53.134158" style="fill: #9b59c9"/>
+     <use xlink:href="#mf3d13a6ac2" x="476.134346" y="40.663703" style="fill: #9b59c9"/>
+     <use xlink:href="#mf3d13a6ac2" x="497.044126" y="70.598054" style="fill: #9b59c9"/>
+     <use xlink:href="#mf3d13a6ac2" x="517.953906" y="162.804267" style="fill: #9b59c9"/>
+     <use xlink:href="#mf3d13a6ac2" x="538.863686" y="161.126064" style="fill: #9b59c9"/>
+     <use xlink:href="#mf3d13a6ac2" x="559.773465" y="166.782886" style="fill: #9b59c9"/>
+     <use xlink:href="#mf3d13a6ac2" x="580.683245" y="125.393949" style="fill: #9b59c9"/>
+    </g>
+   </g>
+   <g id="matplotlib.axis_3">
+    <g id="xtick_13">
+     <g id="line2d_41">
+      <path d="M 346.911908 173.770709 
+L 346.911908 20.038594 
+" clip-path="url(#p403ff2a4f4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_42">
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="346.911908" y="173.770709" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_27">
+      <text style="font-size: 7.5px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: var(--fg)" transform="translate(331.23279 208.074223) rotate(-60)">mass_1</text>
+     </g>
+    </g>
+    <g id="xtick_14">
+     <g id="line2d_43">
+      <path d="M 367.821687 173.770709 
+L 367.821687 20.038594 
+" clip-path="url(#p403ff2a4f4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_44">
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="367.821687" y="173.770709" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_28">
+      <text style="font-size: 7.5px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: var(--fg)" transform="translate(352.142569 208.074223) rotate(-60)">mass_2</text>
+     </g>
+    </g>
+    <g id="xtick_15">
+     <g id="line2d_45">
+      <path d="M 388.731467 173.770709 
+L 388.731467 20.038594 
+" clip-path="url(#p403ff2a4f4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_46">
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="388.731467" y="173.770709" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_29">
+      <text style="font-size: 7.5px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: var(--fg)" transform="translate(372.938091 208.272416) rotate(-60)">spin_1x</text>
+     </g>
+    </g>
+    <g id="xtick_16">
+     <g id="line2d_47">
+      <path d="M 409.641247 173.770709 
+L 409.641247 20.038594 
+" clip-path="url(#p403ff2a4f4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_48">
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="409.641247" y="173.770709" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_30">
+      <text style="font-size: 7.5px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: var(--fg)" transform="translate(393.847871 208.272416) rotate(-60)">spin_1y</text>
+     </g>
+    </g>
+    <g id="xtick_17">
+     <g id="line2d_49">
+      <path d="M 430.551027 173.770709 
+L 430.551027 20.038594 
+" clip-path="url(#p403ff2a4f4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_50">
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="430.551027" y="173.770709" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_31">
+      <text style="font-size: 7.5px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: var(--fg)" transform="translate(415.009018 207.837035) rotate(-60)">spin_1z</text>
+     </g>
+    </g>
+    <g id="xtick_18">
+     <g id="line2d_51">
+      <path d="M 451.460806 173.770709 
+L 451.460806 20.038594 
+" clip-path="url(#p403ff2a4f4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_52">
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="451.460806" y="173.770709" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_32">
+      <text style="font-size: 7.5px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: var(--fg)" transform="translate(435.66743 208.272416) rotate(-60)">spin_2x</text>
+     </g>
+    </g>
+    <g id="xtick_19">
+     <g id="line2d_53">
+      <path d="M 472.370586 173.770709 
+L 472.370586 20.038594 
+" clip-path="url(#p403ff2a4f4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_54">
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="472.370586" y="173.770709" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_33">
+      <text style="font-size: 7.5px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: var(--fg)" transform="translate(456.57721 208.272416) rotate(-60)">spin_2y</text>
+     </g>
+    </g>
+    <g id="xtick_20">
+     <g id="line2d_55">
+      <path d="M 493.280366 173.770709 
+L 493.280366 20.038594 
+" clip-path="url(#p403ff2a4f4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_56">
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="493.280366" y="173.770709" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_34">
+      <text style="font-size: 7.5px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: var(--fg)" transform="translate(477.738357 207.837035) rotate(-60)">spin_2z</text>
+     </g>
+    </g>
+    <g id="xtick_21">
+     <g id="line2d_57">
+      <path d="M 514.190146 173.770709 
+L 514.190146 20.038594 
+" clip-path="url(#p403ff2a4f4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_58">
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="514.190146" y="173.770709" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_35">
+      <text style="font-size: 7.5px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: var(--fg)" transform="translate(496.739738 211.142478) rotate(-60)">distance</text>
+     </g>
+    </g>
+    <g id="xtick_22">
+     <g id="line2d_59">
+      <path d="M 535.099925 173.770709 
+L 535.099925 20.038594 
+" clip-path="url(#p403ff2a4f4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_60">
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="535.099925" y="173.770709" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_36">
+      <text style="font-size: 7.5px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: var(--fg)" transform="translate(514.118073 217.259121) rotate(-60)">inclination</text>
+     </g>
+    </g>
+    <g id="xtick_23">
+     <g id="line2d_61">
+      <path d="M 556.009705 173.770709 
+L 556.009705 20.038594 
+" clip-path="url(#p403ff2a4f4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_62">
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="556.009705" y="173.770709" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_37">
+      <text style="font-size: 7.5px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: var(--fg)" transform="translate(541.68879 205.722039) rotate(-60)">phi_ref</text>
+     </g>
+    </g>
+    <g id="xtick_24">
+     <g id="line2d_63">
+      <path d="M 576.919485 173.770709 
+L 576.919485 20.038594 
+" clip-path="url(#p403ff2a4f4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_64">
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="576.919485" y="173.770709" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_38">
+      <text style="font-size: 7.5px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: var(--fg)" transform="translate(567.077476 197.964346) rotate(-60)">f_ref</text>
+     </g>
+    </g>
+   </g>
+   <g id="matplotlib.axis_4">
+    <g id="ytick_9">
+     <g id="line2d_65">
+      <path d="M 331.271392 167.523111 
+L 592.56 167.523111 
+" clip-path="url(#p403ff2a4f4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_66">
+      <g>
+       <use xlink:href="#m2760d60649" x="331.271392" y="167.523111" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_10">
+     <g id="line2d_67">
+      <path d="M 331.271392 146.989313 
+L 592.56 146.989313 
+" clip-path="url(#p403ff2a4f4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_68">
+      <g>
+       <use xlink:href="#m2760d60649" x="331.271392" y="146.989313" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_11">
+     <g id="line2d_69">
+      <path d="M 331.271392 126.455514 
+L 592.56 126.455514 
+" clip-path="url(#p403ff2a4f4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_70">
+      <g>
+       <use xlink:href="#m2760d60649" x="331.271392" y="126.455514" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_12">
+     <g id="line2d_71">
+      <path d="M 331.271392 105.921716 
+L 592.56 105.921716 
+" clip-path="url(#p403ff2a4f4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_72">
+      <g>
+       <use xlink:href="#m2760d60649" x="331.271392" y="105.921716" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_13">
+     <g id="line2d_73">
+      <path d="M 331.271392 85.387918 
+L 592.56 85.387918 
+" clip-path="url(#p403ff2a4f4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_74">
+      <g>
+       <use xlink:href="#m2760d60649" x="331.271392" y="85.387918" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_14">
+     <g id="line2d_75">
+      <path d="M 331.271392 64.854119 
+L 592.56 64.854119 
+" clip-path="url(#p403ff2a4f4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_76">
+      <g>
+       <use xlink:href="#m2760d60649" x="331.271392" y="64.854119" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_15">
+     <g id="line2d_77">
+      <path d="M 331.271392 44.320321 
+L 592.56 44.320321 
+" clip-path="url(#p403ff2a4f4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_78">
+      <g>
+       <use xlink:href="#m2760d60649" x="331.271392" y="44.320321" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_16">
+     <g id="line2d_79">
+      <path d="M 331.271392 23.786523 
+L 592.56 23.786523 
+" clip-path="url(#p403ff2a4f4)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_80">
+      <g>
+       <use xlink:href="#m2760d60649" x="331.271392" y="23.786523" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+    </g>
+   </g>
+   <g id="patch_6">
+    <path d="M 331.271392 173.770709 
+L 331.271392 20.038594 
+" style="fill: none; stroke: var(--muted); stroke-width: 0.6; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="patch_7">
+    <path d="M 331.271392 173.770709 
+L 592.56 173.770709 
+" style="fill: none; stroke: var(--muted); stroke-width: 0.6; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="text_39">
+    <text style="font-size: 9px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle; fill: var(--fg)" x="461.915696" y="14.038594" transform="rotate(-0 461.915696 14.038594)">NRSur7dq4</text>
+   </g>
+   <g id="legend_2">
+    <g id="PathCollection_13">
+     <g>
+      <use xlink:href="#m89f7d77793" x="344.571392" y="29.82" style="fill: #3b7dd8"/>
+     </g>
+    </g>
+    <g id="text_40">
+     <text style="font-size: 7px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start; fill: var(--fg)" x="357.171392" y="31.6575" transform="rotate(-0 357.171392 31.6575)">40+20, precessing</text>
+    </g>
+    <g id="PathCollection_14">
+     <g>
+      <use xlink:href="#ma734fed2de" x="344.571392" y="40.320547" style="fill: #d0612f"/>
+     </g>
+    </g>
+    <g id="text_41">
+     <text style="font-size: 7px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start; fill: var(--fg)" x="357.171392" y="42.158047" transform="rotate(-0 357.171392 42.158047)">lighter first, q = 1/3</text>
+    </g>
+    <g id="PathCollection_15">
+     <g>
+      <use xlink:href="#me211d5a109" x="344.571392" y="50.821094" style="fill: #2f9e6e"/>
+     </g>
+    </g>
+    <g id="text_42">
+     <text style="font-size: 7px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start; fill: var(--fg)" x="357.171392" y="52.658594" transform="rotate(-0 357.171392 52.658594)">aligned spins</text>
+    </g>
+    <g id="PathCollection_16">
+     <g>
+      <use xlink:href="#mf3d13a6ac2" x="344.571392" y="61.321641" style="fill: #9b59c9"/>
+     </g>
+    </g>
+    <g id="text_43">
+     <text style="font-size: 7px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start; fill: var(--fg)" x="357.171392" y="63.159141" transform="rotate(-0 357.171392 63.159141)">non-spinning</text>
+    </g>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="pce3814fad4">
+   <rect x="52.402109" y="20.038594" width="261.288608" height="153.732116"/>
+  </clipPath>
+  <clipPath id="p403ff2a4f4">
+   <rect x="331.271392" y="20.038594" width="261.288608" height="153.732116"/>
+  </clipPath>
+ </defs>
+</svg>
+</div>
+    <figcaption>Disagreement of each column of the Jacobian with finite differences, per parameter and binary. Data: <code>report/data/gradients.json</code>.</figcaption>
+  </figure>
   <div class="table-wrap wide">
     <table>
-      <thead><tr><th>Model</th><th>Binary</th><th class="num">Largest column error</th><th>Worst parameter</th><th>Not differentiable</th><th>Finite</th></tr></thead>
+      <thead><tr><th>Model</th><th>Binary</th><th class="num">Masses, distance, angles, f<sub>ref</sub></th><th class="num">Spins</th><th>Worst parameter</th><th>Not differentiable</th><th>Finite</th></tr></thead>
       <tbody>
-<tr><td>IMRPhenomXPNR</td><td>36+29, precessing</td><td class="num">1.5×10<sup>-1</sup></td><td><code>spin_2y</code></td><td>–</td><td>yes</td></tr>
-<tr><td>IMRPhenomXPNR</td><td>40+20, precessing</td><td class="num">7.1×10<sup>-2</sup></td><td><code>spin_2y</code></td><td>–</td><td>yes</td></tr>
-<tr><td>IMRPhenomXPNR</td><td>q = 1/6, strongly precessing</td><td class="num">1.5×10<sup>-2</sup></td><td><code>spin_2y</code></td><td>–</td><td>yes</td></tr>
-<tr><td>IMRPhenomXPNR</td><td>nearly aligned spins</td><td class="num">4.8×10<sup>-2</sup></td><td><code>spin_1y</code></td><td>–</td><td>yes</td></tr>
-<tr><td>NRSur7dq4</td><td>40+20, precessing</td><td class="num">2.9×10<sup>-8</sup></td><td><code>f_ref</code></td><td>–</td><td>yes</td></tr>
-<tr><td>NRSur7dq4</td><td>lighter first, q = 1/3</td><td class="num">1.5×10<sup>-8</sup></td><td><code>f_ref</code></td><td>–</td><td>yes</td></tr>
-<tr><td>NRSur7dq4</td><td>aligned spins</td><td class="num">1.0×10<sup>-8</sup></td><td><code>f_ref</code></td><td>–</td><td>yes</td></tr>
-<tr><td>NRSur7dq4</td><td>non-spinning</td><td class="num">1.3×10<sup>-8</sup></td><td><code>f_ref</code></td><td><code>spin_1x</code>, <code>spin_1y</code>, <code>spin_1z</code>, <code>spin_2x</code>, <code>spin_2y</code>, <code>spin_2z</code> (zero spin)</td><td>yes</td></tr>
+<tr><td>IMRPhenomXPNR</td><td>36+29, precessing</td><td class="num">4.6×10<sup>-2</sup></td><td class="num">1.5×10<sup>-1</sup></td><td><code>spin_2y</code></td><td>–</td><td>yes</td></tr>
+<tr><td>IMRPhenomXPNR</td><td>40+20, precessing</td><td class="num">4.1×10<sup>-2</sup></td><td class="num">7.1×10<sup>-2</sup></td><td><code>spin_2y</code></td><td>–</td><td>yes</td></tr>
+<tr><td>IMRPhenomXPNR</td><td>q = 1/6, strongly precessing</td><td class="num">1.3×10<sup>-3</sup></td><td class="num">1.5×10<sup>-2</sup></td><td><code>spin_2y</code></td><td>–</td><td>yes</td></tr>
+<tr><td>IMRPhenomXPNR</td><td>nearly aligned spins</td><td class="num">8.8×10<sup>-4</sup></td><td class="num">4.8×10<sup>-2</sup></td><td><code>spin_1y</code></td><td>–</td><td>yes</td></tr>
+<tr><td>NRSur7dq4</td><td>40+20, precessing</td><td class="num">2.9×10<sup>-8</sup></td><td class="num">4.1×10<sup>-9</sup></td><td><code>f_ref</code></td><td>–</td><td>yes</td></tr>
+<tr><td>NRSur7dq4</td><td>lighter first, q = 1/3</td><td class="num">1.5×10<sup>-8</sup></td><td class="num">1.4×10<sup>-9</sup></td><td><code>f_ref</code></td><td>–</td><td>yes</td></tr>
+<tr><td>NRSur7dq4</td><td>aligned spins</td><td class="num">1.0×10<sup>-8</sup></td><td class="num">1.0×10<sup>-9</sup></td><td><code>f_ref</code></td><td>–</td><td>yes</td></tr>
+<tr><td>NRSur7dq4</td><td>non-spinning</td><td class="num">1.3×10<sup>-8</sup></td><td class="num">–</td><td><code>f_ref</code></td><td><code>spin_1x</code>, <code>spin_1y</code>, <code>spin_1z</code>, <code>spin_2x</code>, <code>spin_2y</code>, <code>spin_2z</code> (zero spin)</td><td>yes</td></tr>
+<tr><td>simulate_td IMRPhenomXPNR (2,2)</td><td>36+29, precessing</td><td class="num">9.7×10<sup>-8</sup></td><td class="num">2.7×10<sup>-7</sup></td><td><code>spin_2x</code></td><td>–</td><td>yes</td></tr>
+<tr><td>simulate_fd NRSur7dq4</td><td>40+20, precessing</td><td class="num">2.0×10<sup>-8</sup></td><td class="num">3.9×10<sup>-9</sup></td><td><code>f_ref</code></td><td>–</td><td>yes</td></tr>
       </tbody>
-      <caption>Preliminary: largest disagreement over the twelve columns, from an interrupted run of <code>report/gradients.py</code> (data: <code>report/data/gradients_preliminary.json</code>).</caption>
+      <caption>Largest column error by group of parameters. The conversions are <code>simulate_td_function</code> of IMRPhenomXPNR's (2,2) mode at 1024 Hz from 25 Hz and <code>simulate_fd_function</code> of NRSur7dq4 up to 1024 Hz from 20 Hz.</caption>
     </table>
   </div>
   <p>The derivatives are those of the function JAX computes, which is smooth almost everywhere but not everywhere. Wherever LAL makes a discrete choice that depends on the binary, the waveform is continuous only up to the size of that choice's effect, and the derivative is that of the branch taken. Such choices include the number of SpinTaylor samples, where LAL's adaptive integration stops, the node where NRSur7dq4's integration starts, the precession prescription, and the order of the intermediate polynomials of the higher modes. In IMRPhenomXPNR the SpinTaylor waveform jumps by about LAL's integration error, ~1e-9 relative, wherever the number of samples changes. A finite difference that straddles such a jump is wrong by the jump divided by the step, which is why small steps are used. The spins are the parameters that move the precession most, and they show the largest disagreements. For nearly aligned in-plane spins the waveform is also far from linear on the scale of the step. None of this affects the derivatives themselves, which are those of the smooth pieces.</p>
@@ -1907,14 +2917,15 @@ z
     <table>
       <thead><tr><th>Function</th><th class="num">Compile</th><th class="num">Value</th><th class="num"><code>jvp</code></th><th class="num">Compile <code>jacfwd</code></th><th class="num"><code>jacfwd</code></th><th class="num">Compile <code>grad</code></th><th class="num"><code>grad</code></th><th class="num">Compile <code>vmap(grad)</code></th><th class="num"><code>vmap(grad)</code> / binary</th><th class="num">grad vs J<sup>T</sup>w</th></tr></thead>
       <tbody>
-<tr><td>IMRPhenomXPNR</td><td class="num">29.8 s</td><td class="num">13.59 ms</td><td class="num">113 ms</td><td class="num">104.9 s</td><td class="num">112 ms</td><td class="num">109.1 s</td><td class="num">115 ms</td><td class="num">162.6 s</td><td class="num">101 ms</td><td class="num">pending</td></tr>
-<tr><td>NRSur7dq4</td><td class="num">2.7 s</td><td class="num">2.73 ms</td><td class="num">6.21 ms</td><td class="num">5.9 s</td><td class="num">19.02 ms</td><td class="num">10.1 s</td><td class="num">18.24 ms</td><td class="num">13.0 s</td><td class="num">14.08 ms</td><td class="num">pending</td></tr>
-<tr><td>simulate_td IMRPhenomXPNR (2,2)</td><td class="num">19.6 s</td><td class="num">11.56 ms</td><td class="num">92.70 ms</td><td class="num">70.7 s</td><td class="num">116 ms</td><td class="num">69.8 s</td><td class="num">93.55 ms</td><td class="num">pending</td><td class="num">pending</td><td class="num">pending</td></tr>
+<tr><td>IMRPhenomXPNR</td><td class="num">31.5 s</td><td class="num">15.15 ms</td><td class="num">119 ms</td><td class="num">107.6 s</td><td class="num">114 ms</td><td class="num">111.3 s</td><td class="num">120 ms</td><td class="num">535.3 s</td><td class="num">104 ms</td><td class="num">2.1×10<sup>-15</sup></td></tr>
+<tr><td>NRSur7dq4</td><td class="num">2.8 s</td><td class="num">2.98 ms</td><td class="num">6.25 ms</td><td class="num">5.6 s</td><td class="num">19.08 ms</td><td class="num">9.3 s</td><td class="num">17.82 ms</td><td class="num">12.6 s</td><td class="num">12.50 ms</td><td class="num">4.2×10<sup>-15</sup></td></tr>
+<tr><td>simulate_td IMRPhenomXPNR (2,2)</td><td class="num">19.0 s</td><td class="num">12.24 ms</td><td class="num">91.01 ms</td><td class="num">69.4 s</td><td class="num">113 ms</td><td class="num">71.4 s</td><td class="num">95.84 ms</td><td class="num">104.6 s</td><td class="num">99.82 ms</td><td class="num">1.7×10<sup>-13</sup></td></tr>
+<tr><td>simulate_fd NRSur7dq4</td><td class="num">1.7 s</td><td class="num">2.92 ms</td><td class="num">6.13 ms</td><td class="num">6.1 s</td><td class="num">24.01 ms</td><td class="num">9.1 s</td><td class="num">18.83 ms</td><td class="num">10.1 s</td><td class="num">14.67 ms</td><td class="num">4.4×10<sup>-15</sup></td></tr>
       </tbody>
       <caption>Times of the first call (which compiles) and of later calls, for IMRPhenomXPNR on 2048 frequencies, NRSur7dq4 on 2048 samples and the two conversions. <code>grad</code> is of a scalar, a weighted sum of the polarizations. <code>vmap(grad)</code> is over 8 binaries (4 for the conversions). The last column is the relative difference between <code>jax.grad</code> and the Jacobian contracted with the same weights.</caption>
     </table>
   </div>
-  <p>For IMRPhenomXPNR a gradient costs 115 ms, 8.5× the cost of a waveform. It is a forward-mode Jacobian of twelve columns, evaluated together. Its compilation takes 109.1 s. A <code>jax.jvp</code> along a direction that moves every parameter costs as much as <code>jax.jacfwd</code>, because the rule computes the columns of all the parameters with non-zero tangents and then contracts them. When only some parameters are differentiated, as in <code>jax.grad</code> with respect to the masses alone with the rest of the binary held fixed, only their columns are computed. NRSur7dq4 is differentiated directly in reverse mode: a gradient costs 18.24 ms (6.7× a waveform) after 10.1 s of compilation.</p>
+  <p>For IMRPhenomXPNR a gradient costs 120 ms, 7.9× the cost of a waveform. It is a forward-mode Jacobian of twelve columns, evaluated together. Its compilation takes 111.3 s. A <code>jax.jvp</code> along a direction that moves every parameter costs as much as <code>jax.jacfwd</code>, because the rule computes the columns of all the parameters with non-zero tangents and then contracts them. When only some parameters are differentiated, as in <code>jax.grad</code> with respect to the masses alone with the rest of the binary held fixed, only their columns are computed. NRSur7dq4 is differentiated directly in reverse mode: a gradient costs 17.82 ms (6.0× a waveform) after 9.3 s of compilation.</p>
 </section>
 
 <section id="performance">
@@ -1924,15 +2935,15 @@ z
     <table>
       <thead><tr><th>Waveform</th><th class="num">First call</th><th class="num">Public function</th><th class="num">Compiled function</th><th class="num">waveformrs</th><th class="num">LAL</th><th class="num">LAL / compiled</th></tr></thead>
       <tbody>
-<tr><td>IMRPhenomXPNR, 8033 frequencies</td><td class="num">34.6 s</td><td class="num">23.63 ms</td><td class="num">15.62 ms</td><td class="num">2.82 ms</td><td class="num">12.70 ms</td><td class="num">0.8×</td></tr>
-<tr><td>NRSur7dq4, 4096 Hz from 20 Hz</td><td class="num">2.5 s</td><td class="num">3.06 ms</td><td class="num">2.81 ms</td><td class="num">pending</td><td class="num">6.11 ms</td><td class="num">2.2×</td></tr>
-<tr><td><code>simulate_td</code> of IMRPhenomXPNR, 4096 Hz from 20 Hz</td><td class="num">31.3 s</td><td class="num">32.46 ms</td><td class="num">–</td><td class="num">4.97 ms</td><td class="num">10.53 ms*</td><td class="num">0.3×</td></tr>
-<tr><td><code>simulate_fd</code> of NRSur7dq4, up to 2048 Hz from 20 Hz</td><td class="num">98.46 ms</td><td class="num">3.73 ms</td><td class="num">–</td><td class="num">pending</td><td class="num">5.91 ms</td><td class="num">1.6×</td></tr>
+<tr><td>IMRPhenomXPNR, 8033 frequencies</td><td class="num">37.6 s</td><td class="num">25.58 ms</td><td class="num">16.18 ms</td><td class="num">3.10 ms</td><td class="num">13.54 ms</td><td class="num">0.8×</td></tr>
+<tr><td>NRSur7dq4, 4096 Hz from 20 Hz</td><td class="num">2.6 s</td><td class="num">3.16 ms</td><td class="num">2.90 ms</td><td class="num">1.07 ms</td><td class="num">6.18 ms</td><td class="num">2.1×</td></tr>
+<tr><td><code>simulate_td</code> of IMRPhenomXPNR, 4096 Hz from 20 Hz</td><td class="num">33.2 s</td><td class="num">36.48 ms</td><td class="num">–</td><td class="num">5.52 ms</td><td class="num">13.96 ms</td><td class="num">0.4×</td></tr>
+<tr><td><code>simulate_fd</code> of NRSur7dq4, up to 2048 Hz from 20 Hz</td><td class="num">102 ms</td><td class="num">3.57 ms</td><td class="num">–</td><td class="num">1.06 ms</td><td class="num">5.76 ms</td><td class="num">1.6×</td></tr>
       </tbody>
-      <caption>One waveform per call. "First call" includes LAL's checks, tracing and compilation. "Public function" is a later call of <code>wf.polarizations</code> (or <code>td_polarizations</code>, <code>simulate_*</code>), including the checks on the host and the copy of the result. "Compiled function" is the jitted pure function alone. waveformrs is its fastest path from Python. Medians of 7 repeats. Preliminary: one binary called repeatedly. waveformrs's NRSur7dq4 times are pending, and the * marks LAL with its default multibanding, which does less work. Data: <code>report/data/timings.json</code>.</caption>
+      <caption>One waveform per call. "First call" includes LAL's checks, tracing and compilation. "Public function" is a later call of <code>wf.polarizations</code> (or <code>td_polarizations</code>, <code>simulate_*</code>), including the checks on the host and the copy of the result. "Compiled function" is the jitted pure function alone. waveformrs is its fastest path from Python. Medians of 7 repeats. Every call is for a different binary of a cycle of 16. Data: <code>report/data/timings.json</code>.</caption>
     </table>
   </div>
-  <p>A compiled IMRPhenomXPNR waveform takes 15.62 ms, against 12.70 ms for LALSimulation and 6.03 ms (2.82 ms on its grid path) for waveformrs. The JAX version is 5.5× slower than waveformrs's fastest path. The difference is the cost of being traceable. Every <code>jnp.where</code> evaluates both branches. Loops whose length depends on the binary run as <code>while_loop</code>s, which XLA cannot fuse across iterations. The SpinTaylor replica must step one GSL step at a time, and XLA's CPU code has no fused multiply-adds. XLA keeps about 3.1 cores busy for one IMRPhenomXPNR waveform, while LAL and waveformrs use one; JAX on a single core is still to be measured. NRSur7dq4 is dominated by vectorisable work (the fits at the nodes and the rotation of every mode sample), and takes 2.81 ms against 6.11 ms for LAL and 994 µs for waveformrs (from its one-thread batch).</p>
+  <p>A compiled IMRPhenomXPNR waveform takes 16.18 ms, against 13.54 ms for LALSimulation and 6.50 ms (3.10 ms on its grid path) for waveformrs. The public function adds 7.90 ms of checks on the host. To decide, as LAL would, whether a binary must change its precession prescription, they run a compiled pass through the set-up and the SpinTaylor integration; the pure function skips them. The JAX version is 5.2× slower than waveformrs's fastest path. The difference is the cost of being traceable. Every <code>jnp.where</code> evaluates both branches. Loops whose length depends on the binary run as <code>while_loop</code>s, which XLA cannot fuse across iterations. The SpinTaylor replica must step one GSL step at a time, and XLA's CPU code has no fused multiply-adds. XLA keeps about 3.2 cores busy for one IMRPhenomXPNR waveform, while LAL and waveformrs use one; JAX on a single core is still to be measured. NRSur7dq4 is dominated by vectorisable work (the fits at the nodes and the rotation of every mode sample), and takes 2.90 ms against 6.18 ms for LAL and 1.07 ms for waveformrs. The conversion <code>simulate_td</code> of IMRPhenomXPNR takes 36.48 ms, against 13.96 ms for LAL with multibanding off (11.53 ms with its default multibanding) and 5.52 ms for waveformrs.</p>
   <h3>Batches</h3>
   <figure class="wide">
     <div class="plot"><svg role="img" aria-label="Waveforms per second against the number of binaries per call" xmlns:xlink="http://www.w3.org/1999/xlink" width="599.76pt" height="225.36pt" viewBox="0 0 599.76 225.36" xmlns="http://www.w3.org/2000/svg" version="1.1">
@@ -2161,8 +3172,8 @@ L 289.771277 20.038594
    <g id="matplotlib.axis_2">
     <g id="ytick_1">
      <g id="line2d_19">
-      <path d="M 43.040703 151.764653 
-L 301.520352 151.764653 
+      <path d="M 43.040703 151.566766 
+L 301.520352 151.566766 
 " clip-path="url(#p32b4012ff5)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
      </g>
      <g id="line2d_20">
@@ -2172,12 +3183,12 @@ L -3.5 0
 " style="stroke: var(--muted); stroke-width: 0.8"/>
       </defs>
       <g>
-       <use xlink:href="#m2760d60649" x="43.040703" y="151.764653" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+       <use xlink:href="#m2760d60649" x="43.040703" y="151.566766" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
       </g>
      </g>
      <g id="text_11">
       <!-- $\mathdefault{10^{2}}$ -->
-      <g style="fill: var(--fg)" transform="translate(20.200703 155.994653)">
+      <g style="fill: var(--fg)" transform="translate(20.200703 155.796766)">
        <text>
         <tspan x="0" y="-0.60175" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">1</tspan>
         <tspan x="5.726074" y="-0.60175" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">0</tspan>
@@ -2188,18 +3199,18 @@ L -3.5 0
     </g>
     <g id="ytick_2">
      <g id="line2d_21">
-      <path d="M 43.040703 76.047271 
-L 301.520352 76.047271 
+      <path d="M 43.040703 75.672606 
+L 301.520352 75.672606 
 " clip-path="url(#p32b4012ff5)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
      </g>
      <g id="line2d_22">
       <g>
-       <use xlink:href="#m2760d60649" x="43.040703" y="76.047271" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+       <use xlink:href="#m2760d60649" x="43.040703" y="75.672606" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
       </g>
      </g>
      <g id="text_12">
       <!-- $\mathdefault{10^{3}}$ -->
-      <g style="fill: var(--fg)" transform="translate(20.200703 80.277271)">
+      <g style="fill: var(--fg)" transform="translate(20.200703 79.902606)">
        <text>
         <tspan x="0" y="-0.60175" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">1</tspan>
         <tspan x="5.726074" y="-0.60175" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">0</tspan>
@@ -2216,126 +3227,126 @@ L -2 0
 " style="stroke: var(--muted); stroke-width: 0.6"/>
       </defs>
       <g>
-       <use xlink:href="#mc7fd3bc258" x="43.040703" y="181.895628" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="181.768089" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
       </g>
      </g>
     </g>
     <g id="ytick_4">
      <g id="line2d_24">
       <g>
-       <use xlink:href="#mc7fd3bc258" x="43.040703" y="174.557856" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="174.413185" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
       </g>
      </g>
     </g>
     <g id="ytick_5">
      <g id="line2d_25">
       <g>
-       <use xlink:href="#mc7fd3bc258" x="43.040703" y="168.562459" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="168.403791" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
       </g>
      </g>
     </g>
     <g id="ytick_6">
      <g id="line2d_26">
       <g>
-       <use xlink:href="#mc7fd3bc258" x="43.040703" y="163.493424" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="163.322921" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
       </g>
      </g>
     </g>
     <g id="ytick_7">
      <g id="line2d_27">
       <g>
-       <use xlink:href="#mc7fd3bc258" x="43.040703" y="159.102425" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="158.92167" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
       </g>
      </g>
     </g>
     <g id="ytick_8">
      <g id="line2d_28">
       <g>
-       <use xlink:href="#mc7fd3bc258" x="43.040703" y="155.22929" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="155.039493" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
       </g>
      </g>
     </g>
     <g id="ytick_9">
      <g id="line2d_29">
       <g>
-       <use xlink:href="#mc7fd3bc258" x="43.040703" y="128.971449" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="128.720347" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
       </g>
      </g>
     </g>
     <g id="ytick_10">
      <g id="line2d_30">
       <g>
-       <use xlink:href="#mc7fd3bc258" x="43.040703" y="115.63828" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="115.356049" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
       </g>
      </g>
     </g>
     <g id="ytick_11">
      <g id="line2d_31">
       <g>
-       <use xlink:href="#mc7fd3bc258" x="43.040703" y="106.178246" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="105.873929" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
       </g>
      </g>
     </g>
     <g id="ytick_12">
      <g id="line2d_32">
       <g>
-       <use xlink:href="#mc7fd3bc258" x="43.040703" y="98.840474" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="98.519025" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
       </g>
      </g>
     </g>
     <g id="ytick_13">
      <g id="line2d_33">
       <g>
-       <use xlink:href="#mc7fd3bc258" x="43.040703" y="92.845077" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="92.50963" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
       </g>
      </g>
     </g>
     <g id="ytick_14">
      <g id="line2d_34">
       <g>
-       <use xlink:href="#mc7fd3bc258" x="43.040703" y="87.776041" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="87.42876" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
       </g>
      </g>
     </g>
     <g id="ytick_15">
      <g id="line2d_35">
       <g>
-       <use xlink:href="#mc7fd3bc258" x="43.040703" y="83.385043" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="83.02751" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
       </g>
      </g>
     </g>
     <g id="ytick_16">
      <g id="line2d_36">
       <g>
-       <use xlink:href="#mc7fd3bc258" x="43.040703" y="79.511908" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="79.145332" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
       </g>
      </g>
     </g>
     <g id="ytick_17">
      <g id="line2d_37">
       <g>
-       <use xlink:href="#mc7fd3bc258" x="43.040703" y="53.254067" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="52.826187" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
       </g>
      </g>
     </g>
     <g id="ytick_18">
      <g id="line2d_38">
       <g>
-       <use xlink:href="#mc7fd3bc258" x="43.040703" y="39.920898" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="39.461889" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
       </g>
      </g>
     </g>
     <g id="ytick_19">
      <g id="line2d_39">
       <g>
-       <use xlink:href="#mc7fd3bc258" x="43.040703" y="30.460864" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="29.979768" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
       </g>
      </g>
     </g>
     <g id="ytick_20">
      <g id="line2d_40">
       <g>
-       <use xlink:href="#mc7fd3bc258" x="43.040703" y="23.123092" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="22.624864" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
       </g>
      </g>
     </g>
@@ -2345,10 +3356,10 @@ L -2 0
    </g>
    <g id="line2d_41">
     <path d="M 54.789778 179.923615 
-L 113.535153 170.654328 
-L 172.280527 160.783892 
-L 231.025902 152.874227 
-L 289.771277 150.277079 
+L 113.535153 171.748717 
+L 172.280527 162.327186 
+L 231.025902 153.851069 
+L 289.771277 151.072292 
 " clip-path="url(#p32b4012ff5)" style="fill: none; stroke: #3b7dd8; stroke-width: 1.2; stroke-linecap: square"/>
     <defs>
      <path id="m79f4f567a7" d="M 0 2 
@@ -2365,10 +3376,10 @@ z
     </defs>
     <g clip-path="url(#p32b4012ff5)">
      <use xlink:href="#m79f4f567a7" x="54.789778" y="179.923615" style="fill: #3b7dd8; stroke: #3b7dd8"/>
-     <use xlink:href="#m79f4f567a7" x="113.535153" y="170.654328" style="fill: #3b7dd8; stroke: #3b7dd8"/>
-     <use xlink:href="#m79f4f567a7" x="172.280527" y="160.783892" style="fill: #3b7dd8; stroke: #3b7dd8"/>
-     <use xlink:href="#m79f4f567a7" x="231.025902" y="152.874227" style="fill: #3b7dd8; stroke: #3b7dd8"/>
-     <use xlink:href="#m79f4f567a7" x="289.771277" y="150.277079" style="fill: #3b7dd8; stroke: #3b7dd8"/>
+     <use xlink:href="#m79f4f567a7" x="113.535153" y="171.748717" style="fill: #3b7dd8; stroke: #3b7dd8"/>
+     <use xlink:href="#m79f4f567a7" x="172.280527" y="162.327186" style="fill: #3b7dd8; stroke: #3b7dd8"/>
+     <use xlink:href="#m79f4f567a7" x="231.025902" y="153.851069" style="fill: #3b7dd8; stroke: #3b7dd8"/>
+     <use xlink:href="#m79f4f567a7" x="289.771277" y="151.072292" style="fill: #3b7dd8; stroke: #3b7dd8"/>
     </g>
    </g>
    <g id="line2d_42">
@@ -2377,13 +3388,13 @@ L 301.520352 27.652166
 " clip-path="url(#p32b4012ff5)" style="fill: none; stroke-dasharray: 4.07,1.76; stroke-dashoffset: 0; stroke: #d0612f; stroke-width: 1.1"/>
    </g>
    <g id="line2d_43">
-    <path d="M 43.040703 111.956422 
-L 301.520352 111.956422 
+    <path d="M 43.040703 114.176912 
+L 301.520352 114.176912 
 " clip-path="url(#p32b4012ff5)" style="fill: none; stroke-dasharray: 1.1,1.815; stroke-dashoffset: 0; stroke: #d0612f; stroke-width: 1.1"/>
    </g>
    <g id="line2d_44">
-    <path d="M 43.040703 160.537823 
-L 301.520352 160.537823 
+    <path d="M 43.040703 162.306861 
+L 301.520352 162.306861 
 " clip-path="url(#p32b4012ff5)" style="fill: none; stroke-dasharray: 7.04,1.76,1.1,1.76; stroke-dashoffset: 0; stroke: #2f9e6e; stroke-width: 1.1"/>
    </g>
    <g id="line2d_45">
@@ -2396,7 +3407,7 @@ z
 " style="stroke: #9b59c9; stroke-linejoin: miter"/>
     </defs>
     <g clip-path="url(#p32b4012ff5)">
-     <use xlink:href="#m5d5ea74d07" x="54.789778" y="166.437566" style="fill: #9b59c9; stroke: #9b59c9; stroke-linejoin: miter"/>
+     <use xlink:href="#m5d5ea74d07" x="54.789778" y="167.424973" style="fill: #9b59c9; stroke: #9b59c9; stroke-linejoin: miter"/>
     </g>
    </g>
    <g id="patch_3">
@@ -2620,18 +3631,18 @@ L 580.810925 20.038594
    <g id="matplotlib.axis_4">
     <g id="ytick_21">
      <g id="line2d_64">
-      <path d="M 334.080352 117.165951 
-L 592.56 117.165951 
+      <path d="M 334.080352 113.018887 
+L 592.56 113.018887 
 " clip-path="url(#p2dcd5644e2)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
      </g>
      <g id="line2d_65">
       <g>
-       <use xlink:href="#m2760d60649" x="334.080352" y="117.165951" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+       <use xlink:href="#m2760d60649" x="334.080352" y="113.018887" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
       </g>
      </g>
      <g id="text_25">
       <!-- $\mathdefault{10^{3}}$ -->
-      <g style="fill: var(--fg)" transform="translate(311.240352 121.395951)">
+      <g style="fill: var(--fg)" transform="translate(311.240352 117.248887)">
        <text>
         <tspan x="0" y="-0.60175" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">1</tspan>
         <tspan x="5.726074" y="-0.60175" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">0</tspan>
@@ -2642,18 +3653,18 @@ L 592.56 117.165951
     </g>
     <g id="ytick_22">
      <g id="line2d_66">
-      <path d="M 334.080352 33.745179 
-L 592.56 33.745179 
+      <path d="M 334.080352 31.360935 
+L 592.56 31.360935 
 " clip-path="url(#p2dcd5644e2)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
      </g>
      <g id="line2d_67">
       <g>
-       <use xlink:href="#m2760d60649" x="334.080352" y="33.745179" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+       <use xlink:href="#m2760d60649" x="334.080352" y="31.360935" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
       </g>
      </g>
      <g id="text_26">
       <!-- $\mathdefault{10^{4}}$ -->
-      <g style="fill: var(--fg)" transform="translate(311.240352 37.930179)">
+      <g style="fill: var(--fg)" transform="translate(311.240352 35.545935)">
        <text>
         <tspan x="0" y="-0.68925" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">1</tspan>
         <tspan x="5.726074" y="-0.68925" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">0</tspan>
@@ -2665,129 +3676,129 @@ L 592.56 33.745179
     <g id="ytick_23">
      <g id="line2d_68">
       <g>
-       <use xlink:href="#mc7fd3bc258" x="334.080352" y="175.474568" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+       <use xlink:href="#mc7fd3bc258" x="334.080352" y="170.095346" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
       </g>
      </g>
     </g>
     <g id="ytick_24">
      <g id="line2d_69">
       <g>
-       <use xlink:href="#mc7fd3bc258" x="334.080352" y="160.784899" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+       <use xlink:href="#mc7fd3bc258" x="334.080352" y="155.716094" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
       </g>
      </g>
     </g>
     <g id="ytick_25">
      <g id="line2d_70">
       <g>
-       <use xlink:href="#mc7fd3bc258" x="334.080352" y="150.362414" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+       <use xlink:href="#mc7fd3bc258" x="334.080352" y="145.513853" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
       </g>
      </g>
     </g>
     <g id="ytick_26">
      <g id="line2d_71">
       <g>
-       <use xlink:href="#mc7fd3bc258" x="334.080352" y="142.278105" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+       <use xlink:href="#mc7fd3bc258" x="334.080352" y="137.60038" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
       </g>
      </g>
     </g>
     <g id="ytick_27">
      <g id="line2d_72">
       <g>
-       <use xlink:href="#mc7fd3bc258" x="334.080352" y="135.672745" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+       <use xlink:href="#mc7fd3bc258" x="334.080352" y="131.134601" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
       </g>
      </g>
     </g>
     <g id="ytick_28">
      <g id="line2d_73">
       <g>
-       <use xlink:href="#mc7fd3bc258" x="334.080352" y="130.087992" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+       <use xlink:href="#mc7fd3bc258" x="334.080352" y="125.667864" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
       </g>
      </g>
     </g>
     <g id="ytick_29">
      <g id="line2d_74">
       <g>
-       <use xlink:href="#mc7fd3bc258" x="334.080352" y="125.250259" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+       <use xlink:href="#mc7fd3bc258" x="334.080352" y="120.93236" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
       </g>
      </g>
     </g>
     <g id="ytick_30">
      <g id="line2d_75">
       <g>
-       <use xlink:href="#mc7fd3bc258" x="334.080352" y="120.983076" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+       <use xlink:href="#mc7fd3bc258" x="334.080352" y="116.75535" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
       </g>
      </g>
     </g>
     <g id="ytick_31">
      <g id="line2d_76">
       <g>
-       <use xlink:href="#mc7fd3bc258" x="334.080352" y="92.053796" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+       <use xlink:href="#mc7fd3bc258" x="334.080352" y="88.437394" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
       </g>
      </g>
     </g>
     <g id="ytick_32">
      <g id="line2d_77">
       <g>
-       <use xlink:href="#mc7fd3bc258" x="334.080352" y="77.364127" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+       <use xlink:href="#mc7fd3bc258" x="334.080352" y="74.058143" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
       </g>
      </g>
     </g>
     <g id="ytick_33">
      <g id="line2d_78">
       <g>
-       <use xlink:href="#mc7fd3bc258" x="334.080352" y="66.941642" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+       <use xlink:href="#mc7fd3bc258" x="334.080352" y="63.855901" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
       </g>
      </g>
     </g>
     <g id="ytick_34">
      <g id="line2d_79">
       <g>
-       <use xlink:href="#mc7fd3bc258" x="334.080352" y="58.857334" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+       <use xlink:href="#mc7fd3bc258" x="334.080352" y="55.942428" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
       </g>
      </g>
     </g>
     <g id="ytick_35">
      <g id="line2d_80">
       <g>
-       <use xlink:href="#mc7fd3bc258" x="334.080352" y="52.251973" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+       <use xlink:href="#mc7fd3bc258" x="334.080352" y="49.47665" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
       </g>
      </g>
     </g>
     <g id="ytick_36">
      <g id="line2d_81">
       <g>
-       <use xlink:href="#mc7fd3bc258" x="334.080352" y="46.66722" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+       <use xlink:href="#mc7fd3bc258" x="334.080352" y="44.009912" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
       </g>
      </g>
     </g>
     <g id="ytick_37">
      <g id="line2d_82">
       <g>
-       <use xlink:href="#mc7fd3bc258" x="334.080352" y="41.829487" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+       <use xlink:href="#mc7fd3bc258" x="334.080352" y="39.274409" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
       </g>
      </g>
     </g>
     <g id="ytick_38">
      <g id="line2d_83">
       <g>
-       <use xlink:href="#mc7fd3bc258" x="334.080352" y="37.562304" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+       <use xlink:href="#mc7fd3bc258" x="334.080352" y="35.097398" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
       </g>
      </g>
     </g>
    </g>
    <g id="line2d_84">
-    <path d="M 345.829426 153.631072 
-L 404.574801 138.114014 
-L 463.320176 131.213052 
-L 522.06555 127.237935 
-L 580.810925 126.342235 
+    <path d="M 345.829426 149.914502 
+L 404.574801 136.691528 
+L 463.320176 128.191019 
+L 522.06555 123.900764 
+L 580.810925 123.582167 
 " clip-path="url(#p2dcd5644e2)" style="fill: none; stroke: #3b7dd8; stroke-width: 1.2; stroke-linecap: square"/>
     <g clip-path="url(#p2dcd5644e2)">
-     <use xlink:href="#m79f4f567a7" x="345.829426" y="153.631072" style="fill: #3b7dd8; stroke: #3b7dd8"/>
-     <use xlink:href="#m79f4f567a7" x="404.574801" y="138.114014" style="fill: #3b7dd8; stroke: #3b7dd8"/>
-     <use xlink:href="#m79f4f567a7" x="463.320176" y="131.213052" style="fill: #3b7dd8; stroke: #3b7dd8"/>
-     <use xlink:href="#m79f4f567a7" x="522.06555" y="127.237935" style="fill: #3b7dd8; stroke: #3b7dd8"/>
-     <use xlink:href="#m79f4f567a7" x="580.810925" y="126.342235" style="fill: #3b7dd8; stroke: #3b7dd8"/>
+     <use xlink:href="#m79f4f567a7" x="345.829426" y="149.914502" style="fill: #3b7dd8; stroke: #3b7dd8"/>
+     <use xlink:href="#m79f4f567a7" x="404.574801" y="136.691528" style="fill: #3b7dd8; stroke: #3b7dd8"/>
+     <use xlink:href="#m79f4f567a7" x="463.320176" y="128.191019" style="fill: #3b7dd8; stroke: #3b7dd8"/>
+     <use xlink:href="#m79f4f567a7" x="522.06555" y="123.900764" style="fill: #3b7dd8; stroke: #3b7dd8"/>
+     <use xlink:href="#m79f4f567a7" x="580.810925" y="123.582167" style="fill: #3b7dd8; stroke: #3b7dd8"/>
     </g>
    </g>
    <g id="line2d_85">
@@ -2796,8 +3807,8 @@ L 592.56 27.652166
 " clip-path="url(#p2dcd5644e2)" style="fill: none; stroke-dasharray: 4.07,1.76; stroke-dashoffset: 0; stroke: #d0612f; stroke-width: 1.1"/>
    </g>
    <g id="line2d_86">
-    <path d="M 334.080352 116.935058 
-L 592.56 116.935058 
+    <path d="M 334.080352 116.120845 
+L 592.56 116.120845 
 " clip-path="url(#p2dcd5644e2)" style="fill: none; stroke-dasharray: 1.1,1.815; stroke-dashoffset: 0; stroke: #d0612f; stroke-width: 1.1"/>
    </g>
    <g id="line2d_87">
@@ -2807,7 +3818,7 @@ L 592.56 179.923615
    </g>
    <g id="line2d_88">
     <g clip-path="url(#p2dcd5644e2)">
-     <use xlink:href="#m5d5ea74d07" x="345.829426" y="154.623155" style="fill: #9b59c9; stroke: #9b59c9; stroke-linejoin: miter"/>
+     <use xlink:href="#m5d5ea74d07" x="345.829426" y="150.825479" style="fill: #9b59c9; stroke: #9b59c9; stroke-linejoin: miter"/>
     </g>
    </g>
    <g id="patch_6">
@@ -2890,12 +3901,12 @@ L 480.508828 165.109844
     <table>
       <thead><tr><th>Binaries per call</th><th class="num">1</th><th class="num">4</th><th class="num">16</th><th class="num">64</th><th class="num">256</th></tr></thead>
       <tbody>
-<tr><td>IMRPhenomXPNR, waveforms/s</td><td class="num">42</td><td class="num">56</td><td class="num">76</td><td class="num">97</td><td class="num">105</td></tr>
-<tr><td>IMRPhenomXPNR, compilation</td><td class="num">42.9 s</td><td class="num">43.0 s</td><td class="num">43.6 s</td><td class="num">45.7 s</td><td class="num">45.7 s</td></tr>
-<tr><td>IMRPhenomXPNR, cores busy</td><td class="num">3.4</td><td class="num">3.8</td><td class="num">4.7</td><td class="num">5.6</td><td class="num">5.7</td></tr>
-<tr><td>NRSur7dq4, waveforms/s</td><td class="num">365</td><td class="num">561</td><td class="num">679</td><td class="num">757</td><td class="num">776</td></tr>
-<tr><td>NRSur7dq4, compilation</td><td class="num">2.1 s</td><td class="num">1.9 s</td><td class="num">2.0 s</td><td class="num">2.1 s</td><td class="num">4.1 s</td></tr>
-<tr><td>NRSur7dq4, cores busy</td><td class="num">5.5</td><td class="num">4.2</td><td class="num">4.4</td><td class="num">7.1</td><td class="num">7.3</td></tr>
+<tr><td>IMRPhenomXPNR, waveforms/s</td><td class="num">42</td><td class="num">54</td><td class="num">72</td><td class="num">93</td><td class="num">102</td></tr>
+<tr><td>IMRPhenomXPNR, compilation</td><td class="num">45.3 s</td><td class="num">46.2 s</td><td class="num">48.2 s</td><td class="num">46.7 s</td><td class="num">50.6 s</td></tr>
+<tr><td>IMRPhenomXPNR, cores busy</td><td class="num">3.2</td><td class="num">3.8</td><td class="num">4.7</td><td class="num">5.5</td><td class="num">5.5</td></tr>
+<tr><td>NRSur7dq4, waveforms/s</td><td class="num">353</td><td class="num">513</td><td class="num">652</td><td class="num">736</td><td class="num">742</td></tr>
+<tr><td>NRSur7dq4, compilation</td><td class="num">2.2 s</td><td class="num">2.2 s</td><td class="num">2.2 s</td><td class="num">2.3 s</td><td class="num">4.6 s</td></tr>
+<tr><td>NRSur7dq4, cores busy</td><td class="num">6.0</td><td class="num">4.1</td><td class="num">4.3</td><td class="num">6.9</td><td class="num">7.3</td></tr>
       </tbody>
       <caption>Throughput, compilation time and cores kept busy (process CPU time over wall time) for each batch size. NRSur7dq4 is evaluated on LAL's output grid of the benchmark binary.</caption>
     </table>
@@ -2904,13 +3915,13 @@ L 480.508828 165.109844
     <table>
       <thead><tr><th>64 binaries</th><th class="num">LAL loop</th><th class="num">waveformrs, 1 thread</th><th class="num">waveformrs, all threads</th><th class="num">waveformjax</th><th class="num">First call</th></tr></thead>
       <tbody>
-<tr><td>IMRPhenomXPNR</td><td class="num">77</td><td class="num">336</td><td class="num">4,357</td><td class="num">57</td><td class="num">45.0 s</td></tr>
-<tr><td>NRSur7dq4</td><td class="num">177</td><td class="num">1,006</td><td class="num">11,831</td><td class="num">725</td><td class="num">2.4 s</td></tr>
+<tr><td>IMRPhenomXPNR</td><td class="num">72</td><td class="num">311</td><td class="num">4,293</td><td class="num">53</td><td class="num">48.9 s</td></tr>
+<tr><td>NRSur7dq4</td><td class="num">152</td><td class="num">916</td><td class="num">11,102</td><td class="num">666</td><td class="num">2.6 s</td></tr>
       </tbody>
       <caption>Waveforms per second through the public batch functions (<code>batch_polarizations</code>, <code>batch_td_polarizations</code>), including LAL's checks of every binary on the host.</caption>
     </table>
   </div>
-  <p>Under <code>jax.vmap</code>, IMRPhenomXPNR reaches 105 waveforms per second. Batching amortises the per-call overhead and XLA spreads the vectorised work over cores, but the loops run to the longest binary in the batch and the branches of all binaries are computed. Each batch size is compiled separately (45.7 s for 64). waveformrs on all threads, with a thread per binary and no padding, remains faster on a CPU. The JAX version is meant for code that is itself written in JAX: a likelihood that is jitted and differentiated end to end, or a sampler that runs on an accelerator.</p>
+  <p>Under <code>jax.vmap</code>, IMRPhenomXPNR reaches 102 waveforms per second. Batching amortises the per-call overhead and XLA spreads the vectorised work over cores, but the loops run to the longest binary in the batch and the branches of all binaries are computed. Each batch size is compiled separately (46.7 s for 64). waveformrs on all threads, with a thread per binary and no padding, remains faster on a CPU. The JAX version is meant for code that is itself written in JAX: a likelihood that is jitted and differentiated end to end, or a sampler that runs on an accelerator.</p>
 </section>
 
 <section id="differences">
