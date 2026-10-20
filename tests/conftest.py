@@ -7,7 +7,7 @@
   angles race in the OpenMP loop of IMRPhenomXP.
 * The NRSur7dq4 data are found through ``NRSUR7DQ4_DATA`` (the file) or
   ``LAL_DATA_PATH`` (its directory), else in waveformrs's ``lal_data/`` next
-  to this repository.
+  to this repository (or next to one of its parents, for git worktrees).
 """
 
 import os
@@ -22,7 +22,12 @@ import pytest  # noqa: E402
 import waveformjax  # noqa: E402, F401 (enables 64-bit floats)
 
 DATA_FILE = "NRSur7dq4_v1.0.h5"
-_SIBLING = Path(__file__).resolve().parents[2] / "waveformrs" / "lal_data" / DATA_FILE
+# waveformrs next to this repository, or next to a parent (from a git worktree)
+_SIBLING = next(
+    (p / "waveformrs" / "lal_data" / DATA_FILE for p in Path(__file__).resolve().parents[2:]
+     if (p / "waveformrs" / "lal_data" / DATA_FILE).is_file()),
+    Path(__file__).resolve().parents[2] / "waveformrs" / "lal_data" / DATA_FILE,
+)
 if waveformjax.nrsur7dq4_data_file() is None and _SIBLING.is_file():
     os.environ["NRSUR7DQ4_DATA"] = str(_SIBLING)
 NRSUR_DATA = waveformjax.nrsur7dq4_data_file()
