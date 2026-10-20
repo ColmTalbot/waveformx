@@ -297,14 +297,17 @@ def _load_cached(path: str) -> NRSurData:
     static = {name: arrays.pop(name) for name in ("ei_bounds", "ei_spins")}
     t_ds, t_coorb = arrays["t_ds"], arrays["t_coorb"]
     index = np.clip(np.searchsorted(t_ds, t_coorb, side="right") - 1, 0, t_ds.size - 2)
-    return NRSurData(
-        **{name: jnp.asarray(value) for name, value in arrays.items()},
-        ds_knots=factorize(t_ds),
-        coorb_knots=factorize(t_coorb),
-        coorb_index=jnp.asarray(index, dtype=jnp.int32),
-        coorb_delx=jnp.asarray(t_coorb - t_ds[index]),
-        **static,
-    )
+    # concrete arrays even when the first call is inside a JAX trace (the
+    # pure functions under jax.jit): they are cached beyond the trace
+    with jax.ensure_compile_time_eval():
+        return NRSurData(
+            **{name: jnp.asarray(value) for name, value in arrays.items()},
+            ds_knots=factorize(t_ds),
+            coorb_knots=factorize(t_coorb),
+            coorb_index=jnp.asarray(index, dtype=jnp.int32),
+            coorb_delx=jnp.asarray(t_coorb - t_ds[index]),
+            **static,
+        )
 
 
 def load(path=None) -> NRSurData:

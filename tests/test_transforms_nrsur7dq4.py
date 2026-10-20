@@ -58,6 +58,21 @@ def test_jit_matches_plain_call(function):
         assert np.max(np.abs(np.asarray(a) - np.asarray(b))) < 1e-13 * scale
 
 
+def test_data_first_read_under_jit(function):
+    """The data read by a first call inside ``jax.jit`` are concrete arrays,
+    so later calls (outside that trace) can use them."""
+    from waveformjax.models.nrsur7dq4 import _data
+
+    _data._load_cached.cache_clear()
+    compiled = jax.jit(function)(as_floats(PRECESSING), TIMES)
+    plain = function(as_floats(PRECESSING), TIMES)
+    scale = np.max(np.abs(plain[0]))
+    for a, b in zip(plain, compiled):
+        assert np.max(np.abs(np.asarray(a) - np.asarray(b))) < 1e-13 * scale
+    assert all(isinstance(leaf, (jax.Array, int, tuple)) and not isinstance(leaf, jax.core.Tracer)
+               for leaf in jax.tree_util.tree_leaves(_data.default_data()))
+
+
 def test_vmap_matches_loop(function):
     binaries = [as_floats(PRECESSING), as_floats(NEARLY_ALIGNED), as_floats(PRECESSING._replace(mass_1=25.0, f_ref=0.0))]
     stacked = jax.tree_util.tree_map(lambda *x: jnp.stack(x), *binaries)
