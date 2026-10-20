@@ -15,7 +15,9 @@ The package has the same interface as the Python bindings of
 - **IMRPhenomXPNR** (frequency domain): precessing spins with higher modes,
   tuned to numerical relativity. By default it includes the parity fix from
   the development version of LALSuite; the behaviour of the LALSimulation
-  releases is available as an option.
+  releases is available as an option. Its derivatives are computed in
+  forward mode, so `jax.jvp` and `jax.jacfwd` work as well as `jax.grad`,
+  and `jax.vmap` evaluates a batch of binaries together.
 - **NRSur7dq4** (time domain): numerical-relativity surrogate for precessing
   binaries with higher modes. It gives LALSimulation's polarizations and
   modes, with the same length and start time; its pure function evaluates

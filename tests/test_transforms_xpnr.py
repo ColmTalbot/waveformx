@@ -94,6 +94,17 @@ STEP = 1e-6
 TOLERANCE = 2e-5
 
 
+def test_forward_mode_matches_gradient():
+    """``jax.jvp`` (the model's derivatives are forward-mode Jacobians, of
+    which ``jax.grad`` transposes the contraction) along a direction: the
+    gradient's projection on it."""
+    x = jnp.asarray(BINARIES["generic"])
+    direction = jnp.asarray(np.random.default_rng(5).normal(size=x.shape)) * jnp.abs(x)
+    jvp = jax.jit(lambda x, v: jax.jvp(loss, (x,), (v,))[1])
+    expected = float(jnp.dot(compiled("grad")(x), direction))
+    assert float(jvp(x, direction)) == pytest.approx(expected, rel=1e-10)
+
+
 @pytest.mark.parametrize("which", list(BINARIES))
 def test_gradient_matches_finite_differences(which):
     x = jnp.asarray(BINARIES[which])

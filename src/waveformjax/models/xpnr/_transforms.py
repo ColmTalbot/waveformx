@@ -27,7 +27,8 @@ Under ``jax.vmap`` the model is ``jax.vmap`` of the single binary, with its
 choices made by :func:`switch` and :func:`cond`, which compute a branch for
 the whole batch only if some binary of the batch takes it (``jax.lax.switch``
 and ``jax.lax.cond`` with a batched predicate compute every branch). Its loops
-run to the longest of the batch.
+(:func:`while_loop`) run to the longest of the batch, keeping their large
+buffers out of the per-iteration selection of ``jax.lax.while_loop``.
 """
 
 from __future__ import annotations

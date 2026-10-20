@@ -43,6 +43,7 @@ from ._math import (
     rotate_y, rotate_z, safe_div, safe_sqrt,
 )
 from .hm import qnm as _hm_qnm
+from ._transforms import switch
 from .spintaylor import angles as st_angles
 
 __all__ = ["common_setup", "finish_setup"]
@@ -686,7 +687,7 @@ def _st_context(prec, wf):
 
 
 #: Above this many points, the SpinTaylor splines are evaluated in chunks.
-ST_MANY = 64
+ST_MANY = 1024
 
 
 def _st_anchors(prec):
@@ -1167,6 +1168,21 @@ def region_alpha_at(prec, wf, mf, ap, version):
     return value, error
 
 
+def region_alpha_many(prec, wf, mf, ap, version, n):
+    """:func:`region_alpha_at` at the first ``n`` (traced) of many points
+    ``mf`` (a 1-d array), by chunks (:func:`~._math.chunked_map`; zeros
+    beyond the chunks needed)."""
+    if mf.shape[0] <= PNR_GRID_CHUNK:
+        return region_alpha_at(prec, wf, mf, ap, version)
+    fallback = isinstance(version, Fallback)
+
+    def evaluate(x, args):
+        prec, wf, ap, msa = args
+        return region_alpha_at(prec, wf, x, ap, Fallback(msa) if fallback else version)
+
+    return chunked_map(evaluate, mf, n, PNR_GRID_CHUNK, (prec, wf, ap, version.msa if fallback else None))
+
+
 def pnr_beta_at(prec, wf, mf, bp, version, use_mr_beta):
     """``IMRPhenomX_PNR_GeneratePNRBetaAtMf``."""
     beta_pn, error = pn_beta(prec, wf, mf, bp, version, use_mr_beta)
@@ -1218,33 +1234,50 @@ def beta_no_mr(prec, wf, mf, bp, version, use_mr_beta):
     return pa.arctan_window(waveform_beta(prec, wf, mf, beta)), error
 
 
-def uniform_angles(prec, wf, mf, version):
+def uniform_angles(prec, wf, mf, version, st_values=None):
     """``IMRPhenomX_PNR_GeneratePNRAngles_UniformFrequencies`` without
     ``gamma``: ``alpha`` and ``beta`` at ``mf`` (an array) and the error
-    flag of each point."""
+    flag of each point. ``st_values`` are the SpinTaylor splines at ``mf``
+    (version 330), if computed already.
+
+    LAL's ``beta`` depends on the region of the binary (calibration,
+    transition, outside) and on whether the MR ``beta`` is attached: only
+    the variant of the binary is computed (:func:`._transforms.switch`;
+    under ``jax.vmap``, those of the batch)."""
     prec, wf = barrier((prec, wf))
     ap, bp = prec.alpha_params, prec.beta_params
     attach = pa.attach_mr_beta(bp)
     cal = _in_calibration(prec, wf)
     tra = _in_transition(prec, wf)
-    false = jnp.asarray(False)
-    # calibration region
+    if st_values is not None:
+        _st_spline_put(prec, wf, mf, st_values)
+    # alpha: the regions share the PN alpha
     a_cal, ea_cal = pnr_alpha_at(prec, wf, mf, ap, version)
-    b_cal_mr, eb_cal_mr = pnr_beta_at(prec, wf, mf, bp, version, attach)
-    b_cal_no, eb_cal_no = beta_no_mr(prec, wf, mf, bp, version, false)
-    b_cal = jnp.where(attach, b_cal_mr, b_cal_no)
-    eb_cal = jnp.where(attach, eb_cal_mr, eb_cal_no)
-    # transition region
     a_tra, ea_tra = merged_alpha_at(prec, wf, mf, ap, version)
-    b_tra_mr, eb_tra_mr = merged_beta_at(prec, wf, mf, bp, version)
-    b_tra = jnp.where(attach, b_tra_mr, b_cal_no)
-    eb_tra = jnp.where(attach, eb_tra_mr, eb_cal_no)
-    # outside
     a_pn, ea_pn = pn_alpha(prec, wf, mf, version)
     alpha = jnp.where(cal, a_cal, jnp.where(tra, a_tra, a_pn))
-    beta = jnp.where(cal, b_cal, jnp.where(tra, b_tra, b_cal_no))
-    error = jnp.where(cal, ea_cal | eb_cal, jnp.where(tra, ea_tra | eb_tra, ea_pn | eb_cal_no))
-    return alpha, beta, error
+    error_alpha = jnp.where(cal, ea_cal, jnp.where(tra, ea_tra, ea_pn))
+
+    # beta: in the calibration region with the MR beta attached, in the
+    # transition region with it attached, else without
+    fallback = isinstance(version, Fallback)
+
+    def variant(beta_of):
+        def run(operands):
+            prec, wf, mf, bp, attach, msa, st_values = operands
+            v = Fallback(msa) if fallback else version
+            if st_values is not None:
+                _st_spline_put(prec, wf, mf, st_values)
+            return beta_of(prec, wf, mf, bp, v, attach)
+        return run
+
+    case = jnp.where(attach & cal, 0, jnp.where(attach & tra, 1, 2))
+    beta, error_beta = switch(case, [
+        variant(lambda prec, wf, mf, bp, v, attach: pnr_beta_at(prec, wf, mf, bp, v, attach)),
+        variant(lambda prec, wf, mf, bp, v, attach: merged_beta_at(prec, wf, mf, bp, v)),
+        variant(lambda prec, wf, mf, bp, v, attach: beta_no_mr(prec, wf, mf, bp, v, jnp.asarray(False))),
+    ], (prec, wf, mf, bp, attach, version.msa if fallback else None, st_values))
+    return alpha, beta, error_alpha | error_beta
 
 
 # ---------------------------------------------------------------------------
@@ -1393,22 +1426,27 @@ def angle_interpolants(prec, wf, grid, version, active=True):
     def frequencies(k, i_start, n, h):
         return (i_start + jnp.minimum(k, n - 1.0)) * h
 
-    # the angles on the grid
+    # the angles on the grid (the flag of a Fallback version passed in: the
+    # loop's body must not close over batched values)
+    fallback = isinstance(version, Fallback)
+
     def angles(index, args):
-        prec, wf, i_start, n, h = args
+        prec, wf, i_start, n, h, msa = args
+        version_ = Fallback(msa) if fallback else version
         k = index * chunk + jnp.arange(chunk, dtype=jnp.float64)
         valid = k < n
         mf = hz_to_mf(frequencies(k, i_start, n, h), wf.m_tot)
+        st_values = None
         if version == 330:
             # the SpinTaylor splines at the chunk's points, shared by the
             # angles below
             st, rotation, mf_scale, _, context = _st_context(prec, wf)
-            _st_spline_put(prec, wf, mf, st_angles.spline(st, rotation, mf, mf_scale, context))
-        alpha, beta, err = uniform_angles(prec, wf, mf, version)
+            st_values = st_angles.spline(st, rotation, mf, mf_scale, context)
+        alpha, beta, err = uniform_angles(prec, wf, mf, version_, st_values)
         return jnp.where(valid, alpha, 0.0), jnp.where(valid, beta, 0.0), jnp.any(err & valid)
 
     alpha, beta, errors = blocked_map(angles, jnp.arange(n_chunks), jnp.ceil(n_eval / chunk),
-                                      (prec, wf, i_start, n, h))
+                                      (prec, wf, i_start, n, h, version.msa if fallback else None))
     error = error | jnp.any(errors)
     alpha, beta = alpha.reshape(-1), beta.reshape(-1)
     m_alpha, m_beta = _uniform_natural_splines([alpha, beta], n, h, n_eval)
