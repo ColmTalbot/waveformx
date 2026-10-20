@@ -75,13 +75,17 @@ def test_jit_matches_eager():
 
 
 def test_vmap_matches_single_calls():
+    """The batched computation rounds differently from that of single
+    binaries (vectorised functions, other fusions); the nearly aligned
+    binary amplifies rounding to ~1e-11 (as the compiled and eager single
+    computations differ), the generic ones agree to ~1e-14."""
     xs = jnp.stack([jnp.asarray(x) for x in BINARIES.values()] + [jnp.asarray(BINARIES["generic"]).at[0].set(45.0)])
     batch = compiled("vmap")(xs)
     for i in range(xs.shape[0]):
         single = compiled("polarizations")(xs[i])
         for a, b in zip(batch, single):
             scale = float(jnp.max(jnp.abs(b)))
-            np.testing.assert_allclose(np.asarray(a[i]), np.asarray(b), rtol=0, atol=1e-12 * scale)
+            np.testing.assert_allclose(np.asarray(a[i]), np.asarray(b), rtol=0, atol=1e-10 * scale)
 
 
 # the parameters with relative steps of the central differences

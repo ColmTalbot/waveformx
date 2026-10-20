@@ -17,8 +17,7 @@ is evaluated wherever LAL has samples (:mod:`.angles`).
 The step size in time is ``h = du (M omega)^2 / (M domega/dt)`` from the state
 at the start of the step: a smooth function of the state, so the solution is
 differentiable. The steps run in a ``while_loop`` over the number of steps
-actually needed, with the reverse-mode derivative from
-:func:`.integrate.fixed_steps`.
+actually needed (:func:`.integrate.fixed_steps`).
 """
 
 from __future__ import annotations
@@ -94,10 +93,10 @@ _A, _B, _D = _tables()
 
 def _stages_looped(c, y, h, k0):
     """:func:`_stages` and the extra stages of the dense output with the
-    stages in a ``jax.lax.fori_loop`` (one copy of the equations, for the
-    derivatives; the sums of the stages are rounded differently). Returns
-    the stages (rows; row 12 is the derivative at the new state) and the
-    new state."""
+    stages in a ``jax.lax.fori_loop`` (one copy of the equations, for
+    :func:`evaluate_full`; the sums of the stages are rounded differently).
+    Returns the stages (rows; row 12 is the derivative at the new state)
+    and the new state."""
     k = jnp.zeros((dop853.N_STAGES_EXTENDED,) + y.shape, y.dtype).at[0].set(k0)
 
     def stage(s, k):
@@ -134,15 +133,6 @@ def _step_in_time(du, omega, omega_dot):
     return h0 * jnp.where(small, 1.0 + 5.0 / 6.0 * x, factor)
 
 
-def dop853_step_looped(aux, state):
-    """:func:`dop853_step` with the stages in a loop (for its derivative)."""
-    c, du = aux
-    y, k0 = state
-    h = _step_in_time(du, y[1], k0[1])
-    k, y_new = _stages_looped(c, y, h, k0)
-    return (y_new, k[dop853.N_STAGES]), (h, _dense_looped(y, h, k, y_new, DENSE_COMPONENTS))
-
-
 def dop853_step(aux, state):
     """One step of the trajectory: ``aux = (coefficients, du)`` with ``du``
     the (signed) increment of ``u = 1 / (M omega)``; ``state = (y, dy/dt)``.
@@ -169,7 +159,7 @@ def integrate(c, y0, du, n, capacity):
     from .._math import Struct
 
     k0 = _rhs(c, y0)
-    (ys, outs, last) = fixed_steps(dop853_step, (c, du), (y0, k0), n, capacity, vjp_step=dop853_step_looped)
+    (ys, outs, last) = fixed_steps(dop853_step, (c, du), (y0, k0), n, capacity)
     hs, dense = outs
     valid = jnp.arange(capacity) < n
     hs = jnp.where(valid, hs, 0.0)

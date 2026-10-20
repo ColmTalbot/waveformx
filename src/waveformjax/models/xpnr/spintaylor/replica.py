@@ -17,22 +17,21 @@ sequence of steps. This module repeats that sequence (after waveformrs's
 * :func:`evolve` returns the number of samples and where the integration
   stopped (not differentiated: its inputs pass ``jax.lax.stop_gradient``);
 * :func:`evolve_recorded` also records every accepted step, from which
-  :func:`sample` interpolates LAL's samples. It is differentiable with
-  respect to the coefficients and the initial state, the accepted steps
-  being held fixed (``jax.custom_vjp``: a second loop backwards over the
-  steps, differentiating one step at a time).
+  :func:`sample` interpolates LAL's samples. It is differentiable (in
+  forward mode) with respect to the coefficients and the initial state, the
+  accepted steps being held fixed.
 """
 
 from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
-import numpy as np
 
-from .._math import DBL_MIN, Struct
+from .._math import DBL_MIN, Struct, isolated
+from .._transforms import while_loop
 from . import dynamics
 
-__all__ = ["evolve", "evolve_recorded", "sample", "ABSOLUTE_TOLERANCE", "RELATIVE_TOLERANCE"]
+__all__ = ["evolve", "evolve_recorded", "omega", "sample", "steps", "ABSOLUTE_TOLERANCE", "RELATIVE_TOLERANCE"]
 
 ABSOLUTE_TOLERANCE = 1.0e-12
 RELATIVE_TOLERANCE = 1.0e-12
@@ -199,43 +198,60 @@ def hermite(t0, h, y0, y1, k1, k6, t):
 # ---------------------------------------------------------------------------
 
 
-_RKF45_A = np.zeros((6, 6))
-_RKF45_A[1, 0] = AH[0]
-_RKF45_A[2, :2] = B3
-_RKF45_A[3, :3] = B4
-_RKF45_A[4, :4] = B5
-_RKF45_A[5, :5] = B6
-_RKF45_C = np.array([C1, 0.0, C3, C4, C5, C6])
-
-
-def _accepted_step(c, y, k1, h):
-    """An accepted RKF45 step of size ``h`` (a constant for the derivative):
-    the next state, its derivative and ``k6``, with the stages in a
-    ``jax.lax.fori_loop`` (one copy of the equations; used for the
-    derivatives, so the different rounding of the sums does not matter)."""
-    k = jnp.zeros((6,) + y.shape, y.dtype).at[0].set(k1)
-
-    def stage(s, k):
-        return k.at[s].set(dynamics.derivatives(c, y + h * (jnp.asarray(_RKF45_A)[s] @ k))[0])
-
-    k = jax.lax.fori_loop(1, 6, stage, k)
-    y_new = y + h * (jnp.asarray(_RKF45_C) @ k)
-    dydt_out, _ = dynamics.derivatives(c, y_new)
-    return y_new, dydt_out, k[5]
-
-
-def _evolve_recording(c, y0, deltat, max_iterations, capacity):
-    """:func:`evolve`, recording ``(t0, h, y0, k1, k6)`` of every accepted
-    step in arrays of length ``capacity``."""
-    k_init, _ = dynamics.derivatives(c, y0)
-    zero = jnp.zeros_like(y0)
-    record = Struct(
-        t0=jnp.zeros(capacity),
-        h=jnp.zeros(capacity),
-        y=jnp.zeros((capacity,) + y0.shape),
-        k1=jnp.zeros((capacity,) + y0.shape),
-        k6=jnp.zeros((capacity,) + y0.shape),
+def _attempt(c, s, deltat):
+    """One attempted step of :func:`evolve` (``s`` the state without the
+    record) and the row recorded for it, ``(t0, h, y, k1, k6)``. The step
+    sizes, times and decisions are constants for the derivatives (the
+    derivatives are those of the solution along LAL's steps)."""
+    sg = jax.lax.stop_gradient
+    h = sg(s.h)
+    y_new, yerr, dydt_out, k6, ok = _rkf45(c, s.y, h, s.dydt)
+    failed = ~ok
+    out_of_retries = failed & (s.retries <= 0)
+    t_new = s.t + h
+    h_adj, decreased = _hadjust(sg(y_new), sg(yerr), h)
+    reject = ok & decreased & (jnp.abs(h_adj) < jnp.abs(h)) & (t_new + h_adj != t_new)
+    accept = ok & ~reject
+    h_next = jnp.where(decreased, h, h_adj)
+    k = jnp.where(accept, _count_samples(s.tintp, t_new, deltat), 0.0)
+    code, prev_domega = dynamics.stopping_test(c, sg(y_new), sg(dydt_out), s.prev_domega)
+    stop = accept & (code != 0)
+    row = jnp.concatenate([jnp.stack([s.t, h]), s.y, s.dydt, k6])
+    new = Struct(
+        iteration=s.iteration + 1,
+        accepted=s.accepted + accept.astype(s.accepted.dtype),
+        t=jnp.where(accept, t_new, s.t),
+        y=jnp.where(accept, y_new, s.y),
+        dydt=jnp.where(accept, dydt_out, s.dydt),
+        h=sg(jnp.where(failed, h / 10.0, jnp.where(reject, h_adj, h_next))),
+        retries=jnp.where(failed, s.retries - 1, jnp.where(accept, RETRIES, s.retries)),
+        prev_domega=sg(jnp.where(accept, prev_domega, s.prev_domega)),
+        tintp=s.tintp + k * deltat,
+        n_samples=s.n_samples + k,
+        done=out_of_retries | stop,
+        code=jnp.where(out_of_retries, dynamics.ST_DERIVATIVE_OMEGANONPOS, jnp.where(stop, code, s.code)),
     )
+    return new, row
+
+
+def evolve_recorded(c, y0, deltat, max_iterations, capacity):
+    """:func:`evolve` keeping every accepted step (at most ``capacity``):
+    their start times ``t0`` and sizes ``h`` (constants for the
+    derivatives) and the states ``y``, derivatives ``k1`` and stages ``k6``
+    from which LAL interpolates its samples, differentiable (in forward
+    mode) with respect to ``c`` and ``y0``: the steps are taken as fixed,
+    so the derivatives are those of the solution, not of LAL's choice of
+    steps.
+
+    Returns a :class:`~.._math.Struct` with ``rows``, the steps ``(t0, h,
+    y, k1, k6)`` (``capacity`` rows, see :func:`steps`), the keys of the
+    searches among them, ``y_end``, ``dydt_end``, ``accepted``,
+    ``n_samples``, ``t_last`` (time of the last sample), ``t_end``,
+    ``code`` and ``exhausted`` (out of iterations or capacity).
+    """
+    deltat = jax.lax.stop_gradient(deltat)
+    k_init, _ = dynamics.derivatives(c, y0)
+    nv = y0.shape[-1]
     state = Struct(
         iteration=jnp.zeros((), jnp.int64),
         accepted=jnp.zeros((), jnp.int64),
@@ -249,146 +265,55 @@ def _evolve_recording(c, y0, deltat, max_iterations, capacity):
         n_samples=jnp.ones(()),
         done=jnp.asarray(False),
         code=jnp.asarray(0),
-        record=record,
-        last_k6=zero,
     )
+    record = jnp.zeros((capacity, 2 + 3 * nv))
 
-    def cond(s):
-        return (~s.done) & (s.iteration < max_iterations) & (s.accepted < capacity)
+    def test(consts, s):
+        return (~s.done) & (s.iteration < consts[2]) & (s.accepted < capacity)
 
-    def body(s):
-        y_new, yerr, dydt_out, k6, ok = _rkf45(c, s.y, s.h, s.dydt)
-        failed = ~ok
-        out_of_retries = failed & (s.retries <= 0)
-        t_new = s.t + s.h
-        h_adj, decreased = _hadjust(y_new, yerr, s.h)
-        reject = ok & decreased & (jnp.abs(h_adj) < jnp.abs(s.h)) & (t_new + h_adj != t_new)
-        accept = ok & ~reject
-        h_next = jnp.where(decreased, s.h, h_adj)
-        k = jnp.where(accept, _count_samples(s.tintp, t_new, deltat), 0.0)
-        code, prev_domega = dynamics.stopping_test(c, y_new, dydt_out, s.prev_domega)
-        stop = accept & (code != 0)
+    def body(consts, s, record, active):
+        c, deltat, _ = consts
+        # the attempt in a loop of its own (_math.isolated): its many small
+        # operations then run on the calling thread
+        new, row = isolated(_attempt, c, s, deltat)
         # written at every attempt: a rejected one is overwritten by the
-        # next accepted step
+        # next accepted step (inactive under jax.vmap: written back unchanged)
         i = jnp.minimum(s.accepted, capacity - 1)
-        r = s.record
-        record = Struct(
-            t0=r.t0.at[i].set(s.t),
-            h=r.h.at[i].set(s.h),
-            y=r.y.at[i].set(s.y),
-            k1=r.k1.at[i].set(s.dydt),
-            k6=r.k6.at[i].set(k6),
-        )
-        return Struct(
-            iteration=s.iteration + 1,
-            accepted=s.accepted + accept.astype(s.accepted.dtype),
-            t=jnp.where(accept, t_new, s.t),
-            y=jnp.where(accept, y_new, s.y),
-            dydt=jnp.where(accept, dydt_out, s.dydt),
-            h=jnp.where(failed, s.h / 10.0, jnp.where(reject, h_adj, h_next)),
-            retries=jnp.where(failed, s.retries - 1, jnp.where(accept, RETRIES, s.retries)),
-            prev_domega=jnp.where(accept, prev_domega, s.prev_domega),
-            tintp=s.tintp + k * deltat,
-            n_samples=s.n_samples + k,
-            done=out_of_retries | stop,
-            code=jnp.where(out_of_retries, dynamics.ST_DERIVATIVE_OMEGANONPOS, jnp.where(stop, code, s.code)),
-            record=record,
-            last_k6=jnp.where(accept, k6, s.last_k6),
-        )
+        row = jnp.where(active, row, record[i])
+        record = jax.lax.dynamic_update_slice(record, row[None], (i, jnp.zeros_like(i)))
+        return new, record
 
-    s = jax.lax.while_loop(cond, body, state)
-    return s
-
-
-@jax.custom_vjp
-def _recorded(c, y0, deltat, max_iterations, capacity_marker):
-    s = _evolve_recording(c, y0, deltat, max_iterations, capacity_marker.shape[0])
-    return _outputs(s)
-
-
-def _outputs(s):
-    r = s.record
-    return (r.y, r.k1, r.k6, s.y, s.dydt), (r.t0, r.h, s.accepted, s.n_samples, s.tintp, s.t, s.code,
-                                           s.done, s.iteration)
-
-
-def _recorded_fwd(c, y0, deltat, max_iterations, capacity_marker):
-    s = _evolve_recording(jax.lax.stop_gradient(c), y0, deltat, max_iterations, capacity_marker.shape[0])
-    out = _outputs(s)
-    return out, (c, s.record.y, s.record.k1, s.record.h, s.accepted, y0)
-
-
-def _recorded_bwd(residuals, cotangents):
-    c, ys, k1s, hs, n, y0 = residuals
-    (ct_y, ct_k1, ct_k6, ct_last, ct_last_dydt), _ = cotangents
-    flat_c, unravel_c = jax.flatten_util.ravel_pytree(c)
-
-    def step(flat_c, y, k1, h):
-        return _accepted_step(unravel_c(flat_c), y, k1, h)
-
-    def cond(carry):
-        return carry[0] >= 0
-
-    def body(carry):
-        i, lam_y, lam_k1, cbar = carry
-        y = ys[i]
-        k1 = k1s[i]
-        _, vjp = jax.vjp(lambda fc, y, k1: step(fc, y, k1, hs[i]), flat_c, y, k1)
-        # the step maps (y_i, k1_i) to (y_{i+1}, k1_{i+1}, k6_i)
-        dc, dy, dk1 = vjp((lam_y, lam_k1, ct_k6[i]))
-        lam_y = dy + ct_y[i]
-        lam_k1 = dk1 + ct_k1[i]
-        return i - 1, lam_y, lam_k1, cbar + dc
-
-    _, lam_y, lam_k1, cbar = jax.lax.while_loop(
-        cond, body, (n - 1, ct_last, ct_last_dydt, jnp.zeros_like(flat_c))
-    )
-    # k1_0 = f(y0)
-    _, vjp0 = jax.vjp(lambda fc, y: dynamics.derivatives(unravel_c(fc), y)[0], flat_c, y0)
-    dc0, dy0 = vjp0(lam_k1)
-    return unravel_c(cbar + dc0), lam_y + dy0, None, None, None
-
-
-_recorded.defvjp(_recorded_fwd, _recorded_bwd)
-
-
-def evolve_recorded(c, y0, deltat, max_iterations, capacity):
-    """:func:`evolve` keeping every accepted step (at most ``capacity``):
-    their start times ``t0`` and sizes ``h`` (constants for the
-    derivatives) and the states ``y``, derivatives ``k1`` and stages ``k6``
-    from which LAL interpolates its samples, differentiable with respect to
-    ``c`` and ``y0`` (the steps are taken as fixed: the derivatives are
-    those of the solution, not of LAL's choice of steps).
-
-    Returns a :class:`~.._math.Struct` with ``t0``, ``h``, ``y``, ``k1``,
-    ``k6`` (arrays of length ``capacity``), ``y_end``, ``dydt_end``,
-    ``accepted``, ``n_samples``, ``t_last`` (time of the last sample),
-    ``t_end``, ``code`` and ``exhausted`` (out of iterations or capacity).
-    """
-    deltat = jax.lax.stop_gradient(deltat)
-    marker = jnp.zeros((capacity, 0))
-    (ys, k1s, k6s, y_end, dydt_end), (t0, h, accepted, n_samples, tintp, t_end, code, done, iterations) = _recorded(
-        c, y0, deltat, max_iterations, marker
-    )
+    s, record = while_loop(test, body, (c, deltat, max_iterations), state, record)
+    # the keys of the searches among the steps, once (rather than masking
+    # the whole record at every search): the start times (along the
+    # direction of the run) and M omega, infinite beyond the steps taken
+    valid = jnp.arange(capacity) < jnp.maximum(s.accepted, 1)
+    direction = jnp.where(deltat >= 0, 1.0, -1.0)
     return Struct(
-        t0=t0, h=h, y=ys, k1=k1s, k6=k6s, y_end=y_end, dydt_end=dydt_end, accepted=accepted,
-        n_samples=n_samples, t_last=tintp, t_end=t_end, code=code, exhausted=~done, iterations=iterations,
+        rows=record, key_t=jnp.where(valid, record[:, 0] * direction, jnp.inf),
+        key_omega=jnp.where(valid, record[:, 3], jnp.inf), direction=direction, y_end=s.y, dydt_end=s.dydt,
+        accepted=s.accepted, n_samples=s.n_samples, t_last=s.tintp, t_end=s.t, code=s.code, exhausted=~s.done,
+        iterations=s.iteration,
     )
+
+
+def steps(rec, i):
+    """``(t0, h, y, k1, k6)`` of the recorded steps ``i`` (an index array)."""
+    nv = rec.y_end.shape[-1]
+    rows = rec.rows[i]
+    return rows[..., 0], rows[..., 1], rows[..., 2:2 + nv], rows[..., 2 + nv:2 + 2 * nv], rows[..., 2 + 2 * nv:]
+
+
+def omega(rec, i):
+    """``M omega`` at the start of the recorded steps ``i``."""
+    return rec.rows[i, 3]
 
 
 def sample(rec, t):
     """LAL's samples at times ``t`` (an array) from the recorded steps."""
-    cap = rec.t0.shape[0]
+    cap = rec.rows.shape[0]
     n = jnp.maximum(rec.accepted, 1)
-    forward = rec.h[0] >= 0
-    key = jnp.where(forward, rec.t0, -rec.t0)
-    key = jnp.where(jnp.arange(cap) < n, key, jnp.inf)
-    query = jnp.where(forward, t, -t)
-    i = jnp.clip(jnp.searchsorted(key, query, side="left") - 1, 0, n - 1)
-    y0 = rec.y[i]
-    k1 = rec.k1[i]
-    k6 = rec.k6[i]
-    y1 = jnp.where((i + 1 < n)[..., None], rec.y[jnp.minimum(i + 1, cap - 1)], rec.y_end)
-    t0 = rec.t0[i][..., None]
-    h = rec.h[i][..., None]
-    return hermite(t0, h, y0, y1, k1, k6, t[..., None])
+    i = jnp.clip(jnp.searchsorted(rec.key_t, t * rec.direction, side="left") - 1, 0, n - 1)
+    t0, h, y0, k1, k6 = steps(rec, i)
+    y1 = jnp.where((i + 1 < n)[..., None], steps(rec, jnp.minimum(i + 1, cap - 1))[2], rec.y_end)
+    return hermite(t0[..., None], h[..., None], y0, y1, k1, k6, t[..., None])

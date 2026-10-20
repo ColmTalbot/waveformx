@@ -30,12 +30,15 @@ Failures that LAL reports as errors give NaN polarizations.
 
 from __future__ import annotations
 
+import functools
+
 import jax
 import jax.numpy as jnp
 
 from . import hm, pnr
 from . import pnr_angles as pa
 from ._math import MPC_SI, MSUN_SI, PI, Struct, barrier, hz_to_mf, mf_to_hz, safe_sqrt
+from ._transforms import cond, differentiable, switch
 from .antisymmetric import antisymmetric_waveform
 from .internals import errors as wf_errors
 from .internals import waveform_struct
@@ -262,7 +265,7 @@ def _spintaylor_setup(base, wf0, m1_si, m2_si, modes, needs_st):
     the capacities exceeded (``incomplete``) and the errors of the set-up
     and of a second integration (``error``)."""
 
-    def body(first, previous, run=True):
+    def body(first, previous, run, base, wf0, m1_si, m2_si):
         prev_prec, prev_wf, prev_grid, prev_flags = previous
         flow = jnp.where(first, base.st_flow, prev_flags.f0)
         if prev_wf is None:
@@ -297,24 +300,28 @@ def _spintaylor_setup(base, wf0, m1_si, m2_si, modes, needs_st):
 
     false = jnp.asarray(False)
     start = Struct(f0=jnp.zeros(()), again=false, failed=false, incomplete=false, error=false)
+    inputs = (base, wf0, m1_si, m2_si)
     holder = {}
 
-    def structure():
-        values, holder["meta"] = _partition(body(jnp.asarray(True), (None, None, None, start)))
+    def structure(inputs):
+        values, holder["meta"] = _partition(body(jnp.asarray(True), (None, None, None, start), True, *inputs))
         return values
 
-    shapes = jax.eval_shape(structure)
+    shapes = jax.eval_shape(lambda: structure(inputs))
     meta = holder["meta"]
 
-    def compute(first, carry, run):
-        values, _ = _partition(body(first, _combine(carry, meta), run))
+    def compute(operands):
+        first, carry, run, inputs = operands
+        values, _ = _partition(body(first, _combine(carry, meta), run, *inputs))
         return [jnp.asarray(v).astype(s.dtype) for v, s in zip(values, shapes)]
 
     def step(carry, index):
         first = index == 0
         flags = _combine(carry, meta)[3]
         run = jnp.where(first, needs_st, needs_st & ~flags.failed & flags.again)
-        return jax.lax.cond(run, lambda c: compute(first, c, run), lambda c: c, carry), None
+        # (batched: the integration runs for the whole batch if any binary
+        # needs it, with no steps for the others)
+        return cond(run, compute, lambda operands: operands[1], (first, carry, run, inputs)), None
 
     carry = [jnp.zeros(s.shape, s.dtype) for s in shapes]
     carry, _ = jax.lax.scan(step, carry, jnp.arange(2))
@@ -511,26 +518,36 @@ def _decide(binary, frequencies, delta_f, f_min, f_max, modes, parity_fix, mode_
         jnp.where(base.nnlo_from_start | (st_failed & msa_error), 1, jnp.where(st_failed | ~needs_st, 2, 3)),
     )
 
-    # (the flags are true in the branch jax.lax.switch takes; under
-    # jax.vmap every branch is computed, the others with no grid)
+    # (the flags are true in the branch taken; under jax.vmap a branch is
+    # computed for the whole batch if any binary takes it, with no grid for
+    # the others)
     def run(version, pnr_on, branch):
-        return lambda _: _pipeline(base, wf0, modes, frequencies, version, pnr_on, index == branch)
+        def pipeline(operands):
+            base, wf0, _, index, frequencies = operands
+            return _pipeline(base, wf0, modes, frequencies, version, pnr_on, index == branch)
+        return pipeline
 
-    def st_ok(_):
+    def st_ok(operands):
+        _, _, setup, index, frequencies = operands
         return _pipeline_330(setup, modes, frequencies, index == 3)
 
-    data = jax.lax.switch(index, [run(102, False, 0), run(102, True, 1), run(223, True, 2), st_ok], None)
+    data = switch(index, [run(102, False, 0), run(102, True, 1), run(223, True, 2), st_ok],
+                  (base, wf0, setup, index, frequencies))
     data.error = data.error | error
     return data
 
 
 def _polarizations(binary, frequencies, options):
     pnr.clear_cache()
+    frequencies = jnp.asarray(frequencies, dtype=jnp.float64)
     modes = coprecessing_modes(options.mode_array)
     data = _decide(binary, frequencies, 0.0, frequencies[0], frequencies[-1], modes, options.pnr_parity_fix)
     hp, hc = _twist_polarizations(data, modes, frequencies)
     nan = jnp.asarray(jnp.nan + 1j * jnp.nan, jnp.complex128)
     return jnp.where(data.error, nan, hp), jnp.where(data.error, nan, hc)
+
+
+_POLARIZATIONS = {}
 
 
 def polarizations(binary, frequencies, options):
@@ -539,31 +556,13 @@ def polarizations(binary, frequencies, options):
     ``min(f_max, 0.3 / M)`` (``f_max`` the last frequency); NaN where LAL
     fails.
 
-    Under ``jax.vmap`` the binaries are computed one after the other
-    (``jax.custom_batching.sequential_vmap``): the model is made of loops
-    whose numbers of iterations depend on the binary and of choices among
-    prescriptions, which a batched computation would run to the longest
-    and all of. The reverse-mode derivative is that of the single binary
-    (``jax.custom_vjp``, recomputing the polarizations)."""
-    frequencies = jnp.asarray(frequencies, dtype=jnp.float64)
-    sequential = jax.custom_batching.sequential_vmap
-
-    def raw(binary, frequencies):
-        return _polarizations(binary, frequencies, options)
-
-    @jax.custom_vjp
-    def evaluate(binary, frequencies):
-        return sequential(raw)(binary, frequencies)
-
-    def forward(binary, frequencies):
-        return sequential(raw)(binary, frequencies), (binary, frequencies)
-
-    def backward(residuals, cotangents):
-        binary, frequencies = residuals
-        return sequential(lambda b, f, c: jax.vjp(raw, b, f)[1](c))(binary, frequencies, cotangents)
-
-    evaluate.defvjp(forward, backward)
-    return evaluate(binary, frequencies)
+    Under ``jax.vmap`` the binaries are computed one after the other. The
+    derivatives with respect to the binary come from forward-mode Jacobians
+    (:func:`._transforms.differentiable`): ``jax.grad``, ``jax.jvp`` and
+    ``jax.jacfwd`` all work."""
+    if options not in _POLARIZATIONS:
+        _POLARIZATIONS[options] = differentiable(functools.partial(_polarizations, options=options))
+    return _POLARIZATIONS[options](binary, frequencies)
 
 
 def jframe_groups(modes, custom_mode_array):

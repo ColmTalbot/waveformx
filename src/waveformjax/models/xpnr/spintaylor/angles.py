@@ -45,7 +45,8 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 
-from .._math import C_SI, G_SI, MSUN_SI, MTSUN_SI, PI, REAL4_EPS, Struct, chunked_map, fenced, fma, safe_div
+from .._math import C_SI, G_SI, MSUN_SI, MTSUN_SI, PI, REAL4_EPS, Struct, blocked_scan, chunked_map, fenced, fma, safe_div
+from .._transforms import cond
 from . import dynamics, replica, trajectory
 
 __all__ = ["pn_solution", "knot_times", "knot_states", "spline", "spline_context", "spline_many", "spline_table",
@@ -270,10 +271,13 @@ def _trim_forward(rec, c, deltat):
     n = rec.n_samples
     w_end = c.omega_end
     last = jnp.maximum(rec.accepted - 1, 0)
-    t0_last = rec.t0[last]
+    # the samples searched lie in the last step: its interpolant
+    # (replica.sample) of M omega
+    t0_last, h_last, y0, k1, k6 = replica.steps(rec, last)
+    y0, k1, k6, y1 = y0[1], k1[1], k6[1], rec.y_end[1]
 
     def omega_at(index):
-        return replica.sample(rec, (index * deltat)[None])[0, 1]
+        return replica.hermite(t0_last, h_last, y0, y1, k1, k6, index * deltat)
 
     # bisection for the first sample of the last step with omega > w_end
     lo = jnp.clip(jnp.floor(t0_last / deltat) + 1.0, 0.0, n)
@@ -352,8 +356,7 @@ def spline(sol, rotation, mf, mf_scale, context=None):
     Returns ``(alpha, dalpha, cosbeta, dcosbeta, inside)``."""
     if context is None:
         context = spline_context(sol, rotation, mf_scale)
-    return jax.lax.cond(context.small, lambda m: table_eval(context.table, m),
-                        lambda m: windowed_spline(sol, rotation, m, mf_scale, context), mf)
+    return _spline_either(mf, (sol, rotation, mf_scale, context))
 
 
 def spline_many(sol, rotation, mf, n, chunk, mf_scale, context=None):
@@ -364,12 +367,21 @@ def spline_many(sol, rotation, mf, n, chunk, mf_scale, context=None):
     if context is None:
         context = spline_context(sol, rotation, mf_scale)
 
-    def evaluate(x, args):
-        sol, rotation, mf_scale, context = args
-        return jax.lax.cond(context.small, lambda x: table_eval(context.table, x),
-                            lambda x: windowed_spline(sol, rotation, x, mf_scale, context), x)
+    return chunked_map(_spline_either, mf, n, chunk, (sol, rotation, mf_scale, context))
 
-    return chunked_map(evaluate, mf, n, chunk, (sol, rotation, mf_scale, context))
+
+def _spline_either(mf, args):
+    """:func:`table_eval` or :func:`windowed_spline` (under ``jax.vmap``,
+    each only if some binary of the batch needs it)."""
+    def from_table(operands):
+        mf, (_, _, _, context) = operands
+        return table_eval(context.table, mf)
+
+    def from_windows(operands):
+        mf, (sol, rotation, mf_scale, context) = operands
+        return windowed_spline(sol, rotation, mf, mf_scale, context)
+
+    return cond(args[3].small, from_table, from_windows, (mf, args))
 
 
 def spline_table(sol, rotation, mf_scale):
@@ -462,7 +474,7 @@ def windowed_spline(sol, rotation, mf, mf_scale, context):
     omega = jax.lax.stop_gradient(omega)
     tb = _time_at_omega(sol.back, jnp.where(backwards, omega, sol.omega_ref * 0.999), True)
     tf = _forward_time_at_omega(sol.fwd, omega, 0.0)
-    omega_c = sol.fine.y[0, 1]
+    omega_c = replica.omega(sol.fine, 0)
     t_fine = _forward_time_at_omega(sol.fine, omega, sol.t_c)
     t = jnp.where(backwards, tb, jnp.where(omega >= omega_c, t_fine, tf))
     # the backward solution is only used before t_c
@@ -549,11 +561,41 @@ def _alpha_tables(sol, rotation):
     """The continuous ``alpha`` at the nodes of the backward solution and
     of the forward run (both unwrapped from ``alpha`` at ``t = 0``)."""
     back = sol.back
-    fwd = sol.fwd
     return (
         _unwrap_nodes(back.y[:, 2], back.y[:, 3], back.y[:, 4], rotation, jnp.maximum(back.n, 1)),
-        _unwrap_nodes(fwd.y[:, 2], fwd.y[:, 3], fwd.y[:, 4], rotation, jnp.maximum(fwd.accepted, 1)),
+        _unwrap_steps(sol.fwd, rotation),
     )
+
+
+#: The steps of a forward run unwrapped together.
+UNWRAP_CHUNK = 1024
+
+
+def _unwrap_steps(rec, rotation):
+    """:func:`_unwrap_nodes` for the starts of the steps of a forward run
+    (:func:`.replica.evolve_recorded`), chunk by chunk over the steps taken
+    only (the record has room for many more)."""
+    cap = rec.rows.shape[0]
+    chunk = min(UNWRAP_CHUNK, cap)
+    n_chunks = -(-cap // chunk)
+
+    def unwrap(index, carry, args):
+        rows, rotation = args
+        last_raw, last_alpha, first = carry
+        start = jnp.minimum(index * chunk, cap - chunk)
+        lnh = jax.lax.dynamic_slice(rows, (start, 4), (chunk, 3))
+        x, y, _ = _rotate(lnh[:, 0], lnh[:, 1], lnh[:, 2], *rotation)
+        raw = jnp.arctan2(y, x)
+        previous = jnp.concatenate([jnp.where(first, raw[:1], last_raw[None]), raw[:-1]])
+        d = raw - previous
+        d = jnp.where(d > PI, d - 2 * PI, jnp.where(d < -PI, d + 2 * PI, d))
+        alpha = jnp.where(first, raw[0], last_alpha) + jnp.cumsum(d)
+        return alpha, (raw[-1], alpha[-1], jnp.zeros((), bool))
+
+    zero = jnp.zeros(())
+    alpha, _ = blocked_scan(unwrap, jnp.arange(n_chunks), jnp.ceil(jnp.maximum(rec.accepted, 1) / chunk),
+                            (zero, zero, jnp.ones((), bool)), (rec.rows, rotation))
+    return alpha.reshape(-1)[:cap]
 
 
 def _continuous_alpha(sol, tables, t, alpha_raw):
@@ -566,8 +608,7 @@ def _continuous_alpha(sol, tables, t, alpha_raw):
     key_b = jnp.where(jnp.arange(back.t.shape[0]) < nb, -back.t, jnp.inf)
     ib = jnp.clip(jnp.searchsorted(key_b, -t, side="right") - 1, 0, nb - 1)
     nf = jnp.maximum(fwd.accepted, 1)
-    key_f = jnp.where(jnp.arange(fwd.t0.shape[0]) < nf, fwd.t0, jnp.inf)
-    i_f = jnp.clip(jnp.searchsorted(key_f, t, side="right") - 1, 0, nf - 1)
+    i_f = jnp.clip(jnp.searchsorted(fwd.key_t, t, side="right") - 1, 0, nf - 1)
     node = jnp.where(t < 0, tables[0][ib], tables[1][i_f])
     d = alpha_raw - node
     return node + d - 2 * PI * jnp.round(d / (2 * PI))
@@ -577,13 +618,13 @@ def _forward_time_at_omega(rec, omega, offset):
     """An estimate (within a step) of the time at which ``M omega`` of a
     forward run reaches ``omega``."""
     n = jnp.maximum(rec.accepted, 1)
-    cap = rec.t0.shape[0]
-    key = jnp.where(jnp.arange(cap) < n, rec.y[:, 1], jnp.inf)
-    i = jnp.clip(jnp.searchsorted(key, omega, side="right") - 1, 0, n - 1)
-    w0 = rec.y[i, 1]
-    w1 = jnp.where(i + 1 < n, rec.y[jnp.minimum(i + 1, cap - 1), 1], rec.y_end[1])
+    cap = rec.rows.shape[0]
+    i = jnp.clip(jnp.searchsorted(rec.key_omega, omega, side="right") - 1, 0, n - 1)
+    t0, h = rec.rows[i, 0], rec.rows[i, 1]
+    w0 = replica.omega(rec, i)
+    w1 = jnp.where(i + 1 < n, replica.omega(rec, jnp.minimum(i + 1, cap - 1)), rec.y_end[1])
     x = jnp.clip(safe_div(omega - w0, w1 - w0), 0.0, 1.0)
-    return offset + rec.t0[i] + x * rec.h[i]
+    return offset + t0 + x * h
 
 
 def _second_difference(x0, x1, x2, y0, y1, y2):

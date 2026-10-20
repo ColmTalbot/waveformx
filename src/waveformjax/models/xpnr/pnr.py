@@ -37,7 +37,7 @@ from ._generated import pnr_fits as _pnr_fits
 from ._generated import qnm as _qnm
 from ._generated import utilities as _utilities
 from ._math import (
-    C_SI, FRAC_PI_2, FRAC_PI_4, G_SI, MTSUN_SI, PI, FencedModule, Struct, barrier, blocked_map, chunked_map, fenced, fma, fnms, hz_to_mf, mf_to_hz, powers,
+    C_SI, FRAC_PI_2, FRAC_PI_4, G_SI, MTSUN_SI, PI, FencedModule, Struct, barrier, blocked_map, blocked_scan, chunked_map, fenced, fma, fnms, hz_to_mf, mf_to_hz, powers,
     rotate_y, rotate_z, safe_div, safe_sqrt,
 )
 from .hm import qnm as _hm_qnm
@@ -627,8 +627,11 @@ def _st_context(prec, wf):
     rotation = prec.st_rotation if "st_rotation" in prec else _rotation(prec)
     # the solution's arrays determine the J frame of its splines (set once,
     # by initialize_euler_angles) and the scale
-    anchors = (st.back.y, st.fwd.y, st.fine.y)
+    anchors = (st.back.y, st.fwd.rows, st.fine.rows)
     mf_scale = MTSUN_SI * wf.m_tot / prec.pi_gm
+    if "st_context" in prec:
+        # built once by initialize_euler_angles
+        return st, rotation, mf_scale, anchors, prec.st_context
     context = _cached("st_context", anchors[1:], anchors[0],
                       lambda: barrier(st_angles.spline_context(st, rotation, mf_scale)))
     return st, rotation, mf_scale, anchors, context
@@ -640,7 +643,7 @@ ST_MANY = 64
 
 def _st_anchors(prec):
     st = prec.st
-    return (st.back.y, st.fwd.y, st.fine.y)
+    return (st.back.y, st.fwd.rows, st.fine.rows)
 
 
 def _st_spline(prec, wf, mf):
@@ -702,6 +705,8 @@ def initialize_euler_angles(prec, wf):
     # the knots: Mf of the last one
     mf_scale = MTSUN_SI * wf.m_tot / prec.pi_gm
     context = _st_context(prec, wf)[4]
+    # (kept: the splines are built once)
+    prec.st_context = context
     mfmax_pn = context.last_mf
     mf_first = context.first_mf
     fmax_inspiral = jnp.where(prec.pnr_on, mfmax_pn, mfmax_pn - wf.delta_mf)
@@ -1255,51 +1260,47 @@ def interpolation_grid(prec, wf, modes, version):
 SPLINE_OVERLAP = 32
 
 
-def _halos(y, chunk, width):
-    """``y`` (of a length that ``chunk`` divides) cut into blocks of
-    ``chunk``, with the ``width`` values before and after each block (the
-    first and last values repeated beyond the ends)."""
-    blocks = y.reshape(-1, chunk)
-    before = jnp.concatenate([jnp.broadcast_to(y[:1], (1, width)), blocks[:-1, chunk - width:]])
-    after = jnp.concatenate([blocks[1:, :width], jnp.broadcast_to(y[-1:], (1, width))])
-    return blocks, before, after
-
-
-def _uniform_natural_spline(y, n, h, n_eval=None):
-    """GSL's natural cubic spline through ``y[k]`` at ``k h``, ``k < n``
-    (traced; the rest of the array is ignored): the second derivatives,
-    zero beyond ``n``. The equations are solved chunk by chunk, each chunk
-    with :data:`SPLINE_OVERLAP` points on either side (and LAL's natural
-    end conditions where it reaches the ends of the grid), so that the cost
-    is that of the ``n`` points (:func:`~._math.blocked_map`)."""
+def _natural_spline_chunk(y, start, n, h):
+    """The second derivatives of GSL's natural cubic spline through ``y[k]``
+    at ``k h``, ``k < n``, for the chunk of :data:`PNR_GRID_CHUNK` points
+    from ``start``: the equations of the chunk and of
+    :data:`SPLINE_OVERLAP` points on either side (with LAL's natural end
+    conditions where they reach the ends of the grid) are solved, zero
+    beyond ``n``."""
     cap = y.shape[0]
     chunk = PNR_GRID_CHUNK
     width = chunk + 2 * SPLINE_OVERLAP
-    offsets = np.arange(width) - SPLINE_OVERLAP  # numpy: the blocks must not close over traced values
-    blocks, before, after = _halos(y, chunk, SPLINE_OVERLAP)
-    starts = jnp.arange(cap // chunk) * chunk
+    offsets = np.arange(width) - SPLINE_OVERLAP
+    p = start + offsets
+    window = y[jnp.clip(p, 0, cap - 1)]
+    inside = (p >= 0) & (p < n)
+    # the window's own ends (inside the grid): natural (the error decays
+    # before the chunk)
+    interior = (p >= 1) & (p < n - 1) & (offsets > -SPLINE_OVERLAP) & (offsets < width - 1 - SPLINE_OVERLAP)
+    y_prev = jnp.concatenate([window[:1], window[:-1]])
+    y_next = jnp.concatenate([window[1:], window[-1:]])
+    lower = jnp.where(interior, h, 0.0).at[0].set(0.0)
+    upper = jnp.where(interior, h, 0.0).at[-1].set(0.0)
+    diag = jnp.where(interior, 4.0 * h, 1.0)
+    rhs = jnp.where(interior, 6.0 * ((y_next - window) / h - (window - y_prev) / h), 0.0)
+    m = jax.lax.linalg.tridiagonal_solve(lower, diag, upper, rhs[:, None])[:, 0]
+    m = jnp.where(inside, m, 0.0)
+    return m[SPLINE_OVERLAP:SPLINE_OVERLAP + chunk]
 
-    def local(block, args):
-        middle, head, tail, start = block
-        n, h = args
-        window = jnp.concatenate([head, middle, tail])
-        p = start + offsets
-        inside = (p >= 0) & (p < n)
-        # the window's own ends (inside the grid): natural (the error decays
-        # before the chunk)
-        interior = (p >= 1) & (p < n - 1) & (offsets > -SPLINE_OVERLAP) & (offsets < width - 1 - SPLINE_OVERLAP)
-        y_prev = jnp.concatenate([window[:1], window[:-1]])
-        y_next = jnp.concatenate([window[1:], window[-1:]])
-        lower = jnp.where(interior, h, 0.0).at[0].set(0.0)
-        upper = jnp.where(interior, h, 0.0).at[-1].set(0.0)
-        diag = jnp.where(interior, 4.0 * h, 1.0)
-        rhs = jnp.where(interior, 6.0 * ((y_next - window) / h - (window - y_prev) / h), 0.0)
-        m = jax.lax.linalg.tridiagonal_solve(lower, diag, upper, rhs[:, None])[:, 0]
-        m = jnp.where(inside, m, 0.0)
-        return m[SPLINE_OVERLAP:SPLINE_OVERLAP + chunk]
 
-    n_eval = n if n_eval is None else n_eval
-    return blocked_map(local, (blocks, before, after, starts), jnp.ceil(n_eval / chunk), (n, h)).reshape(cap)
+def _uniform_natural_splines(ys, n, h, n_eval):
+    """:func:`_natural_spline_chunk` of each of the arrays ``ys`` for the
+    chunks needed (:func:`~._math.blocked_map`, the cost that of the ``n``
+    points): the second derivatives, zero beyond ``n``."""
+    cap = ys[0].shape[0]
+    chunk = PNR_GRID_CHUNK
+
+    def local(index, args):
+        ys, n, h = args
+        return [_natural_spline_chunk(y, index * chunk, n, h) for y in ys]
+
+    out = blocked_map(local, jnp.arange(cap // chunk), jnp.ceil(n_eval / chunk), (list(ys), n, h))
+    return [m.reshape(cap) for m in out]
 
 
 def _spline_at(y, m, n, x0, h, x):
@@ -1321,44 +1322,54 @@ def angle_interpolants(prec, wf, grid, version, active=True):
     from them with Boole's rule. Returns a :class:`~._math.Struct` of the
     three splines and the error flag. Where ``active`` (traced) is false,
     nothing is evaluated (the prescription is not LAL's: under ``jax.vmap``
-    every prescription is computed)."""
+    every prescription is computed).
+
+    The grid has room for :data:`PNR_GRID_CAPACITY` points; everything is
+    computed in chunks of :data:`PNR_GRID_CHUNK` points, for the chunks
+    holding LAL's ``n`` points only."""
     i_start, n, delta_f_int, error = grid
     prec, wf = barrier((prec, wf))
     n_eval = jnp.where(active, n, 0.0)
-    k = jnp.arange(PNR_GRID_CAPACITY, dtype=jnp.float64)
-    valid = k < n
-    freqs = (i_start + jnp.minimum(k, n - 1.0)) * delta_f_int
-    mf = hz_to_mf(freqs, wf.m_tot)
-    if version == 330:
-        # the SpinTaylor splines on the whole grid at once
-        st_values = _st_spline_many(prec, wf, mf, n_eval, PNR_GRID_CHUNK)
-
-        def angles(x, args):
-            prec, wf = args
-            _st_spline_put(prec, wf, x[0], x[1])
-            return uniform_angles(prec, wf, x[0], version)
-
-        alpha, beta, err = chunked_map(angles, (mf, st_values), n_eval, PNR_GRID_CHUNK, (prec, wf))
-    else:
-        alpha, beta, err = chunked_map(lambda x, args: uniform_angles(*args, x, version), mf, n_eval, PNR_GRID_CHUNK,
-                                       (prec, wf))
-    error = error | jnp.any(err & valid)
-    alpha = jnp.where(valid, alpha, 0.0)
-    beta = jnp.where(valid, beta, 0.0)
+    chunk = PNR_GRID_CHUNK
+    n_chunks = PNR_GRID_CAPACITY // chunk
     x0 = i_start * delta_f_int
     h = delta_f_int
-    m_alpha = _uniform_natural_spline(alpha, n, h, n_eval)
-    m_beta = _uniform_natural_spline(beta, n, h, n_eval)
+
+    def frequencies(k, i_start, n, h):
+        return (i_start + jnp.minimum(k, n - 1.0)) * h
+
+    # the angles on the grid
+    def angles(index, args):
+        prec, wf, i_start, n, h = args
+        k = index * chunk + jnp.arange(chunk, dtype=jnp.float64)
+        valid = k < n
+        mf = hz_to_mf(frequencies(k, i_start, n, h), wf.m_tot)
+        if version == 330:
+            # the SpinTaylor splines at the chunk's points, shared by the
+            # angles below
+            st, rotation, mf_scale, _, context = _st_context(prec, wf)
+            _st_spline_put(prec, wf, mf, st_angles.spline(st, rotation, mf, mf_scale, context))
+        alpha, beta, err = uniform_angles(prec, wf, mf, version)
+        return jnp.where(valid, alpha, 0.0), jnp.where(valid, beta, 0.0), jnp.any(err & valid)
+
+    alpha, beta, errors = blocked_map(angles, jnp.arange(n_chunks), jnp.ceil(n_eval / chunk),
+                                      (prec, wf, i_start, n, h))
+    error = error | jnp.any(errors)
+    alpha, beta = alpha.reshape(-1), beta.reshape(-1)
+    m_alpha, m_beta = _uniform_natural_splines([alpha, beta], n, h, n_eval)
+
     # gamma from the minimal rotation condition with Boole's rule, interval
-    # by interval
-    def boole(block, args):
-        values, following = block
-        n, h, x0, i_start = args
-        # the intervals [k, k + 1] of the block: values at k and k + 1
-        start, now = values[0], [v for v in values[1:]]
-        after = [jnp.concatenate([v[1:], f[None]]) for v, f in zip(now, following)]
-        (t1, y0, m0, yb0, mb0), (t2, y1, m1, yb1, mb1) = now, after
-        i = start + jnp.arange(t1.shape[0])
+    # by interval, summed chunk by chunk
+    def boole(index, total, args):
+        alpha, m_alpha, beta, m_beta, i_start, n, h, x0 = args
+        cap = alpha.shape[0]
+        # the intervals [k, k + 1] of the chunk: values at k and k + 1
+        i = index * chunk + jnp.arange(chunk)
+        here, after = jnp.clip(i, 0, cap - 1), jnp.clip(i + 1, 0, cap - 1)
+        t1 = frequencies(here.astype(jnp.float64), i_start, n, h)
+        t2 = frequencies(after.astype(jnp.float64), i_start, n, h)
+        y0, y1, m0, m1 = alpha[here], alpha[after], m_alpha[here], m_alpha[after]
+        yb0, yb1, mb0, mb1 = beta[here], beta[after], m_beta[here], m_beta[after]
         points = jnp.stack([t2, fma(3.0, t1, t2) / 4.0, (t1 + t2) / 2.0, t1, fma(3.0, t2, t1) / 4.0])
         dx = points - (x0 + i * h)
         b = (y1 - y0) / h - h * (m1 + 2.0 * m0) / 6.0
@@ -1366,19 +1377,17 @@ def angle_interpolants(prec, wf, grid, version, active=True):
         bb = (yb1 - yb0) / h - h * (mb1 + 2.0 * mb0) / 6.0
         beta_x = yb0 + dx * (bb + dx * (mb0 / 2.0 + dx * (mb1 - mb0) / (6.0 * h)))
         f = pa.alphadot_cosbeta(dalpha, beta_x)
-        total = fma(7.0, f[0], fma(32.0, f[1], fma(12.0, f[2], fma(7.0, f[3], 32.0 * f[4]))))
-        return jnp.where(i + 1 < n, 1.0 / 90.0 * (t2 - t1) * total, 0.0)
+        total_f = fma(7.0, f[0], fma(32.0, f[1], fma(12.0, f[2], fma(7.0, f[3], 32.0 * f[4]))))
+        increments = jnp.where(i + 1 < n, 1.0 / 90.0 * (t2 - t1) * total_f, 0.0)
+        # gamma at the chunk's points: the integral up to each
+        sums = jnp.cumsum(increments)
+        gamma = total + jnp.concatenate([jnp.zeros(1), sums[:-1]])
+        return gamma, total + sums[-1]
 
-    chunk = PNR_GRID_CHUNK
-    n_chunks = PNR_GRID_CAPACITY // chunk
-    columns = [freqs, alpha, m_alpha, beta, m_beta]
-    blocks = [c.reshape(n_chunks, chunk) for c in columns]
-    following = [jnp.concatenate([c[1:, 0], c[-1:, -1]]) for c in blocks]
-    starts = (jnp.arange(n_chunks) * chunk).astype(jnp.float64)
-    increments = blocked_map(boole, ([starts] + blocks, following), jnp.ceil((n_eval - 1.0) / chunk),
-                             (n, h, x0, i_start)).reshape(PNR_GRID_CAPACITY)[:-1]
-    gamma = jnp.concatenate([jnp.zeros(1), jnp.cumsum(increments)])
-    m_gamma = _uniform_natural_spline(gamma, n, h, n_eval)
+    gamma, _ = blocked_scan(boole, jnp.arange(n_chunks), jnp.ceil(n_eval / chunk), jnp.zeros(()),
+                            (alpha, m_alpha, beta, m_beta, i_start, n, h, x0))
+    gamma = gamma.reshape(-1)
+    (m_gamma,) = _uniform_natural_splines([gamma], n, h, n_eval)
     return Struct(alpha=alpha, beta=beta, gamma=gamma, m_alpha=m_alpha, m_beta=m_beta, m_gamma=m_gamma, n=n, x0=x0,
                   h=h, error=error)
 

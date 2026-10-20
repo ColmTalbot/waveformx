@@ -21,7 +21,6 @@ import functools
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jax._src.interpreters import partial_eval as _partial_eval
 
 __all__ = [
     "PI", "FRAC_PI_2", "FRAC_PI_4", "LN_2", "EGAMMA", "DBL_MIN", "DBL_EPSILON", "NAN", "INF",
@@ -262,89 +261,30 @@ def mf_to_hz(mf, m_tot):
     return mf / (MTSUN_SI * m_tot)
 
 
-def _split_leaves(tree):
-    """The leaves of ``tree`` in three lists: inexact arrays, other arrays,
-    and the rest (Python values), with what rebuilds the tree."""
-    leaves, treedef = jax.tree_util.tree_flatten(tree)
-    kinds = []
-    for leaf in leaves:
-        if isinstance(leaf, (jax.Array, np.ndarray)):
-            kinds.append("f" if jnp.issubdtype(leaf.dtype, jnp.inexact) else "i")
-        else:
-            kinds.append("s")
-    floats = [leaf for leaf, k in zip(leaves, kinds) if k == "f"]
-    others = [leaf for leaf, k in zip(leaves, kinds) if k == "i"]
-    static = [leaf if k == "s" else None for leaf, k in zip(leaves, kinds)]
-    return floats, others, (treedef, kinds, static)
-
-
-def _join_leaves(floats, others, meta):
-    treedef, kinds, static = meta
-    floats, others = iter(floats), iter(others)
-    leaves = [next(floats) if k == "f" else next(others) if k == "i" else s for k, s in zip(kinds, static)]
-    return jax.tree_util.tree_unflatten(treedef, leaves)
-
-
 def _index(tree, i):
     return jax.tree_util.tree_map(lambda x: jax.lax.dynamic_index_in_dim(x, i, keepdims=False), tree)
 
 
-def _blocked_forward(fn, n_blocks, blocks, args):
-    count = jax.tree_util.tree_leaves(blocks)[0].shape[0]
-    out_shape = jax.eval_shape(fn, _index(blocks, 0), args)
-    out = jax.tree_util.tree_map(lambda s: jnp.zeros((count,) + s.shape, s.dtype), out_shape)
+def isolated(function, *args):
+    """``function(*args)``, computed in a ``jax.lax.while_loop`` of one
+    iteration.
 
-    def cond(carry):
-        return carry[0] < n_blocks
-
-    def body(carry):
-        i, out = carry
-        value = fn(_index(blocks, i), args)
-        out = jax.tree_util.tree_map(lambda o, v: jax.lax.dynamic_update_index_in_dim(o, v, i, 0), out, value)
-        return i + 1, out
-
-    return jax.lax.while_loop(cond, body, (jnp.zeros((), jnp.int32), out))[1]
-
-
-@functools.partial(jax.custom_vjp, nondiff_argnums=(0, 1))
-def _blocked(fn, meta, n_blocks, block_floats, block_others, arg_floats, arg_others):
-    def call(block, args):
-        return fn(_join_leaves(*block, meta[0]), _join_leaves(*args, meta[1]))
-
-    return _blocked_forward(call, n_blocks, (block_floats, block_others), (arg_floats, arg_others))
-
-
-def _blocked_fwd(fn, meta, n_blocks, block_floats, block_others, arg_floats, arg_others):
-    out = _blocked(fn, meta, n_blocks, block_floats, block_others, arg_floats, arg_others)
-    return out, (n_blocks, block_floats, block_others, arg_floats, arg_others)
-
-
-def _float0_like(tree):
-    return jax.tree_util.tree_map(lambda x: np.zeros(np.shape(x), dtype=jax.dtypes.float0), tree)
-
-
-def _blocked_bwd(fn, meta, residuals, cotangents):
-    n_blocks, block_floats, block_others, arg_floats, arg_others = residuals
+    XLA's CPU runtime executes the body of a loop thunk by thunk on the
+    calling thread only when the body has few thunks or touches no buffer
+    larger than 512 bytes; otherwise it dispatches the thunks to a thread
+    pool, which costs microseconds per iteration. A loop whose body updates
+    a large array (a record of its iterations) keeps its many small
+    operations on the calling thread when they are isolated in a nested
+    loop like this one. The loop is differentiable in forward mode."""
+    out_shape = jax.eval_shape(function, *args)
+    init = jax.tree_util.tree_map(lambda s: jnp.zeros(s.shape, s.dtype), out_shape)
+    # (behind a barrier, XLA cannot see that the loop runs once and inline it)
+    first = jax.lax.optimization_barrier(jnp.asarray(True))
 
     def body(carry):
-        i, ct_blocks, ct_args = carry
-        others = _index(block_others, i)
+        return jnp.zeros((), bool), function(*args)
 
-        def local(floats, arg_floats):
-            return fn(_join_leaves(floats, others, meta[0]), _join_leaves(arg_floats, arg_others, meta[1]))
-
-        _, vjp = jax.vjp(local, _index(block_floats, i), arg_floats)
-        ct_block, ct_arg = vjp(_index(cotangents, i))
-        ct_blocks = jax.tree_util.tree_map(lambda o, v: jax.lax.dynamic_update_index_in_dim(o, v, i, 0), ct_blocks, ct_block)
-        ct_args = jax.tree_util.tree_map(jnp.add, ct_args, ct_arg)
-        return i + 1, ct_blocks, ct_args
-
-    zeros = jax.tree_util.tree_map(jnp.zeros_like, (block_floats, arg_floats))
-    _, ct_blocks, ct_args = jax.lax.while_loop(lambda c: c[0] < n_blocks, body, (jnp.zeros((), jnp.int32),) + zeros)
-    return (jnp.zeros_like(n_blocks), ct_blocks, _float0_like(block_others), ct_args, _float0_like(arg_others))
-
-
-_blocked.defvjp(_blocked_fwd, _blocked_bwd)
+    return jax.lax.while_loop(lambda carry: carry[0], body, (first, init))[1]
 
 
 def blocked_map(function, blocks, n_blocks, args=()):
@@ -353,26 +293,57 @@ def blocked_map(function, blocks, n_blocks, args=()):
     the other blocks are zeros. ``function`` must not close over traced
     values: they are passed in ``args``.
 
-    The blocks run in a ``jax.lax.while_loop``, so that the cost is that of
-    the blocks needed (under ``jax.vmap``, of the largest number of blocks
-    of the batch), with the reverse-mode derivative from ``jax.custom_vjp``
-    (a second loop over the blocks, each recomputed and differentiated with
-    ``jax.vjp``). Forward-mode differentiation is not available."""
-    block_floats, block_others, block_meta = _split_leaves(blocks)
-    arg_floats, arg_others, arg_meta = _split_leaves(args)
+    The blocks run in a loop (:func:`._transforms.while_loop`), so that the
+    cost is that of the blocks needed (under ``jax.vmap``, of the largest
+    number of blocks of the batch). The loop is differentiable in forward
+    mode (the model's reverse-mode derivatives come from its forward-mode
+    Jacobian)."""
+    from ._transforms import while_loop
+
     count = jax.tree_util.tree_leaves(blocks)[0].shape[0]
-    # the arguments that function does not use: their cotangents would be
-    # zeros, and zeros multiplied by the (possibly infinite) derivatives of
-    # whatever computed them (padding, unused branches) can be NaN; behind
-    # stop_gradient they get none
-    first = [jax.lax.dynamic_index_in_dim(x, 0, keepdims=False) for x in block_floats]
-    others_first = [jax.lax.dynamic_index_in_dim(x, 0, keepdims=False) for x in block_others]
-    jaxpr = jax.make_jaxpr(lambda floats: function(_join_leaves(first, others_first, block_meta),
-                                                   _join_leaves(floats, arg_others, arg_meta)))(arg_floats).jaxpr
-    _, used = _partial_eval.dce_jaxpr(jaxpr, [True] * len(jaxpr.outvars))
-    arg_floats = [x if u else jax.lax.stop_gradient(x) for x, u in zip(arg_floats, used)]
     n_blocks = jnp.minimum(jnp.asarray(n_blocks).astype(jnp.int32), count)
-    return _blocked(function, (block_meta, arg_meta), n_blocks, block_floats, block_others, arg_floats, arg_others)
+    out_shape = jax.eval_shape(function, _index(blocks, 0), args)
+    out = jax.tree_util.tree_map(lambda s: jnp.zeros((count,) + s.shape, s.dtype), out_shape)
+
+    def test(consts, i):
+        return i < consts[2]
+
+    def body(consts, i, out, active):
+        blocks, args, _ = consts
+        value = function(_index(blocks, i), args)
+        # (inactive under jax.vmap: the block written back unchanged)
+        value = jax.tree_util.tree_map(lambda o, v: jnp.where(active, v, _index(o, i)), out, value)
+        out = jax.tree_util.tree_map(lambda o, v: jax.lax.dynamic_update_index_in_dim(o, v, i, 0), out, value)
+        return i + 1, out
+
+    return while_loop(test, body, (blocks, args, n_blocks), jnp.zeros((), jnp.int32), out)[1]
+
+
+def blocked_scan(function, blocks, n_blocks, init, args=()):
+    """``value, carry = function(block, carry, args)`` for the first
+    ``n_blocks`` (traced) blocks of ``blocks`` in turn, from ``carry =
+    init``: the values stacked (zeros for the other blocks) and the final
+    carry. As :func:`blocked_map`, with a carry from block to block."""
+    from ._transforms import while_loop
+
+    count = jax.tree_util.tree_leaves(blocks)[0].shape[0]
+    n_blocks = jnp.minimum(jnp.asarray(n_blocks).astype(jnp.int32), count)
+    out_shape, _ = jax.eval_shape(function, _index(blocks, 0), init, args)
+    out = jax.tree_util.tree_map(lambda s: jnp.zeros((count,) + s.shape, s.dtype), out_shape)
+
+    def test(consts, small):
+        return small[0] < consts[2]
+
+    def body(consts, small, out, active):
+        blocks, args, _ = consts
+        i, carry = small
+        value, carry = function(_index(blocks, i), carry, args)
+        value = jax.tree_util.tree_map(lambda o, v: jnp.where(active, v, _index(o, i)), out, value)
+        out = jax.tree_util.tree_map(lambda o, v: jax.lax.dynamic_update_index_in_dim(o, v, i, 0), out, value)
+        return (i + 1, carry), out
+
+    (_, carry), out = while_loop(test, body, (blocks, args, n_blocks), (jnp.zeros((), jnp.int32), init), out)
+    return out, carry
 
 
 def chunked_map(function, xs, n, chunk, args=()):
