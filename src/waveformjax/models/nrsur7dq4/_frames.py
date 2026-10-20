@@ -136,6 +136,7 @@ def coprecessing_to_inertial(re, im, quat):
     ra_abs = _Powers(quat[0] * quat[0] + quat[3] * quat[3])
     rb_abs = _Powers(quat[2] * quat[2] + quat[1] * quat[1])
     z = {}
+    abs_products = {}
     out_re, out_im = [], []
     index = {mode: i for i, mode in enumerate(MODES)}
     for ell in range(2, LMAX + 1):
@@ -156,11 +157,13 @@ def coprecessing_to_inertial(re, im, quat):
                 zr, zi = z[key]
                 total = None
                 for coef, alpha, beta in _TERMS[ell, m, mp]:
-                    term = coef
-                    if alpha:
-                        term = term * ra_abs[alpha]
-                    if beta:
-                        term = term * rb_abs[beta]
+                    if (alpha, beta) not in abs_products:
+                        if alpha and beta:
+                            abs_products[alpha, beta] = ra_abs[alpha] * rb_abs[beta]
+                        else:
+                            abs_products[alpha, beta] = ra_abs[alpha] if alpha else (rb_abs[beta] if beta else None)
+                    product = abs_products[alpha, beta]
+                    term = coef if product is None else coef * product
                     total = term if total is None else total + term
                 d_re = zr * total
                 d_im = None if isinstance(zi, float) else zi * total

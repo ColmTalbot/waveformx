@@ -19,8 +19,16 @@ Everything here is a pure JAX function of fixed shape. The node where the
 integration starts depends on the binary, so the integration is one
 ``lax.scan`` of ``n_ds - 4`` Adams-Bashforth steps that first walks
 backwards from the start (while ``j < i_start``) and then forwards, keeping
-the history of both directions in its carry: every step evaluates the fits
-of one node, as LAL does, whatever the start.
+the last state and derivatives of both directions in its carry: every step
+evaluates the fits of one node, as LAL does, whatever the start. The
+Adams-Bashforth step to a node uses the four nodes before it (in the
+direction of the integration), so its weights depend only on the node and
+are tabulated once (:func:`ab4_tables`). The regime choices (the RK4 start,
+the reference at the start of the surrogate) are ``jnp.where`` selections,
+and the discrete choices (the nearest node, the bracketing nodes of the
+reference frequency) only select indices, so gradients flow through the
+continuous parts: the reference time, the Euler step to the node and the
+integration.
 """
 
 from __future__ import annotations
