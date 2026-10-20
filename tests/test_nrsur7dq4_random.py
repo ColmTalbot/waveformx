@@ -3,7 +3,7 @@
 # waveformrs: see NOTICE.md for the original code and its authors.
 """NRSur7dq4 against LALSimulation 6.2.0 for random binaries (slow, opt in).
 
-Run with ``WAVEFORMJAX_SLOW_TESTS=1``; ``NRSUR7DQ4_DRAWS`` sets the number of
+Run with ``WAVEFORMJAX_SLOW=1``; ``NRSUR7DQ4_DRAWS`` sets the number of
 draws (default 64) and ``-s`` prints the worst agreement. The draws cover
 ``1 <= q <= 6`` (either label heavier), spin magnitudes up to 0.99 in random
 directions, total masses of 20 to 300 solar masses, sampling at 1 to 8 kHz,
@@ -23,7 +23,7 @@ from test_nrsur7dq4 import MISMATCH, TOLERANCE, lal_polarizations
 pytestmark = [
     requires_nrsur,
     pytest.mark.skipif(
-        os.environ.get("WAVEFORMJAX_SLOW_TESTS", "") in ("", "0"), reason="slow: set WAVEFORMJAX_SLOW_TESTS=1"
+        os.environ.get("WAVEFORMJAX_SLOW", "") in ("", "0"), reason="slow: set WAVEFORMJAX_SLOW=1"
     ),
 ]
 
