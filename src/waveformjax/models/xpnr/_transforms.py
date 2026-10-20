@@ -34,7 +34,6 @@ buffers out of the per-iteration selection of ``jax.lax.while_loop``.
 from __future__ import annotations
 
 import jax
-import jax.extend
 import jax.numpy as jnp
 from jax.custom_derivatives import SymbolicZero
 
@@ -147,17 +146,12 @@ def _split_static(tree):
 
 
 def _traced(function, *args):
-    """``function`` (of the pytrees ``args``) traced once to a jaxpr, and a
-    function replaying it: the batching rules below map the replay rather
-    than tracing the Python code again (which nested rules would multiply)."""
-    closed, out_shape = jax.make_jaxpr(function, return_shape=True)(*args)
-    out_tree = jax.tree_util.tree_structure(out_shape)
-    replay = jax.extend.core.jaxpr_as_fun(closed)
-
-    def replayed(*args):
-        return jax.tree_util.tree_unflatten(out_tree, replay(*jax.tree_util.tree_leaves(args)))
-
-    return replayed, out_shape
+    """``function`` (of the pytrees ``args``) under ``jax.jit``, traced once
+    (``jax.jit`` caches the trace), and the shapes of its outputs: the
+    batching rules below map the traced function rather than tracing the
+    Python code again (which nested rules would multiply)."""
+    jitted = jax.jit(function)
+    return jitted, jax.eval_shape(jitted, *args)
 
 
 def _broadcast(tree, batched, axis_size):
