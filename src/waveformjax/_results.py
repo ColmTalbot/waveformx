@@ -18,6 +18,7 @@ __all__ = [
     "FrequencyGrid",
     "FrequencyModes",
     "TimeSeriesPolarizations",
+    "FrequencySeriesPolarizations",
     "TimeSeriesModes",
     "BatchPolarizations",
     "BatchTimeSeries",
@@ -109,6 +110,25 @@ class TimeSeriesPolarizations:
     @property
     def times(self):
         return self.epoch + self.delta_t * jnp.arange(self.hplus.shape[-1])
+
+    def __iter__(self):
+        return iter((self.hplus, self.hcross))
+
+
+@dataclasses.dataclass
+class FrequencySeriesPolarizations:
+    """``h_+(f)`` and ``h_x(f)`` on the frequencies ``k delta_f``, ``k = 0,
+    1, ...``, with the ``epoch`` (s) of the time series they are the Fourier
+    transform of."""
+
+    hplus: Any
+    hcross: Any
+    epoch: float
+    delta_f: float
+
+    @property
+    def frequencies(self):
+        return self.delta_f * jnp.arange(self.hplus.shape[-1])
 
     def __iter__(self):
         return iter((self.hplus, self.hcross))

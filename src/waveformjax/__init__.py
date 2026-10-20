@@ -28,7 +28,7 @@ import jax
 
 jax.config.update("jax_enable_x64", True)
 
-from . import exceptions  # noqa: E402
+from . import conversions, exceptions  # noqa: E402
 from ._api import (  # noqa: E402
     approximants,
     batch_polarizations,
@@ -42,7 +42,9 @@ from ._api import (  # noqa: E402
     polarizations_function,
     polarizations_on_grid,
     simulate_fd,
+    simulate_fd_function,
     simulate_td,
+    simulate_td_function,
     td_modes,
     td_polarizations,
     td_polarizations_function,
@@ -55,6 +57,7 @@ from ._results import (  # noqa: E402
     BatchTimeSeries,
     FrequencyGrid,
     FrequencyModes,
+    FrequencySeriesPolarizations,
     TimeSeriesModes,
     TimeSeriesPolarizations,
 )
@@ -92,7 +95,10 @@ __all__ = [
     "td_modes",
     "simulate_td",
     "simulate_fd",
+    "simulate_td_function",
+    "simulate_fd_function",
     "TimeSeriesPolarizations",
+    "FrequencySeriesPolarizations",
     "TimeSeriesModes",
     "nrsur7dq4_data_file",
     "batch_polarizations",
@@ -100,6 +106,7 @@ __all__ = [
     "BatchPolarizations",
     "BatchTimeSeries",
     "spin_weighted_spherical_harmonic",
+    "conversions",
     "exceptions",
     "WaveformError",
     "InvalidParameterError",

@@ -15,7 +15,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from . import models
+from . import conversions, models
 from ._binary import (
     BINARY_NAMES,
     Binary,
@@ -31,6 +31,7 @@ from ._results import (
     BatchTimeSeries,
     FrequencyGrid,
     FrequencyModes,
+    FrequencySeriesPolarizations,
     TimeSeriesModes,
     TimeSeriesPolarizations,
     check_frequencies,
@@ -50,6 +51,8 @@ __all__ = [
     "td_modes",
     "simulate_td",
     "simulate_fd",
+    "simulate_td_function",
+    "simulate_fd_function",
     "batch_polarizations",
     "batch_td_polarizations",
     "polarizations_function",
@@ -220,14 +223,60 @@ def td_modes(
     return model.td_modes(binary, float(delta_t), float(f_min), options=options)
 
 
-def simulate_td(approximant: str, delta_t: float, f_min: float, **keywords):
-    """``SimInspiralTD`` (not implemented in waveformjax: use waveformrs)."""
-    raise UnsupportedError("simulate_td is not implemented in waveformjax")
+def simulate_td(
+    approximant: str, delta_t: float, f_min: float, *, options: Optional[WaveformOptions] = None, **keywords
+) -> TimeSeriesPolarizations:
+    """``SimInspiralTD``: the conditioned time-domain waveform (see
+    :mod:`waveformjax.conversions`)."""
+    _entry(approximant)
+    binary, options = _request(options, keywords)
+    return conversions.simulate_td(approximant, binary, options, delta_t, f_min)
 
 
-def simulate_fd(approximant: str, delta_f: float, f_min: float, f_max: float, **keywords):
-    """``SimInspiralFD`` (not implemented in waveformjax: use waveformrs)."""
-    raise UnsupportedError("simulate_fd is not implemented in waveformjax")
+def simulate_fd(
+    approximant: str,
+    delta_f: float,
+    f_min: float,
+    f_max: float,
+    *,
+    options: Optional[WaveformOptions] = None,
+    **keywords,
+) -> FrequencySeriesPolarizations:
+    """``SimInspiralFD``: the conditioned frequency-domain waveform on ``k
+    delta_f`` (``delta_f = 0`` chooses the spacing; see
+    :mod:`waveformjax.conversions`)."""
+    _entry(approximant)
+    binary, options = _request(options, keywords)
+    return conversions.simulate_fd(approximant, binary, options, delta_f, f_min, f_max)
+
+
+def simulate_td_function(
+    approximant: str, delta_t: float, f_min: float, *, options: Optional[WaveformOptions] = None, **keywords
+) -> Callable:
+    """:func:`simulate_td` as a pure function ``f(binary) -> (hplus,
+    hcross)`` for ``jax.jit``, ``jax.vmap`` and ``jax.grad``, with the
+    length, epoch and tapers of the binary given by ``keywords`` (a
+    :class:`~waveformjax.conversions.SimulationFunction`; its ``reference``
+    is :func:`simulate_td` of that binary)."""
+    _entry(approximant)
+    binary, options = _request(options, keywords)
+    return conversions.simulate_td_function(approximant, binary, options, delta_t, f_min)
+
+
+def simulate_fd_function(
+    approximant: str,
+    delta_f: float,
+    f_min: float,
+    f_max: float,
+    *,
+    options: Optional[WaveformOptions] = None,
+    **keywords,
+) -> Callable:
+    """:func:`simulate_fd` as a pure function of the binary (see
+    :func:`simulate_td_function`)."""
+    _entry(approximant)
+    binary, options = _request(options, keywords)
+    return conversions.simulate_fd_function(approximant, binary, options, delta_f, f_min, f_max)
 
 
 def _validate_rows(table: np.ndarray, check: Callable[[Binary], None]):
