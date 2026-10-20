@@ -17,8 +17,11 @@ The package has the same interface as the Python bindings of
   the development version of LALSuite; the behaviour of the LALSimulation
   releases is available as an option.
 - **NRSur7dq4** (time domain): numerical-relativity surrogate for precessing
-  binaries. It needs the surrogate data file from LALSuite's data
-  repository.
+  binaries with higher modes. It gives LALSimulation's polarizations and
+  modes, with the same length and start time; its pure function evaluates
+  the waveform at any times and can be differentiated with respect to every
+  parameter of the binary. It needs the surrogate data file from LALSuite's
+  data repository.
 
 ## Features
 

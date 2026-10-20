@@ -28,7 +28,7 @@ it up to date when code is ported.
 | waveformjax | Original files |
 |---|---|
 | `src/waveformjax/models/xpnr/` | LALSuite: `LALSimIMRPhenomX*.c`, `LALSimIMRPhenomX_PNR*.c`, `LALSimIMRPhenomX_AntisymmetricWaveform.c`, `LALSimInspiralSpinTaylor.c`, `LALSimInspiralPNCoefficients.c`, lal `SphericalHarmonics.c`; GSL: `specfunc/elljac.c`, `specfunc/ellint.c`, `interpolation/cspline.c`, `poly/zsolve.c`, `ode-initval/rkf45.c` (as listed in waveformrs's `NOTICE.md`) |
-| `src/waveformjax/models/nrsur7dq4/` | LALSuite: `LALSimIMRPrecessingNRSur.c`, `LALSimNRSurrogateUtilities.c`; GSL: `interpolation/cspline.c` |
+| `src/waveformjax/models/nrsur7dq4/` | LALSuite: `LALSimIMRPrecessingNRSur.c`, `LALSimNRSurrogateUtilities.c` (Jonathan Blackman, Vijay Varma), the NRSur7dq4 branches of `LALSimInspiralGeneratorLegacy.c` and lal's `LALConstants.h`; GSL: `interpolation/cspline.c`, `linalg/tridiag.c` (`gsl_linalg_solve_symm_tridiag`), `interpolation/poly.c` and `poly/dd.c` (divided differences); waveformrs: `src/nrsur.rs`, `src/nrsur/` (as listed in waveformrs's `NOTICE.md`) |
 
 ## Data
 
