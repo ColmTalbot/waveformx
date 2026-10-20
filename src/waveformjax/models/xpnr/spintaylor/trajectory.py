@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from .._generated import dop853
 from . import dynamics
@@ -73,6 +74,75 @@ def _dense_coefficients(c, y, h, k0, stages, y_new, f_new, components=None):
     return jnp.stack(f, axis=-2)
 
 
+def _tables():
+    a = np.zeros((dop853.N_STAGES_EXTENDED, dop853.N_STAGES_EXTENDED))
+    for s, row in enumerate(dop853.A):
+        for j, value in row:
+            a[s, j] = value
+    b = np.zeros(dop853.N_STAGES_EXTENDED)
+    for j, value in dop853.B:
+        b[j] = value
+    d = np.zeros((len(dop853.D), dop853.N_STAGES_EXTENDED))
+    for i, row in enumerate(dop853.D):
+        for j, value in row:
+            d[i, j] = value
+    return a, b, d
+
+
+_A, _B, _D = _tables()
+
+
+def _stages_looped(c, y, h, k0):
+    """:func:`_stages` and the extra stages of the dense output with the
+    stages in a ``jax.lax.fori_loop`` (one copy of the equations, for the
+    derivatives; the sums of the stages are rounded differently). Returns
+    the stages (rows; row 12 is the derivative at the new state) and the
+    new state."""
+    k = jnp.zeros((dop853.N_STAGES_EXTENDED,) + y.shape, y.dtype).at[0].set(k0)
+
+    def stage(s, k):
+        return k.at[s].set(_rhs(c, y + h * (jnp.asarray(_A)[s] @ k)))
+
+    k = jax.lax.fori_loop(1, dop853.N_STAGES, stage, k)
+    y_new = y + h * (jnp.asarray(_B) @ k)
+    k = k.at[dop853.N_STAGES].set(_rhs(c, y_new))
+    k = jax.lax.fori_loop(dop853.N_STAGES + 1, dop853.N_STAGES_EXTENDED, stage, k)
+    return k, y_new
+
+
+def _dense_looped(y, h, k, y_new, components=None):
+    k0, f_new = k[0], k[dop853.N_STAGES]
+    if components is not None:
+        idx = jnp.asarray(components)
+        k, y, y_new, k0, f_new = k[:, idx], y[idx], y_new[idx], k0[idx], f_new[idx]
+    dy = y_new - y
+    f = jnp.stack([dy, h * k0 - dy, 2.0 * dy - h * (f_new + k0)])
+    return jnp.concatenate([f, h * (jnp.asarray(_D) @ k)], axis=0)
+
+
+def _step_in_time(du, omega, omega_dot):
+    """The step in time that changes ``u = 1 / (M omega)`` by ``du``, from
+    the state at its start and the leading-order evolution ``du/dt ~
+    u^(-5/3)``: ``h = h0 (3/8) ((1 + x)^(8/3) - 1) / x`` with ``x = du /
+    u`` and ``h0 = -du omega^2 / (domega/dt)`` (the steps cover nearly
+    ``du`` even where ``du/dt`` changes much within a step)."""
+    h0 = -du * omega * omega / omega_dot
+    x = du * omega
+    small = jnp.abs(x) < 1e-6
+    x_safe = jnp.where(small, 1.0, x)
+    factor = 0.375 * (jnp.power(1.0 + x_safe, 8.0 / 3.0) - 1.0) / x_safe
+    return h0 * jnp.where(small, 1.0 + 5.0 / 6.0 * x, factor)
+
+
+def dop853_step_looped(aux, state):
+    """:func:`dop853_step` with the stages in a loop (for its derivative)."""
+    c, du = aux
+    y, k0 = state
+    h = _step_in_time(du, y[1], k0[1])
+    k, y_new = _stages_looped(c, y, h, k0)
+    return (y_new, k[dop853.N_STAGES]), (h, _dense_looped(y, h, k, y_new, DENSE_COMPONENTS))
+
+
 def dop853_step(aux, state):
     """One step of the trajectory: ``aux = (coefficients, du)`` with ``du``
     the (signed) increment of ``u = 1 / (M omega)``; ``state = (y, dy/dt)``.
@@ -80,8 +150,7 @@ def dop853_step(aux, state):
     output coefficients of :data:`DENSE_COMPONENTS`."""
     c, du = aux
     y, k0 = state
-    omega = y[1]
-    h = -du * omega * omega / k0[1]
+    h = _step_in_time(du, y[1], k0[1])
     stages, y_new, f_new = _stages(c, y, h, k0)
     dense = _dense_coefficients(c, y, h, k0, stages, y_new, f_new, DENSE_COMPONENTS)
     return (y_new, f_new), (h, dense)
@@ -100,7 +169,7 @@ def integrate(c, y0, du, n, capacity):
     from .._math import Struct
 
     k0 = _rhs(c, y0)
-    (ys, outs, last) = fixed_steps(dop853_step, (c, du), (y0, k0), n, capacity)
+    (ys, outs, last) = fixed_steps(dop853_step, (c, du), (y0, k0), n, capacity, vjp_step=dop853_step_looped)
     hs, dense = outs
     valid = jnp.arange(capacity) < n
     hs = jnp.where(valid, hs, 0.0)
@@ -152,9 +221,8 @@ def evaluate_full(traj, t, backwards):
     c = traj.c
 
     def one(y, k0, h, x):
-        stages, y_new, f_new = _stages(c, y, h, k0)
-        dense = _dense_coefficients(c, y, h, k0, stages, y_new, f_new)
-        return _dense_eval(dense, y, x)
+        k, y_new = _stages_looped(c, y, h, k0)
+        return _dense_eval(_dense_looped(y, h, k, y_new), y, x)
 
     return jax.vmap(one)(jnp.atleast_2d(y), jnp.atleast_2d(k0), jnp.atleast_1d(h), jnp.atleast_1d(x)).reshape(
         jnp.shape(t) + (dynamics.NUM_VARIABLES,)

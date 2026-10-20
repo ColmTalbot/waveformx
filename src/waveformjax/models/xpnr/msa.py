@@ -45,7 +45,7 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 
-from ._math import DBL_EPSILON, DBL_MIN, PI, Struct, cross, dot
+from ._math import DBL_EPSILON, DBL_MIN, PI, Struct, cross, dot, fenced
 
 __all__ = [
     "msa_system", "system", "phi_zeta_costhetal", "cos_theta_l_with", "s_norm", "psi_terms", "msa_error",
@@ -197,6 +197,7 @@ def _max3(a, b, c):
     return jnp.where(a > bc, a, bc)
 
 
+@fenced
 def ellint_rf(x, y, z):
     """Carlson's ``R_F(x, y, z)``, ``gsl_sf_ellint_RF_e`` with
     ``GSL_PREC_DOUBLE`` (NaN for GSL's domain errors). The duplication runs
@@ -247,6 +248,7 @@ def ellint_rf(x, y, z):
     return jnp.where(domain, jnp.nan, value)
 
 
+@fenced
 def ellint_kcomp(k):
     """The complete elliptic integral of the first kind ``K(k)``,
     ``gsl_sf_ellint_Kcomp_e`` with ``GSL_PREC_DOUBLE`` (modulus ``k``; GSL
@@ -267,6 +269,7 @@ def ellint_kcomp(k):
     return jnp.where(domain, jnp.nan, value)
 
 
+@fenced
 def ellint_f(phi, k):
     """The incomplete elliptic integral of the first kind ``F(phi, k)``,
     ``gsl_sf_ellint_F(phi, k, GSL_PREC_DOUBLE)`` (Legendre form, modulus
@@ -309,6 +312,7 @@ def _vpowers(v):
                   logv=jnp.log(v))
 
 
+@fenced
 def msa_system(eta, m1, m2, m1_2, m2_2, chi1, chi2, pi_gm, f_ref):
     """``IMRPhenomX_Initialize_MSA_System`` for ``PhenomXPrecVersion`` 223 and
     ``ExpansionOrder`` 5 (waveformrs's ``MsaSystem::new_unchecked``).
@@ -592,6 +596,7 @@ def msa_system(eta, m1, m2, m1_2, m2_2, chi1, chi2, pi_gm, f_ref):
     return system
 
 
+@fenced
 def system(inputs):
     """:func:`msa_system` from a :class:`~._math.Struct` with the fields of
     waveformrs's ``MsaInputs``: ``eta, m1, m2, m1_2, m2_2, chi1, chi2, pi_gm,
@@ -612,6 +617,7 @@ def msa_error(system):
     return system.msa_error
 
 
+@fenced
 def psi_terms(system):
     """``(g0, delta_qq, psi1, psi2)`` of the precession struct (used by the
     PNR angles to estimate the period of the two-spin oscillations). At equal
@@ -640,6 +646,7 @@ def l_norm_3pn(system, v, v2, l_norm):
     return l_norm * (1. + v2 * (c[0] + v * c[1] + v2 * (c[2] + v * c[3] + v2 * (c[4]))))
 
 
+@fenced
 def roots(system, l_norm, j_norm):
     """``IMRPhenomX_Return_Roots_MSA``: the roots ``(S_3^2, S_-^2, S_+^2)``
     of the cubic for the total spin magnitude, Eq. 21 (with
@@ -695,6 +702,7 @@ def roots(system, l_norm, j_norm):
     return s32, smi2, spl2
 
 
+@fenced
 def s_norm(system, v, roots_):
     """``IMRPhenomX_Return_SNorm_MSA``: the total spin magnitude, Eq. 23,
     at the orbital velocity ``v`` given the roots of the cubic."""
@@ -716,6 +724,7 @@ def cos_theta_lj(l_norm, j_norm, s_norm_):
     return jnp.clip(cos, -1.0, 1.0)
 
 
+@fenced
 def _phiz_sum(system, p, j_norm_):
     """``IMRPhenomX_Return_phiz_MSA``, Eq. 66, without the integration
     constant."""
@@ -760,6 +769,7 @@ def _phiz(system, p, j_norm_):
     return _nan_to_zero(_phiz_sum(system, p, j_norm_) + system.phiz_0)
 
 
+@fenced
 def _zeta(system, p):
     """``IMRPhenomX_Return_zeta_MSA``, Eq. F5 (with LAL's NaN check)."""
     o = system.omegazeta_coeff
@@ -768,6 +778,7 @@ def _zeta(system, p):
     return _nan_to_zero(zeta)
 
 
+@fenced
 def _corrections(system, p, l_norm, j_norm_, roots_, paper=False):
     """``IMRPhenomX_Return_MSA_Corrections_MSA`` where
     ``|S_+^2 - S_-^2| > 1e-5`` (zero elsewhere): the first MSA corrections to
@@ -871,6 +882,7 @@ def _corrections(system, p, l_norm, j_norm_, roots_, paper=False):
     return phiz_msa, zeta_msa
 
 
+@fenced
 def _state(system, v):
     """The per-frequency quantities of
     ``IMRPhenomX_Return_phi_zeta_costhetaL_MSA``."""

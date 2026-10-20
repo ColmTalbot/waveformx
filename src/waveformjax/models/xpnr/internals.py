@@ -19,8 +19,12 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 
-from ._generated import qnm, utilities
-from ._math import MRSUN_SI, MSUN_SI, MTSUN_SI, PI, POWERS_OF_LALPI, Struct, fma, fnms, hz_to_mf
+from ._generated import qnm as _qnm
+from ._generated import utilities as _utilities
+from ._math import FencedModule, MRSUN_SI, MSUN_SI, MTSUN_SI, PI, POWERS_OF_LALPI, Struct, fenced, fma, fnms, hz_to_mf
+
+qnm = FencedModule(_qnm)
+utilities = FencedModule(_utilities)
 
 __all__ = ["waveform_struct", "set_ringdown_frequencies", "f_max_prime"]
 
@@ -28,6 +32,7 @@ F_CUT_DEF = 0.3
 F_CUT_DEF_HIGH_SPIN = 0.33
 
 
+@fenced
 def waveform_struct(m1_si_in, m2_si_in, chi1l_in, chi2l_in, delta_f, f_ref, phi0, f_min, f_max, distance, inclination):
     """``IMRPhenomXSetWaveformVariables`` for the default model versions
     (BBH, GR), with the masses in kg and the distance in m as LAL receives

@@ -18,13 +18,14 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 
-from ._math import PI, Struct
+from ._math import PI, Struct, fenced
 from .msa import acos_safe
 
 __all__ = ["coefficients", "nnlo_coefficients", "evaluate", "nnlo_evaluate", "nnlo_angles", "nnlo_cos_beta",
            "nnlo_beta"]
 
 
+@fenced
 def coefficients(eta, delta, q, chi_eff, chip, m1, *m1_powers):
     """:func:`nnlo_coefficients` with the signature of waveformrs's
     ``nnlo_coefficients`` (the powers ``m1_2, m1_3, m1_4, m1_5, m1_6, m1_8``

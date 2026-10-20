@@ -1,0 +1,644 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# waveformrs: see NOTICE.md for the original code and its authors.
+"""IMRPhenomXPNR: the polarizations (``SimInspiralChooseFDWaveformSequence``),
+after waveformrs's ``imrphenomx/xpnr.rs``.
+
+IMRPhenomXPNR is IMRPhenomXPHM with the PNR angles, the tuned co-precessing
+(2,2) mode, the antisymmetric (2,|2|) contribution, the 122019 release of
+the higher modes, ``PhenomXPrecVersion`` 330 and ``PhenomXPFinalSpinMod`` 7.
+The precession prescription LAL ends up with depends on the binary; the
+four possibilities are computed by separate functions and chosen with
+``jax.lax.switch`` (:func:`polarizations` maps ``jax.vmap`` to a loop over
+the binaries, so that only the prescription of each is computed):
+
+* in-plane spins below ``1e-7``: plain IMRPhenomXPHM with the NNLO angles
+  (no PNR angles, deviations or antisymmetric modes);
+* below ``1e-6``: the PNR machinery with the NNLO angles (102);
+* otherwise the SpinTaylor angles (330), unless LAL's integration fails:
+  then the MSA angles (223), or the NNLO angles if the MSA system cannot be
+  initialised.
+
+The SpinTaylor integration (:mod:`.spintaylor`) happens once, or twice
+where LAL integrates again from the start of the grid of the PNR
+interpolants (:func:`_spintaylor_setup`). The J-frame modes
+(:func:`jframe_modes`) are LAL's single-mode functions: a set-up for every
+range of modes, mapped with ``jax.lax.map``.
+
+Failures that LAL reports as errors give NaN polarizations.
+"""
+
+from __future__ import annotations
+
+import jax
+import jax.numpy as jnp
+
+from . import hm, pnr
+from . import pnr_angles as pa
+from ._math import MPC_SI, MSUN_SI, PI, Struct, barrier, hz_to_mf, mf_to_hz, safe_sqrt
+from .antisymmetric import antisymmetric_waveform
+from .internals import errors as wf_errors
+from .internals import waveform_struct
+from .phase22 import phase_coefficients
+from .xas import h22, phif_ref, xas_setup
+
+__all__ = ["DEFAULT_MODES", "lal_order", "ordered_binary", "polarizations", "setup_waveform"]
+
+#: The co-precessing modes ``(l, m' > 0)`` in the order of LAL's mode loop.
+DEFAULT_MODES = ((2, 1), (2, 2), (3, 2), (3, 3), (4, 4))
+
+
+def lal_order(modes):
+    """The co-precessing modes among ``modes`` in LAL's order."""
+    return tuple(mode for mode in DEFAULT_MODES if mode in modes)
+
+
+def coprecessing_modes(mode_array):
+    """The co-precessing modes ``(l, |m'|)`` of a LAL mode array (LAL twists
+    up both signs of ``m'`` whichever sign is listed); all modes for
+    ``None``."""
+    if mode_array is None:
+        return DEFAULT_MODES
+    return lal_order({(ell, abs(emm)) for ell, emm in mode_array})
+
+
+def ordered_binary(binary):
+    """``XLALIMRPhenomXPCheckMassesAndSpins``: the bodies ordered with the
+    first strictly heavier (equal masses are swapped), as traced values."""
+    m1 = jnp.asarray(binary.mass_1, dtype=jnp.float64)
+    m2 = jnp.asarray(binary.mass_2, dtype=jnp.float64)
+    s1 = jnp.asarray(binary.spin_1, dtype=jnp.float64)
+    s2 = jnp.asarray(binary.spin_2, dtype=jnp.float64)
+    keep = m1 * MSUN_SI > m2 * MSUN_SI
+    return (
+        jnp.where(keep, m1, m2),
+        jnp.where(keep, m2, m1),
+        jnp.where(keep, s1, s2),
+        jnp.where(keep, s2, s1),
+    )
+
+
+def setup_waveform(binary, delta_f, f_min, f_max):
+    """``IMRPhenomXSetWaveformVariables`` as the precessing drivers call it
+    (ordered bodies, the 122019 release of the higher modes)."""
+    m1, m2, chi1, chi2 = ordered_binary(binary)
+    wf = waveform_struct(
+        m1 * MSUN_SI, m2 * MSUN_SI, chi1[2], chi2[2], delta_f, jnp.asarray(binary.f_ref, dtype=jnp.float64),
+        jnp.asarray(binary.phi_ref, dtype=jnp.float64), f_min, f_max,
+        jnp.asarray(binary.luminosity_distance, dtype=jnp.float64) * MPC_SI,
+        jnp.asarray(binary.inclination, dtype=jnp.float64),
+    )
+    return wf, m1 * MSUN_SI, m2 * MSUN_SI, [chi1[0], chi1[1], chi1[2]], [chi2[0], chi2[1], chi2[2]]
+
+
+# ---------------------------------------------------------------------------
+# twisting up
+# ---------------------------------------------------------------------------
+
+SQRT2 = 2.0 ** 0.5
+SQRT5 = 5.0 ** 0.5
+SQRT6 = 2.44948974278317788
+SQRT7 = 7.0 ** 0.5
+SQRT10 = 10.0 ** 0.5
+SQRT14 = 14.0 ** 0.5
+SQRT15 = 15.0 ** 0.5
+SQRT30 = 30.0 ** 0.5
+SQRT70 = 70.0 ** 0.5
+
+
+def half_angles(cos_beta):
+    """``cos(beta / 2)`` and ``sin(beta / 2)`` from ``cos(beta)``."""
+    return safe_sqrt(jnp.abs(1.0 + cos_beta) / 2.0, 1e-300), safe_sqrt(jnp.abs(1.0 - cos_beta) / 2.0, 1e-300)
+
+
+def wigner_d(ell, mprime, c, s):
+    """``d^l_{k, m'}(beta)`` for ``k = -l .. l`` from the powers ``c[k] =
+    cos(beta/2)^k``, ``s[k] = sin(beta/2)^k`` (``IMRPhenomXPHMTwistUp``)."""
+    if (ell, mprime) == (2, 2):
+        return [s[4], 2.0 * c[1] * s[3], SQRT6 * s[2] * c[2], 2.0 * c[3] * s[1], c[4]]
+    if (ell, mprime) == (2, 1):
+        return [2.0 * c[1] * s[3], 3.0 * c[2] * s[2] - s[4], SQRT6 * (c[3] * s[1] - c[1] * s[3]),
+                c[2] * (c[2] - 3.0 * s[2]), -2.0 * c[3] * s[1]]
+    if (ell, mprime) == (3, 3):
+        return [s[6], SQRT6 * c[1] * s[5], SQRT15 * c[2] * s[4], 2.0 * SQRT5 * c[3] * s[3], SQRT15 * c[4] * s[2],
+                SQRT6 * c[5] * s[1], c[6]]
+    if (ell, mprime) == (3, 2):
+        return [SQRT6 * c[1] * s[5], s[4] * (5.0 * c[2] - s[2]), SQRT10 * s[3] * (2.0 * c[3] - c[1] * s[2]),
+                SQRT30 * c[2] * (c[2] - s[2]) * s[2], SQRT10 * c[3] * (c[2] * s[1] - 2.0 * s[3]),
+                c[4] * (c[2] - 5.0 * s[2]), -1.0 * SQRT6 * c[5] * s[1]]
+    if (ell, mprime) == (4, 4):
+        return [s[8], 2.0 * SQRT2 * c[1] * s[7], 2.0 * SQRT7 * c[2] * s[6], 2.0 * SQRT14 * c[3] * s[5],
+                SQRT70 * c[4] * s[4], 2.0 * SQRT14 * c[5] * s[3], 2.0 * SQRT7 * c[6] * s[2], 2.0 * SQRT2 * c[7] * s[1],
+                c[8]]
+    raise ValueError(f"mode ({ell},{mprime}) is not twisted up")
+
+
+def spherical_harmonics(theta, ell):
+    """``XLALSpinWeightedSphericalHarmonic(theta, 0, -2, l, m)`` for ``m = -l
+    .. l`` (real), as ``SphericalHarmonics::new`` writes them."""
+    from ..._harmonics import spin_weighted_spherical_harmonic
+
+    return [jnp.real(spin_weighted_spherical_harmonic(theta, 0.0, ell, m)) for m in range(-ell, ell + 1)]
+
+
+def twist_factors(alpha, cos_beta, epsilon, mprime):
+    """The factors shared by the modes with the same ``m'``: the powers of
+    ``exp(i alpha)``, of the half angles and ``exp(-i m' epsilon) / 2``."""
+    e1 = jnp.exp(1j * alpha)
+    e2 = e1 * e1
+    e3 = e1 * e2
+    e4 = e1 * e3
+    powers = [jnp.ones_like(e1), e1, e2, e3, e4]
+    cb, sb = half_angles(cos_beta)
+    c = [jnp.ones_like(cb)]
+    s = [jnp.ones_like(sb)]
+    for _ in range(1, 9):
+        c.append(cb * c[-1])
+        s.append(sb * s[-1])
+    eps = jnp.exp(-1j * mprime * epsilon) * 0.5
+    return Struct(cos_k=[jnp.real(p) for p in powers], sin_k=[jnp.imag(p) for p in powers], c=c, s=s, eps=eps)
+
+
+def twist_up(ell, mprime, twist, ylm, h, symmetry):
+    """``IMRPhenomXPHMTwistUp`` for ``h = h_{l,-m'}`` with
+    ``PolarizationSymmetry`` ``symmetry`` (+1, or -1 for the antisymmetric
+    (2,2) mode): the contributions ``(h_+, h_x)`` in the J frame."""
+    d = wigner_d(ell, mprime, twist.c, twist.s)
+    sigma = symmetry if ell % 2 == 0 else -symmetry
+    hp_re = hp_im = hc_re = hc_im = 0.0
+    for index in range(2 * ell + 1):
+        y = ylm[index]
+        k = index - ell
+        dm = d[2 * ell - index] if (k + mprime) % 2 == 0 else -d[2 * ell - index]
+        a = dm * y
+        b = sigma * d[index] * y
+        cos = twist.cos_k[abs(k)]
+        sin = -twist.sin_k[abs(k)] if k < 0 else twist.sin_k[abs(k)]
+        total = a + b
+        hp_re = hp_re + total * cos
+        hp_im = hp_im + (b - a) * sin
+        hc_re = hc_re + total * sin
+        hc_im = hc_im + (a - b) * cos
+    eps_h = twist.eps * h
+    return eps_h * (hp_re + 1j * hp_im), eps_h * (hc_re + 1j * hc_im)
+
+
+def rotate_polarizations(zeta, hp, hc):
+    cos = jnp.cos(2.0 * zeta)
+    sin = jnp.sin(2.0 * zeta)
+    return hp * cos + hc * sin, hc * cos - hp * sin
+
+
+# ---------------------------------------------------------------------------
+# the prescriptions
+# ---------------------------------------------------------------------------
+
+
+def _mode_angles_pnr(prec, wf, splines, ell, emm, mf):
+    """The PNR angles of co-precessing mode ``(ell, emm)`` at ``mf``: at the
+    frequency of the (2,2) mode given by the frequency map."""
+    if (ell, emm) == (2, 2):
+        mf_mapped = mf
+        map_error = jnp.zeros(jnp.shape(mf), bool)
+    else:
+        mf_rd_lm = pnr.ringdown_frequency(ell, emm, wf)
+        low, high = pa.linear_frequency_map_transition_frequencies(emm, wf.f_ring, mf_rd_lm, prec.pnr_hm_mflow,
+                                                                   prec.pnr_hm_mfhigh)
+        mf_mapped, map_error = pa.linear_frequency_map(mf, ell, emm, low, high, wf.f_ring, mf_rd_lm,
+                                                       prec.pnr_inspiral_scaling)
+    f_mapped = mf_to_hz(mf_mapped, wf.m_tot)
+    alpha, beta, gamma, inside = pnr.spline_angles(splines, f_mapped)
+    return alpha - prec.alpha_offset, jnp.cos(beta), -gamma - prec.epsilon_offset, map_error | ~inside
+
+
+def _prepare_pnr(prec, wf, grid, version, error, active=True):
+    """The PNR angle interpolants (``IMRPhenomX_PNR_GeneratePNRAngleInterpolants``)
+    on ``grid`` (:func:`.pnr.interpolation_grid`), with the offsets at the
+    reference frequency and the remapped J frame."""
+    splines = barrier(pnr.angle_interpolants(prec, wf, grid, version, active))
+    error = error | splines.error
+    alpha_ref, beta_ref, gamma_ref, inside = pnr.spline_angles(splines, wf.f_ref)
+    error = error | ~inside | ~jnp.isfinite(beta_ref)
+    prec.alpha_offset = alpha_ref
+    prec.epsilon_offset = -gamma_ref - prec.epsilon0
+    prec = pnr.remap_theta_jsf(prec, wf, beta_ref)
+    return prec, splines, error
+
+
+#: The fields of the precession struct replaced when LAL integrates the
+#: SpinTaylor equations again (``IMRPhenomX_PNR_GeneratePNRAngleInterpolants``).
+REINTEGRATED = ("st", "fmin_integration", "mfmin_integration", "chi1_evolved", "chi2_evolved")
+
+
+def _partition(tree):
+    """The traced leaves of ``tree`` and what rebuilds it from them."""
+    leaves, treedef = jax.tree_util.tree_flatten(tree)
+    dynamic = [isinstance(leaf, jax.Array) for leaf in leaves]
+    values = [leaf for leaf, d in zip(leaves, dynamic) if d]
+    return values, (treedef, [None if d else leaf for leaf, d in zip(leaves, dynamic)], dynamic)
+
+
+def _combine(values, meta):
+    treedef, static, dynamic = meta
+    values = iter(values)
+    return jax.tree_util.tree_unflatten(treedef, [next(values) if d else s for s, d in zip(static, dynamic)])
+
+
+def _tree_where(condition, a, b):
+    return jax.tree_util.tree_map(lambda x, y: jnp.where(condition, x, y) if isinstance(x, jax.Array) else x, a, b)
+
+
+def _spintaylor_setup(base, wf0, m1_si, m2_si, modes, needs_st):
+    """The set-up of version 330 up to the grid of the PNR interpolants:
+    the SpinTaylor solution, ``IMRPhenomX_Initialize_Euler_Angles``,
+    ``IMRPhenomX_PNR_PopulateStructs`` and the grid. Where the grid starts
+    below the solution, LAL integrates again from the start of the grid and
+    repeats the first two (keeping the rest of the set-up and the grid).
+    Both integrations are one compiled loop body: a ``jax.lax.scan`` of two
+    iterations, each skipped by ``jax.lax.cond`` when not needed.
+
+    Returns ``(prec, wf, grid, flags)`` with ``flags`` the failure of the
+    first integration (``failed``, where LAL falls back to the MSA angles),
+    the capacities exceeded (``incomplete``) and the errors of the set-up
+    and of a second integration (``error``)."""
+
+    def body(first, previous, run=True):
+        prev_prec, prev_wf, prev_grid, prev_flags = previous
+        flow = jnp.where(first, base.st_flow, prev_flags.f0)
+        if prev_wf is None:
+            fcut = base.st_fcut
+        else:
+            fcut = jnp.where(first, base.st_fcut, mf_to_hz(prev_wf.f_ring + 8.0 * prev_wf.f_damp, prev_wf.m_tot))
+        st = pnr.spintaylor_solution(base, wf0, m1_si, m2_si, flow=flow, fcut=fcut, active=run)
+        fresh, wf = pnr.finish_setup(base, wf0, 330, st)
+        prec = pnr._copy(fresh)
+        if prev_prec is not None:
+            for name in fresh.keys():
+                if name not in REINTEGRATED:
+                    setattr(prec, name, _tree_where(first, getattr(fresh, name), getattr(prev_prec, name)))
+            wf = _tree_where(first, wf, prev_wf)
+        prec = pnr.initialize_euler_angles(prec, wf)
+        prec = pnr.populate_structs(prec, wf, 330)
+        grid = pnr.interpolation_grid(prec, wf, modes, 330)
+        if prev_prec is not None:
+            grid = _tree_where(first, grid, prev_grid)
+            prec.pnr_hm_mflow = jnp.where(first, prec.pnr_hm_mflow, prev_prec.pnr_hm_mflow)
+            prec.pnr_hm_mfhigh = jnp.where(first, prec.pnr_hm_mfhigh, prev_prec.pnr_hm_mfhigh)
+        error = prec.error_structs | grid[3] | prec.error_euler
+        f0 = grid[0] * grid[2]
+        flags = Struct(
+            f0=f0,
+            again=prec.fmin_integration > f0,
+            failed=jnp.where(first, st.failed, prev_flags.failed),
+            incomplete=jnp.where(first, st.incomplete, prev_flags.incomplete),
+            error=jnp.where(first, error, prev_flags.error | error | st.failed | st.incomplete),
+        )
+        return prec, wf, grid, flags
+
+    false = jnp.asarray(False)
+    start = Struct(f0=jnp.zeros(()), again=false, failed=false, incomplete=false, error=false)
+    holder = {}
+
+    def structure():
+        values, holder["meta"] = _partition(body(jnp.asarray(True), (None, None, None, start)))
+        return values
+
+    shapes = jax.eval_shape(structure)
+    meta = holder["meta"]
+
+    def compute(first, carry, run):
+        values, _ = _partition(body(first, _combine(carry, meta), run))
+        return [jnp.asarray(v).astype(s.dtype) for v, s in zip(values, shapes)]
+
+    def step(carry, index):
+        first = index == 0
+        flags = _combine(carry, meta)[3]
+        run = jnp.where(first, needs_st, needs_st & ~flags.failed & flags.again)
+        return jax.lax.cond(run, lambda c: compute(first, c, run), lambda c: c, carry), None
+
+    carry = [jnp.zeros(s.shape, s.dtype) for s in shapes]
+    carry, _ = jax.lax.scan(step, carry, jnp.arange(2))
+    return _combine(carry, meta)
+
+
+#: The fields of the waveform struct that the co-precessing modes read
+#: after the precession set-up has modified it.
+WF_FIELDS = (
+    "m1_si", "m2_si", "m_tot_si", "m1", "m2", "m_tot", "q", "eta", "delta", "eta2", "eta3", "chi1l", "chi2l",
+    "chi1l2l", "chi1l2", "chi1l3", "chi2l2", "chi2l3", "chi_eff", "chi_pn_hat", "s_tot_r", "dchi", "dchi_half",
+    "sigma_l", "sl", "f_ref", "phi_ref_in", "phi0", "beta", "mf_ref", "pi_m", "v_ref", "m_sec", "delta_f",
+    "delta_mf", "f_cut_def", "f_min", "f_max", "mf_max", "f_cut", "f_max_prime", "distance", "inclination", "amp0",
+    "amp_norm", "dphase0", "coprec", "hm_release", "m_final", "a_final", "a_final_nonprec", "a_final_prec",
+    "f_ring", "f_damp", "f_meco", "f_isco",
+)
+
+
+def _angle_data(prec, wf, splines, modes, frequencies, version, tuned):
+    """What a prescription contributes to the waveform: for each
+    co-precessing mode the Euler angles ``(alpha, cos(beta), epsilon)`` at
+    ``frequencies``, the antisymmetric part of the (2,2) mode, the line of
+    sight in the J frame, the polarization angle, the waveform struct as the
+    set-up left it, and the error flag. The same structure for every
+    prescription, so that ``jax.lax.cond`` can choose among them and the
+    modes are built once."""
+    mf = wf.m_sec * frequencies
+    mf_cut = wf.f_max_prime * wf.m_sec
+    keep = mf <= mf_cut
+    # LAL skips the odd modes where they vanish
+    vanishing_odd = (wf.q == 1.0) & (wf.chi1l == wf.chi2l)
+    error = jnp.asarray(False)
+    alphas, cos_betas, epsilons = [], [], []
+    for ell, emm in modes:
+        if tuned:
+            alpha, cos_beta, epsilon, err = _mode_angles_pnr(prec, wf, splines, ell, emm, mf)
+            if emm % 2:
+                err = err & ~vanishing_odd
+            error = error | jnp.any(err & keep)
+        else:
+            alpha, cos_beta, epsilon = pnr.nnlo_angles(prec, PI * mf * 2.0 / emm)
+        alphas.append(alpha)
+        cos_betas.append(cos_beta)
+        epsilons.append(epsilon)
+    if (2, 2) in modes and tuned:
+        amp, phase, err = antisymmetric_waveform(prec, wf, frequencies, version)
+        error = error | err
+        h_as = amp * jnp.exp(1j * phase)
+    else:
+        h_as = jnp.zeros(frequencies.shape, jnp.complex128)
+    wf_out = Struct(**{name: getattr(wf, name) for name in WF_FIELDS})
+    wf_out.hm_release = jnp.asarray(122019)
+    return Struct(
+        wf=wf_out, alpha=jnp.stack(alphas), cos_beta=jnp.stack(cos_betas), epsilon=jnp.stack(epsilons), h_as=h_as,
+        theta_jn=prec.theta_jn, zeta=prec.zeta_polarization, error=error,
+    )
+
+
+def _coprecessing_modes(wf, modes, frequencies):
+    """The co-precessing modes ``h_{l,-m'}`` at ``frequencies`` (no cutoff)."""
+    wf = barrier(wf)
+    mf = wf.m_sec * frequencies
+    phase22 = phase_coefficients(wf)
+    out = []
+    for ell, emm in modes:
+        if (ell, emm) == (2, 2):
+            xas = xas_setup(wf)
+            out.append(h22(mf, wf, xas, phif_ref(wf, xas), mf_cut=jnp.inf))
+        else:
+            out.append(hm.mode_h(hm.mode_coefficients(wf, phase22, ell, emm), mf))
+    return out
+
+
+def _twist_polarizations(data, modes, frequencies):
+    """``IMRPhenomXPHM_hplushcross``: the co-precessing modes (and the
+    antisymmetric part of the (2,2) mode) twisted up into ``(h_+, h_x)``."""
+    data = barrier(data)
+    wf = data.wf
+    mf = wf.m_sec * frequencies
+    keep = mf <= wf.f_max_prime * wf.m_sec
+    vanishing_odd = (wf.q == 1.0) & (wf.chi1l == wf.chi2l)
+    ylms = {ell: spherical_harmonics(data.theta_jn, ell) for ell in (2, 3, 4)}
+    hp = jnp.zeros(frequencies.shape, jnp.complex128)
+    hc = jnp.zeros(frequencies.shape, jnp.complex128)
+    for index, ((ell, emm), h) in enumerate(zip(modes, _coprecessing_modes(wf, modes, frequencies))):
+        twist = twist_factors(data.alpha[index], data.cos_beta[index], data.epsilon[index], emm)
+        p, c = twist_up(ell, emm, twist, ylms[ell], h, 1.0)
+        if (ell, emm) == (2, 2):
+            pa_, ca_ = twist_up(ell, emm, twist, ylms[ell], data.h_as, -1.0)
+            p = p + pa_
+            c = c + ca_
+        if emm % 2:
+            p = jnp.where(vanishing_odd, 0.0, p)
+            c = jnp.where(vanishing_odd, 0.0, c)
+        hp = hp + jnp.where(keep, p, 0.0)
+        hc = hc + jnp.where(keep, c, 0.0)
+    return rotate_polarizations(data.zeta, hp, hc)
+
+
+def _twist_jframe(data, modes, jmodes, frequencies, hs):
+    """``IMRPhenomXPHMTwistUpOneMode``: the J-frame modes ``jmodes`` as
+    arrays ``(positive, negative)`` of shape ``(len(jmodes), n)`` holding
+    ``h_lm(f)`` and ``h_lm(-f)``. Each co-precessing mode ``h = h_{l,-m'}``
+    with antisymmetric part ``h_as`` contributes ``e^{-i m' epsilon} (h +
+    h_as) e^{-i m alpha} d^l_{m,-m'}`` and ``e^{i m' epsilon} (-1)^l conj(h
+    - h_as) e^{-i m alpha} d^l_{m,m'}``. ``hs`` holds the co-precessing
+    modes ``{(l, m'): h}`` of the ``l`` of ``jmodes``."""
+    data = barrier(data)
+    wf = data.wf
+    mf = wf.m_sec * frequencies
+    keep = mf <= wf.f_max_prime * wf.m_sec
+    vanishing_odd = (wf.q == 1.0) & (wf.chi1l == wf.chi2l)
+    ells = {ell for ell, _ in jmodes}
+    selected = [(i, mode) for i, mode in enumerate(modes) if mode[0] in ells]
+    hs = [hs[mode] for _, mode in selected]
+    zero = jnp.zeros(frequencies.shape, jnp.complex128)
+    positive = [zero for _ in jmodes]
+    negative = [zero for _ in jmodes]
+    for (index, (ell, emm)), h in zip(selected, hs):
+        h_as = data.h_as if (ell, emm) == (2, 2) else jnp.zeros_like(h)
+        cb, sb = half_angles(data.cos_beta[index])
+        c = [jnp.ones_like(cb)]
+        s = [jnp.ones_like(sb)]
+        for _ in range(1, 9):
+            c.append(cb * c[-1])
+            s.append(sb * s[-1])
+        d = wigner_d(ell, emm, c, s)
+        e = jnp.exp(1j * emm * data.epsilon[index])
+        sigma = 1.0 if ell % 2 == 0 else -1.0
+        factor_pos = (h + h_as) / e
+        factor_neg = e * sigma * jnp.conj(h - h_as)
+        skip = vanishing_odd if emm % 2 else jnp.asarray(False)
+        for j, (l, m) in enumerate(jmodes):
+            if l != ell:
+                continue
+            rotation = jnp.exp(-1j * m * data.alpha[index])
+            k = m + l
+            d_minus = d[2 * l - k] if (m + emm) % 2 == 0 else -d[2 * l - k]
+            positive[j] = positive[j] + jnp.where(keep & ~skip, factor_pos * (rotation * d_minus), 0.0)
+            negative[j] = negative[j] + jnp.where(keep & ~skip, factor_neg * (rotation * d[k]), 0.0)
+    return jnp.stack(positive), jnp.stack(negative)
+
+
+def _pipeline(base, wf_base, modes, frequencies, version, pnr_on, active=True):
+    """The angle data of one prescription (:func:`_angle_data`) of version
+    102 or 223."""
+    prec, wf = barrier(pnr.finish_setup(base, wf_base, version))
+    if pnr_on:
+        prec = barrier(pnr.populate_structs(prec, wf, version))
+        grid = pnr.interpolation_grid(prec, wf, modes, version)
+        error = prec.error_structs | grid[3]
+        prec, splines, error = barrier(_prepare_pnr(prec, wf, grid, version, error, active))
+    else:
+        splines, error = None, jnp.asarray(False)
+    data = _angle_data(prec, wf, splines, modes, frequencies, version, pnr_on)
+    data.error = data.error | error
+    return data
+
+
+def _pipeline_330(setup, modes, frequencies, active=True):
+    """The angle data of version 330 from :func:`_spintaylor_setup`."""
+    prec, wf, grid, flags = setup
+    prec, wf = barrier((pnr._copy(prec), wf))
+    prec, splines, error = barrier(_prepare_pnr(prec, wf, grid, 330, flags.error, active))
+    data = _angle_data(prec, wf, splines, modes, frequencies, 330, True)
+    data.error = data.error | error | flags.incomplete
+    return data
+
+
+def _decide(binary, frequencies, delta_f, f_min, f_max, modes, parity_fix, mode_range_=None, check_reference=True):
+    """Set up the binary and compute the angle data of the prescription LAL
+    would use."""
+    wf, m1_si, m2_si, chi1, chi2 = setup_waveform(binary, delta_f, f_min, f_max)
+    wf.hm_release = 122019
+    error = wf_errors(wf)
+    if check_reference:
+        # tuned angles: f_min <= f_ref <= f_max
+        upper = jnp.where(delta_f > 0, wf.f_max_prime, f_max)
+        error = error | ~((wf.f_ref >= f_min) & (wf.f_ref <= upper))
+    if mode_range_ is None:
+        mode_range_ = pnr.mode_range(modes)
+    base, wf0 = barrier(pnr.common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, parity_fix))
+    error = error | base.error_spin | (wf0.f_max_prime <= wf0.f_min)
+
+    # the SpinTaylor integration, where LAL attempts it
+    needs_st = base.pnr_on & ~base.nnlo_from_start
+    setup = _spintaylor_setup(base, wf0, m1_si, m2_si, modes, needs_st)
+    st_failed = needs_st & setup[3].failed
+    system = pnr._msa.system(pnr.msa_inputs(base, wf0, base.chi1, base.chi2))
+    msa_error = pnr._msa.msa_error(system)
+    # 0: PNR off (NNLO angles); 1: NNLO angles in PNR; 2: MSA; 3: SpinTaylor
+    index = jnp.where(
+        ~base.pnr_on, 0,
+        jnp.where(base.nnlo_from_start | (st_failed & msa_error), 1, jnp.where(st_failed | ~needs_st, 2, 3)),
+    )
+
+    # (the flags are true in the branch jax.lax.switch takes; under
+    # jax.vmap every branch is computed, the others with no grid)
+    def run(version, pnr_on, branch):
+        return lambda _: _pipeline(base, wf0, modes, frequencies, version, pnr_on, index == branch)
+
+    def st_ok(_):
+        return _pipeline_330(setup, modes, frequencies, index == 3)
+
+    data = jax.lax.switch(index, [run(102, False, 0), run(102, True, 1), run(223, True, 2), st_ok], None)
+    data.error = data.error | error
+    return data
+
+
+def _polarizations(binary, frequencies, options):
+    pnr.clear_cache()
+    modes = coprecessing_modes(options.mode_array)
+    data = _decide(binary, frequencies, 0.0, frequencies[0], frequencies[-1], modes, options.pnr_parity_fix)
+    hp, hc = _twist_polarizations(data, modes, frequencies)
+    nan = jnp.asarray(jnp.nan + 1j * jnp.nan, jnp.complex128)
+    return jnp.where(data.error, nan, hp), jnp.where(data.error, nan, hc)
+
+
+def polarizations(binary, frequencies, options):
+    """``(h_+, h_x)`` of IMRPhenomXPNR at ``frequencies`` (Hz, positive and
+    increasing), as ``SimInspiralChooseFDWaveformSequence``: zero above
+    ``min(f_max, 0.3 / M)`` (``f_max`` the last frequency); NaN where LAL
+    fails.
+
+    Under ``jax.vmap`` the binaries are computed one after the other
+    (``jax.custom_batching.sequential_vmap``): the model is made of loops
+    whose numbers of iterations depend on the binary and of choices among
+    prescriptions, which a batched computation would run to the longest
+    and all of. The reverse-mode derivative is that of the single binary
+    (``jax.custom_vjp``, recomputing the polarizations)."""
+    frequencies = jnp.asarray(frequencies, dtype=jnp.float64)
+    sequential = jax.custom_batching.sequential_vmap
+
+    def raw(binary, frequencies):
+        return _polarizations(binary, frequencies, options)
+
+    @jax.custom_vjp
+    def evaluate(binary, frequencies):
+        return sequential(raw)(binary, frequencies)
+
+    def forward(binary, frequencies):
+        return sequential(raw)(binary, frequencies), (binary, frequencies)
+
+    def backward(residuals, cotangents):
+        binary, frequencies = residuals
+        return sequential(lambda b, f, c: jax.vjp(raw, b, f)[1](c))(binary, frequencies, cotangents)
+
+    evaluate.defvjp(forward, backward)
+    return evaluate(binary, frequencies)
+
+
+def jframe_groups(modes, custom_mode_array):
+    """The J-frame modes ``(l, m)`` (``l`` among the co-precessing modes,
+    ``|m| <= l``) grouped by the mode range of their set-up: as in LAL,
+    without a mode array each J-frame mode has its own range ``M_MIN =
+    max(1, |m|)``, ``M_MAX = L_MAX_PNR = l``."""
+    ells = sorted({ell for ell, _ in modes})
+    groups = {}
+    for ell in ells:
+        for m in range(-ell, ell + 1):
+            key = pnr.mode_range(modes) if custom_mode_array else (max(1, abs(m)), ell, ell)
+            groups.setdefault(key, []).append((ell, m))
+    return groups
+
+
+def jframe_modes(binary, frequencies, options, delta_f=0.0, f_min=None, f_max=None):
+    """The J-frame modes of ``XLALSimIMRPhenomXPHMFrequencySequenceOneMode``
+    (``delta_f = 0``) or ``XLALSimIMRPhenomXPHMOneMode`` with the flags of
+    IMRPhenomXPNR at ``frequencies``: a dict ``{(l, m): (h(f), h(-f))}``,
+    ``thetaJN`` and ``zeta`` (of the first set-up), NaN where LAL fails.
+
+    Without a mode array LAL sets the binary up again for every J-frame
+    mode, with a mode range depending on the mode (:func:`jframe_groups`);
+    here the set-ups of the groups run in a ``jax.lax.map`` over the mode
+    ranges, so that they are compiled once."""
+    pnr.clear_cache()
+    frequencies = jnp.asarray(frequencies, dtype=jnp.float64)
+    modes = coprecessing_modes(options.mode_array)
+    custom = options.mode_array is not None
+    if f_min is None:
+        f_min = frequencies[0]
+    if f_max is None:
+        f_max = frequencies[-1]
+    groups = jframe_groups(modes, custom)
+    parity_fix = options.pnr_parity_fix
+    results = []
+    if custom:
+        ((key, jmodes),) = groups.items()
+        data = _decide(binary, frequencies, delta_f, f_min, f_max, modes, parity_fix, mode_range_=key,
+                       check_reference=False)
+        hs = dict(zip(modes, _coprecessing_modes(data.wf, modes, frequencies)))
+        results.append((jmodes, data, hs))
+    else:
+        keys = list(groups)
+        ells = sorted({ell for ell, _ in modes})
+        by_ell = {ell: [mode for mode in modes if mode[0] == ell] for ell in ells}
+        width = max(len(v) for v in by_ell.values())
+        zero = jnp.zeros(frequencies.shape, jnp.complex128)
+
+        def modes_of(ell):
+            def evaluate(wf):
+                hs = _coprecessing_modes(wf, by_ell[ell], frequencies)
+                return jnp.stack(hs + [zero] * (width - len(hs)))
+            return evaluate
+
+        def one(args):
+            key, ell_index = args
+            pnr.clear_cache()
+            data = _decide(binary, frequencies, delta_f, f_min, f_max, modes, parity_fix,
+                           mode_range_=(key[0], key[1], key[2]), check_reference=False)
+            hs = jax.lax.switch(ell_index, [modes_of(ell) for ell in ells], data.wf)
+            return data, hs
+
+        params = jnp.asarray(keys, dtype=jnp.float64)
+        ell_index = jnp.asarray([ells.index(key[2]) for key in keys])
+        datas, hs_all = jax.lax.map(one, (params, ell_index))
+        for g, key in enumerate(keys):
+            data = jax.tree_util.tree_map(lambda x: x[g], datas)
+            hs = {mode: hs_all[g, i] for i, mode in enumerate(by_ell[key[2]])}
+            results.append((groups[key], data, hs))
+    out = {}
+    nan = jnp.asarray(jnp.nan + 1j * jnp.nan, jnp.complex128)
+    for jmodes, data, hs in results:
+        pos, neg = _twist_jframe(data, modes, tuple(jmodes), frequencies, hs)
+        for index, mode in enumerate(jmodes):
+            out[mode] = (jnp.where(data.error, nan, pos[index]), jnp.where(data.error, nan, neg[index]))
+    return out, results[0][1].theta_jn, results[0][1].zeta

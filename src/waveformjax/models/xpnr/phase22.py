@@ -17,8 +17,16 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 
-from ._generated import inspiral, intermediate, ringdown, utilities
-from ._math import EGAMMA, LN_2, PI, POWERS_OF_LALPI, Struct, fma, powers
+from ._generated import inspiral as _inspiral
+from ._generated import intermediate as _intermediate
+from ._generated import ringdown as _ringdown
+from ._generated import utilities as _utilities
+from ._math import EGAMMA, FencedModule, LN_2, PI, POWERS_OF_LALPI, Struct, fenced, fma, powers
+
+inspiral = FencedModule(_inspiral)
+intermediate = FencedModule(_intermediate)
+ringdown = FencedModule(_ringdown)
+utilities = FencedModule(_utilities)
 
 __all__ = [
     "phase_coefficients",
@@ -41,6 +49,7 @@ def _solve(rows, values):
     return [solution[i] for i in range(len(values))]
 
 
+@fenced
 def phase_coefficients(wf):
     """``IMRPhenomXGetPhaseCoefficients`` followed by
     ``IMRPhenomX_Phase_22_ConnectionCoefficients`` (the connection

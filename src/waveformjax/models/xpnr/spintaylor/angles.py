@@ -17,16 +17,15 @@ samples of both runs as the knots of natural cubic splines of ``alpha`` and
 
 Here (see :mod:`.trajectory` and :mod:`.replica`):
 
-* the solution comes from a dense, differentiable DOP853 integration
-  (:func:`.trajectory.integrate`), evaluated at LAL's sample times, which
-  are a lattice: ``t_k = k delta_t`` from ``f_ref`` (without LAL's sample
-  at ``-delta_t``, which ``appendTS`` drops) and ``t_c + j delta_t / 10``
-  for the fine run;
-* where each run of LAL ends depends on its exact sequence of adaptive
-  steps, so the number of samples of the forward run and of the fine run
-  come from :func:`.replica.evolve`, which repeats LAL's steps; the number
-  of samples of the backward run, where LAL stops at a frequency, follows
-  from the solution;
+* LAL's samples are a lattice in time: ``t_k = k delta_t`` from ``f_ref``
+  (without LAL's sample at ``-delta_t``, which ``appendTS`` drops) and
+  ``t_c + j delta_t / 10`` for the fine run;
+* the forward and fine runs are LAL's adaptive steps, repeated by
+  :func:`.replica.evolve_recorded` (where each run ends depends on the
+  exact sequence of steps), with LAL's interpolant between them;
+* the backward run, which is long and ends at a frequency, is a dense,
+  differentiable DOP853 integration (:func:`.trajectory.integrate`)
+  evaluated at the lattice;
 * the splines have as many knots as LAL has samples (millions for light
   binaries). Up to :data:`GLOBAL_KNOTS` knots, :func:`spline_table` builds
   them as GSL does, from all knots at once. Beyond, a natural cubic spline
@@ -36,9 +35,9 @@ Here (see :mod:`.trajectory` and :mod:`.replica`):
   conditions where the window reaches the ends): the same values to
   ``~1e-15``, with a cost per point independent of the number of samples.
 
-The knot values differ from LAL's by LAL's own integration error (``~1e-9``,
-the tolerances are ``1e-12`` per step); everything else is LAL's
-construction.
+The knots of the backward run differ from LAL's by LAL's own integration
+error (``~1e-9``, the tolerances are ``1e-12`` per step); everything else is
+LAL's construction.
 """
 
 from __future__ import annotations
@@ -46,10 +45,11 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 
-from .._math import C_SI, G_SI, MSUN_SI, MTSUN_SI, PI, REAL4_EPS, Struct, chunked_map, fma, safe_div
+from .._math import C_SI, G_SI, MSUN_SI, MTSUN_SI, PI, REAL4_EPS, Struct, chunked_map, fenced, fma, safe_div
 from . import dynamics, replica, trajectory
 
-__all__ = ["pn_solution", "knot_times", "knot_states", "spline", "spline_table", "windowed_spline", "WINDOW",
+__all__ = ["pn_solution", "knot_times", "knot_states", "spline", "spline_context", "spline_many", "spline_table",
+           "windowed_spline", "WINDOW",
            "GLOBAL_KNOTS"]
 
 #: Knots on each side of an interval used to evaluate the splines in windows.
@@ -57,13 +57,13 @@ WINDOW = 16
 #: The number of knots up to which the splines are built from all knots.
 GLOBAL_KNOTS = 8192
 #: The knots computed together when building the splines from all knots.
-KNOT_CHUNK = 512
+KNOT_CHUNK = 2048
 #: Precession angle (rad) per step of the DOP853 integration.
 STEP_ANGLE = 0.1
 #: Capacities (steps) of the backward and forward DOP853 integrations and the
 #: limit on LAL's adaptive steps in the replica of a run.
 BACKWARD_CAPACITY = 4096
-FORWARD_CAPACITY = 16384
+FORWARD_CAPACITY = 65536
 FINE_CAPACITY = 4096
 MAX_REPLICA_ITERATIONS = 1000000
 #: Iterations of LAL's backward run tried to detect that it stops at once.
@@ -93,7 +93,9 @@ def _du_per_step(m1_si, m2_si):
 def _time_at_omega(traj, omega, backwards):
     """The time at which ``M omega`` of the solution equals ``omega``
     (arrays), by locating the step and inverting the dense output with
-    Newton's method (a fixed number of iterations)."""
+    Newton's method (a fixed number of iterations). Not differentiated: it
+    places LAL's samples."""
+    traj, omega = jax.lax.stop_gradient((traj, omega))
     n = jnp.maximum(traj.n, 1)
     cap = traj.t.shape[0]
     node_omega = traj.y[:, 1]
@@ -114,13 +116,16 @@ def _time_at_omega(traj, omega, backwards):
     def omega_at(x):
         return trajectory._dense_eval(dense, y0, x)[..., 0]
 
-    for _ in range(8):
+    def newton(_, x):
         value, slope = jax.jvp(omega_at, (x,), (jnp.ones_like(x),))
-        x = x - safe_div(value - omega, slope)
+        return x - safe_div(value - omega, slope)
+
+    x = jax.lax.fori_loop(0, 8, newton, x)
     return t0 + x * h
 
 
-def pn_solution(m1_si, m2_si, chi1, chi2, f_ref, f_min, f_cut):
+@fenced
+def pn_solution(m1_si, m2_si, chi1, chi2, f_ref, f_min, f_cut, active=True):
     """``IMRPhenomX_InspiralAngles_SpinTaylor`` (version 330, black holes):
     the SpinTaylor solution from ``f_min`` (Hz, including LAL's buffer) through
     ``f_ref`` to the end of the inspiral, for masses in kg (heavier first)
@@ -136,8 +141,11 @@ def pn_solution(m1_si, m2_si, chi1, chi2, f_ref, f_min, f_cut):
     knot, the frequency of the first knot ``f_min_pn``, ``failed`` (LAL's
     integration fails, where its waveform drivers fall back to the MSA
     angles) and ``incomplete`` (the capacities of this implementation were
-    exceeded).
+    exceeded). Where ``active`` (traced) is false, the integrations take no
+    steps (under ``jax.vmap``, where both sides of a ``jax.lax.cond`` are
+    computed).
     """
+    max_iterations = jnp.where(active, MAX_REPLICA_ITERATIONS, 0)
     m_tot = m1_si + m2_si
     msec = m_tot / MSUN_SI * MTSUN_SI
     pi_gm = PI * m_tot * (G_SI / C_SI) / (C_SI * C_SI)
@@ -154,13 +162,13 @@ def pn_solution(m1_si, m2_si, chi1, chi2, f_ref, f_min, f_cut):
 
     # LAL's forward coarse run, step for step
     c_fwd = dynamics.coefficients(m1_si, m2_si, f_start, f_cut)
-    fwd = replica.evolve_recorded(c_fwd, y_ref, dt_coarse, MAX_REPLICA_ITERATIONS, FORWARD_CAPACITY)
+    fwd = replica.evolve_recorded(c_fwd, y_ref, dt_coarse, max_iterations, FORWARD_CAPACITY)
     n_fwd = _trim_forward(fwd, c_fwd, dt_coarse)
 
     # the backward run: does it stop at once (f_ref beyond the validity of
     # the PN equations)?
     c_back = dynamics.coefficients(m1_si, m2_si, f_ref, f_min - 0.5)
-    start = replica.evolve(c_back, y_ref, -dt_coarse, EARLY_STOP_ITERATIONS)
+    start = replica.evolve(c_back, y_ref, -dt_coarse, jnp.where(active, EARLY_STOP_ITERATIONS, 0))
     stopped = ~start.exhausted & (start.code != dynamics.ST_TEST_FREQBOUND)
 
     # the backward solution down to the sample below f_min - 0.5 Hz
@@ -172,7 +180,8 @@ def pn_solution(m1_si, m2_si, chi1, chi2, f_ref, f_min, f_cut):
     u_low = 1.0 / omega_low_safe + 1.5 * dt_coarse * k_dot_low / omega_low_safe ** 2
     range_back = jax.lax.stop_gradient(jnp.where(no_backward, 1.0, u_low - 1.0 / omega_ref) * 1.03)
     n_back_steps = jnp.clip(jnp.ceil(range_back / du_step), 1, BACKWARD_CAPACITY).astype(jnp.int64)
-    du_back = range_back / n_back_steps
+    n_back_steps = jnp.where(active, n_back_steps, 0)
+    du_back = range_back / jnp.maximum(n_back_steps, 1)
     back = trajectory.integrate(c_back, y_ref, du_back, n_back_steps, BACKWARD_CAPACITY)
 
     # the samples of the backward run: the first one below omega_low
@@ -202,7 +211,7 @@ def pn_solution(m1_si, m2_si, chi1, chi2, f_ref, f_min, f_cut):
     f_trans_safe = jnp.where(bad_trans, f_start, f_trans)
     y_fine = state_c.at[0].set(0.0).at[1].set(PI * msec * f_trans_safe)
     c_fine = dynamics.coefficients(m1_si, m2_si, f_trans_safe, f_cut)
-    fine = replica.evolve_recorded(c_fine, y_fine, dt_fine, MAX_REPLICA_ITERATIONS, FINE_CAPACITY)
+    fine = replica.evolve_recorded(c_fine, y_fine, dt_fine, max_iterations, FINE_CAPACITY)
     n_fine = _trim_forward(fine, c_fine, dt_fine)
 
     len_pn = copy_length + n_fine
@@ -269,12 +278,14 @@ def _trim_forward(rec, c, deltat):
     # bisection for the first sample of the last step with omega > w_end
     lo = jnp.clip(jnp.floor(t0_last / deltat) + 1.0, 0.0, n)
     hi = n
-    for _ in range(64):
+
+    def bisect(_, bounds):
+        lo, hi = bounds
         mid = jnp.floor((lo + hi) / 2.0)
         above = omega_at(jnp.minimum(mid, n - 1.0)) > w_end
-        hi = jnp.where(above & (mid < hi), mid, hi)
-        lo = jnp.where(above, lo, jnp.minimum(mid + 1.0, hi))
-    first_above = hi
+        return jnp.where(above, lo, jnp.minimum(mid + 1.0, hi)), jnp.where(above & (mid < hi), mid, hi)
+
+    _, first_above = jax.lax.fori_loop(0, 64, bisect, (lo, hi))
     trimmed = jnp.where(first_above < n, first_above + 1.0, n)
     applies = (c.f_end > c.f_start) & (c.f_end != 0.0)
     return jax.lax.stop_gradient(jnp.where(applies, trimmed, n))
@@ -316,49 +327,49 @@ def index_at_time(sol, t):
     return jnp.clip(i, 0.0, sol.len_pn - 2.0)
 
 
-def _thomas(lower, diag, upper, rhs):
-    """Solve tridiagonal systems along the last axis (lists of arrays)."""
-    n = len(diag)
-    c = [None] * n
-    d = [None] * n
-    c[0] = upper[0] / diag[0]
-    d[0] = rhs[0] / diag[0]
-    for i in range(1, n):
-        m = diag[i] - lower[i] * c[i - 1]
-        c[i] = upper[i] / m if i < n - 1 else 0.0
-        d[i] = (rhs[i] - lower[i] * d[i - 1]) / m
-    x = [None] * n
-    x[n - 1] = d[n - 1]
-    for i in range(n - 2, -1, -1):
-        x[i] = d[i] - c[i] * x[i + 1]
-    return x
+def spline_context(sol, rotation, mf_scale):
+    """What the splines of a solution need besides the evaluation points:
+    the splines through all knots (:func:`spline_table`), the continuous
+    ``alpha`` at the integration nodes and the branch of the first knot
+    (for :func:`windowed_spline`) and the range of the knots."""
+    phi_j, theta_j, kappa = rotation
+    tables = _alpha_tables(sol, rotation)
+    state0 = knot_states(sol, jnp.zeros(()))
+    lx0, ly0, _ = _rotate(state0[1], state0[2], state0[3], phi_j, theta_j, kappa)
+    raw0 = jnp.arctan2(ly0, lx0)
+    alpha_first = _continuous_alpha(sol, tables, knot_times(sol, jnp.zeros(())), raw0)
+    table = spline_table(sol, rotation, mf_scale)
+    return Struct(table=table, tables=tables, shift=jnp.round((raw0 - alpha_first) / (2 * PI)) * 2 * PI,
+                  first_mf=table.first_mf, last_mf=table.last_mf, small=table.small)
 
 
-def spline(sol, rotation, mf, mf_scale, table=None):
+def spline(sol, rotation, mf, mf_scale, context=None):
     """The natural cubic splines of LAL through its knots of ``alpha``
     (unwrapped) and ``cos(beta)`` against ``Mf`` in the J frame, and their
-    derivatives, at ``mf`` (an array): from :func:`spline_table` (``table``,
-    computed if not given) up to :data:`GLOBAL_KNOTS` knots, else from
-    :func:`windowed_spline` (both are computed: for a few points). Returns
-    ``(alpha, dalpha, cosbeta, dcosbeta, inside)``."""
-    if table is None:
-        table = spline_table(sol, rotation, mf_scale)
-    whole = table_eval(table, mf)
-    windowed = windowed_spline(sol, rotation, mf, mf_scale)
-    return tuple(jnp.where(table.small, a, b) for a, b in zip(whole, windowed))
+    derivatives, at ``mf`` (an array of a few points): from
+    :func:`spline_table` up to :data:`GLOBAL_KNOTS` knots, else from
+    :func:`windowed_spline` (``jax.lax.cond``: both under ``jax.vmap``).
+    Returns ``(alpha, dalpha, cosbeta, dcosbeta, inside)``."""
+    if context is None:
+        context = spline_context(sol, rotation, mf_scale)
+    return jax.lax.cond(context.small, lambda m: table_eval(context.table, m),
+                        lambda m: windowed_spline(sol, rotation, m, mf_scale, context), mf)
 
 
-def spline_many(sol, rotation, mf, n, chunk, mf_scale, table=None):
+def spline_many(sol, rotation, mf, n, chunk, mf_scale, context=None):
     """:func:`spline` at many points ``mf`` (an array of static length, the
     first ``n`` needed): the windows (in chunks of ``chunk``, see
     :func:`~.._math.chunked_map`) only where the knots are too many for
     :func:`spline_table`."""
-    if table is None:
-        table = spline_table(sol, rotation, mf_scale)
-    whole = table_eval(table, mf)
-    windowed = chunked_map(lambda x: windowed_spline(sol, rotation, x, mf_scale), mf,
-                           jnp.where(table.small, 0.0, n), chunk)
-    return tuple(jnp.where(table.small, a, b) for a, b in zip(whole, windowed))
+    if context is None:
+        context = spline_context(sol, rotation, mf_scale)
+
+    def evaluate(x, args):
+        sol, rotation, mf_scale, context = args
+        return jax.lax.cond(context.small, lambda x: table_eval(context.table, x),
+                            lambda x: windowed_spline(sol, rotation, x, mf_scale, context), x)
+
+    return chunked_map(evaluate, mf, n, chunk, (sol, rotation, mf_scale, context))
 
 
 def spline_table(sol, rotation, mf_scale):
@@ -373,7 +384,7 @@ def spline_table(sol, rotation, mf_scale):
     k = jnp.arange(GLOBAL_KNOTS, dtype=jnp.float64)
     valid = k < n
     index = jnp.minimum(k, jnp.maximum(n - 1.0, 0.0))
-    state = chunked_map(lambda i: knot_states(sol, i), index, n, KNOT_CHUNK)
+    state = chunked_map(lambda i, sol: knot_states(sol, i), index, n, KNOT_CHUNK, sol)
     om = jnp.where(valid, state[:, 0], 1.0)
     lx, ly, lz = _rotate(state[:, 1], state[:, 2], state[:, 3], *rotation)
     lx = jnp.where(valid, lx, 1.0)
@@ -432,7 +443,7 @@ def table_eval(table, mf):
     return out[0], out[1], out[2], out[3], inside
 
 
-def windowed_spline(sol, rotation, mf, mf_scale):
+def windowed_spline(sol, rotation, mf, mf_scale, context):
     """The natural cubic splines of LAL through its knots of ``alpha``
     (unwrapped) and ``cos(beta)`` against ``Mf`` in the J frame, and their
     derivatives, at ``mf`` (an array), each point from the ``2 WINDOW + 2``
@@ -474,7 +485,7 @@ def windowed_spline(sol, rotation, mf, mf_scale):
     dalpha = jnp.diff(alpha_raw, axis=-1)
     dalpha = jnp.where(dalpha > PI, dalpha - 2 * PI, jnp.where(dalpha < -PI, dalpha + 2 * PI, dalpha))
     alpha = jnp.concatenate([alpha_raw[..., :1], alpha_raw[..., :1] + jnp.cumsum(dalpha, axis=-1)], axis=-1)
-    alpha = alpha + 2 * PI * _branch(sol, rotation, idx[..., 0], alpha_raw[..., 0])[..., None]
+    alpha = alpha + 2 * PI * _branch(sol, context, idx[..., 0], alpha_raw[..., 0])[..., None]
     # pad beyond the last knot: repeat it with increasing abscissae (decoupled)
     width = jnp.max(knot_mf, axis=-1, keepdims=True) - jnp.min(knot_mf, axis=-1, keepdims=True)
     pad = jnp.cumsum(jnp.where(valid, 0.0, 1.0), axis=-1)
@@ -485,7 +496,7 @@ def windowed_spline(sol, rotation, mf, mf_scale):
     true_end = (start + 2 * WINDOW + 1) >= sol.len_pn - 1.0
     a_val, a_der = _natural_spline_eval(knot_mf, alpha, valid, mf, true_start, true_end)
     b_val, b_der = _natural_spline_eval(knot_mf, cosb, valid, mf, true_start, true_end)
-    inside = (mf >= _first_mf(sol, mf_scale)) & (mf <= _last_mf(sol, mf_scale))
+    inside = (mf >= context.first_mf) & (mf <= context.last_mf)
     return a_val, a_der, b_val, b_der, inside
 
 
@@ -513,27 +524,22 @@ def _last_mf(sol, mf_scale):
     return jnp.cbrt(om) ** 3 * mf_scale
 
 
-def _branch(sol, rotation, index, alpha_raw):
+def _branch(sol, context, index, alpha_raw):
     """The number of turns ``n`` such that ``alpha_raw + 2 pi n`` is LAL's
     unwrapped ``alpha`` at knot ``index``: the continuous ``alpha`` of the
     solution, followed along the steps of the integrations (each covers a
     small fraction of a precession cycle), relative to the first knot,
-    where LAL starts unwrapping."""
-    phi_j, theta_j, kappa = rotation
-    tables = _alpha_tables(sol, rotation)
-    t = knot_times(sol, index)
-    alpha_cont = _continuous_alpha(sol, tables, t, alpha_raw)
-    state0 = knot_states(sol, jnp.zeros(()))
-    lx0, ly0, _ = _rotate(state0[1], state0[2], state0[3], phi_j, theta_j, kappa)
-    raw0 = jnp.arctan2(ly0, lx0)
-    alpha_first = _continuous_alpha(sol, tables, knot_times(sol, jnp.zeros(())), raw0)
-    shift = jnp.round((raw0 - alpha_first) / (2 * PI)) * 2 * PI
-    return jnp.round((alpha_cont + shift - alpha_raw) / (2 * PI))
+    where LAL starts unwrapping (``context`` from :func:`spline_context`)."""
+    alpha_cont = _continuous_alpha(sol, context.tables, knot_times(sol, index), alpha_raw)
+    return jnp.round((alpha_cont + context.shift - alpha_raw) / (2 * PI))
 
 
-def _unwrap_nodes(lx, ly, lz, rotation):
+def _unwrap_nodes(lx, ly, lz, rotation, n):
     x, y, _ = _rotate(lx, ly, lz, *rotation)
-    raw = jnp.arctan2(y, x)
+    # the nodes beyond the n integrated ones are zeros: keep atan2 (and its
+    # derivative) finite there
+    valid = jnp.arange(x.shape[0]) < n
+    raw = jnp.arctan2(jnp.where(valid, y, 0.0), jnp.where(valid, x, 1.0))
     d = jnp.diff(raw)
     d = jnp.where(d > PI, d - 2 * PI, jnp.where(d < -PI, d + 2 * PI, d))
     return jnp.concatenate([raw[:1], raw[:1] + jnp.cumsum(d)])
@@ -545,8 +551,8 @@ def _alpha_tables(sol, rotation):
     back = sol.back
     fwd = sol.fwd
     return (
-        _unwrap_nodes(back.y[:, 2], back.y[:, 3], back.y[:, 4], rotation),
-        _unwrap_nodes(fwd.y[:, 2], fwd.y[:, 3], fwd.y[:, 4], rotation),
+        _unwrap_nodes(back.y[:, 2], back.y[:, 3], back.y[:, 4], rotation, jnp.maximum(back.n, 1)),
+        _unwrap_nodes(fwd.y[:, 2], fwd.y[:, 3], fwd.y[:, 4], rotation, jnp.maximum(fwd.accepted, 1)),
     )
 
 
@@ -595,25 +601,23 @@ def _natural_spline_eval(x, y, valid, xq, natural_start=True, natural_end=True):
     inside LAL's knots)."""
     n = x.shape[-1]
     h = jnp.diff(x, axis=-1)
-    hs = [h[..., i] for i in range(n - 1)]
-    ys = [y[..., i] for i in range(n)]
-    vs = [valid[..., i] for i in range(n)]
-    lower = [jnp.zeros_like(ys[0])] * n
-    diag = [jnp.ones_like(ys[0])] * n
-    upper = [jnp.zeros_like(ys[0])] * n
-    rhs = [jnp.zeros_like(ys[0])] * n
-    for i in range(1, n - 1):
-        interior = vs[i + 1]
-        lower[i] = jnp.where(interior, hs[i - 1], 0.0)
-        diag[i] = jnp.where(interior, 2.0 * (hs[i - 1] + hs[i]), 1.0)
-        upper[i] = jnp.where(interior, hs[i], 0.0)
-        rhs[i] = jnp.where(interior, 6.0 * ((ys[i + 1] - ys[i]) / hs[i] - (ys[i] - ys[i - 1]) / hs[i - 1]), 0.0)
-    rhs[0] = jnp.where(natural_start, 0.0, _second_difference(x[..., 0], x[..., 1], x[..., 2], ys[0], ys[1], ys[2]))
-    rhs[n - 1] = jnp.where(
-        natural_end, 0.0, _second_difference(x[..., n - 3], x[..., n - 2], x[..., n - 1], ys[n - 3], ys[n - 2], ys[n - 1])
-    )
-    m = _thomas(lower, diag, upper, rhs)
-    m = jnp.stack(m, axis=-1)
+    slope = jnp.diff(y, axis=-1) / h
+    interior = valid[..., 2:]
+    zero = jnp.zeros_like(x[..., :1])
+    one = jnp.ones_like(x[..., :1])
+    lower = jnp.concatenate([zero, jnp.where(interior, h[..., :-1], 0.0), zero], axis=-1)
+    diag = jnp.concatenate([one, jnp.where(interior, 2.0 * (h[..., :-1] + h[..., 1:]), 1.0), one], axis=-1)
+    upper = jnp.concatenate([zero, jnp.where(interior, h[..., 1:], 0.0), zero], axis=-1)
+    start = jnp.where(natural_start, 0.0, _second_difference(x[..., 0], x[..., 1], x[..., 2], y[..., 0], y[..., 1],
+                                                              y[..., 2]))
+    end = jnp.where(natural_end, 0.0, _second_difference(x[..., n - 3], x[..., n - 2], x[..., n - 1], y[..., n - 3],
+                                                          y[..., n - 2], y[..., n - 1]))
+    rhs = jnp.concatenate([
+        jnp.broadcast_to(start, x.shape[:-1])[..., None],
+        jnp.where(interior, 6.0 * (slope[..., 1:] - slope[..., :-1]), 0.0),
+        jnp.broadcast_to(end, x.shape[:-1])[..., None],
+    ], axis=-1)
+    m = jax.lax.linalg.tridiagonal_solve(lower, diag, upper, rhs[..., None])[..., 0]
     # the interval of xq
     n_valid = jnp.sum(valid, axis=-1)
     k = jnp.clip(jnp.sum((x[..., 1:] <= xq[..., None]) & valid[..., 1:], axis=-1), 0, jnp.maximum(n_valid - 2, 0))

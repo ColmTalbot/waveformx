@@ -10,12 +10,19 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 
-from ._generated import inspiral, intermediate, ringdown
-from ._math import PI, POWERS_OF_LALPI, Struct, fma, powers
+from ._generated import inspiral as _inspiral
+from ._generated import intermediate as _intermediate
+from ._generated import ringdown as _ringdown
+from ._math import FencedModule, PI, POWERS_OF_LALPI, Struct, fenced, fma, powers
+
+inspiral = FencedModule(_inspiral)
+intermediate = FencedModule(_intermediate)
+ringdown = FencedModule(_ringdown)
 
 __all__ = ["amp_coefficients", "amp_ansatz", "amplitude_22"]
 
 
+@fenced
 def amp_coefficients(wf):
     """``IMRPhenomXGetAmplitudeCoefficients`` (with the co-precessing
     deviations of IMRPhenomXPNR in ``wf.coprec``)."""

@@ -16,9 +16,12 @@ taken.
 
 from __future__ import annotations
 
+import functools
+
 import jax
 import jax.numpy as jnp
 import numpy as np
+from jax._src.interpreters import partial_eval as _partial_eval
 
 __all__ = [
     "PI", "FRAC_PI_2", "FRAC_PI_4", "LN_2", "EGAMMA", "DBL_MIN", "DBL_EPSILON", "NAN", "INF",
@@ -259,13 +262,124 @@ def mf_to_hz(mf, m_tot):
     return mf / (MTSUN_SI * m_tot)
 
 
-def chunked_map(function, xs, n, chunk):
-    """``function(xs)`` for arrays ``xs`` (a pytree with a leading axis of
-    static length ``capacity``) of which only the first ``n`` (traced)
-    entries are needed: evaluated in chunks of ``chunk`` with
-    ``jax.lax.cond`` skipping the chunks beyond ``n`` (under ``jax.jit``;
-    under ``jax.vmap`` every chunk is computed). The skipped entries are
-    zeros."""
+def _split_leaves(tree):
+    """The leaves of ``tree`` in three lists: inexact arrays, other arrays,
+    and the rest (Python values), with what rebuilds the tree."""
+    leaves, treedef = jax.tree_util.tree_flatten(tree)
+    kinds = []
+    for leaf in leaves:
+        if isinstance(leaf, (jax.Array, np.ndarray)):
+            kinds.append("f" if jnp.issubdtype(leaf.dtype, jnp.inexact) else "i")
+        else:
+            kinds.append("s")
+    floats = [leaf for leaf, k in zip(leaves, kinds) if k == "f"]
+    others = [leaf for leaf, k in zip(leaves, kinds) if k == "i"]
+    static = [leaf if k == "s" else None for leaf, k in zip(leaves, kinds)]
+    return floats, others, (treedef, kinds, static)
+
+
+def _join_leaves(floats, others, meta):
+    treedef, kinds, static = meta
+    floats, others = iter(floats), iter(others)
+    leaves = [next(floats) if k == "f" else next(others) if k == "i" else s for k, s in zip(kinds, static)]
+    return jax.tree_util.tree_unflatten(treedef, leaves)
+
+
+def _index(tree, i):
+    return jax.tree_util.tree_map(lambda x: jax.lax.dynamic_index_in_dim(x, i, keepdims=False), tree)
+
+
+def _blocked_forward(fn, n_blocks, blocks, args):
+    count = jax.tree_util.tree_leaves(blocks)[0].shape[0]
+    out_shape = jax.eval_shape(fn, _index(blocks, 0), args)
+    out = jax.tree_util.tree_map(lambda s: jnp.zeros((count,) + s.shape, s.dtype), out_shape)
+
+    def cond(carry):
+        return carry[0] < n_blocks
+
+    def body(carry):
+        i, out = carry
+        value = fn(_index(blocks, i), args)
+        out = jax.tree_util.tree_map(lambda o, v: jax.lax.dynamic_update_index_in_dim(o, v, i, 0), out, value)
+        return i + 1, out
+
+    return jax.lax.while_loop(cond, body, (jnp.zeros((), jnp.int32), out))[1]
+
+
+@functools.partial(jax.custom_vjp, nondiff_argnums=(0, 1))
+def _blocked(fn, meta, n_blocks, block_floats, block_others, arg_floats, arg_others):
+    def call(block, args):
+        return fn(_join_leaves(*block, meta[0]), _join_leaves(*args, meta[1]))
+
+    return _blocked_forward(call, n_blocks, (block_floats, block_others), (arg_floats, arg_others))
+
+
+def _blocked_fwd(fn, meta, n_blocks, block_floats, block_others, arg_floats, arg_others):
+    out = _blocked(fn, meta, n_blocks, block_floats, block_others, arg_floats, arg_others)
+    return out, (n_blocks, block_floats, block_others, arg_floats, arg_others)
+
+
+def _float0_like(tree):
+    return jax.tree_util.tree_map(lambda x: np.zeros(np.shape(x), dtype=jax.dtypes.float0), tree)
+
+
+def _blocked_bwd(fn, meta, residuals, cotangents):
+    n_blocks, block_floats, block_others, arg_floats, arg_others = residuals
+
+    def body(carry):
+        i, ct_blocks, ct_args = carry
+        others = _index(block_others, i)
+
+        def local(floats, arg_floats):
+            return fn(_join_leaves(floats, others, meta[0]), _join_leaves(arg_floats, arg_others, meta[1]))
+
+        _, vjp = jax.vjp(local, _index(block_floats, i), arg_floats)
+        ct_block, ct_arg = vjp(_index(cotangents, i))
+        ct_blocks = jax.tree_util.tree_map(lambda o, v: jax.lax.dynamic_update_index_in_dim(o, v, i, 0), ct_blocks, ct_block)
+        ct_args = jax.tree_util.tree_map(jnp.add, ct_args, ct_arg)
+        return i + 1, ct_blocks, ct_args
+
+    zeros = jax.tree_util.tree_map(jnp.zeros_like, (block_floats, arg_floats))
+    _, ct_blocks, ct_args = jax.lax.while_loop(lambda c: c[0] < n_blocks, body, (jnp.zeros((), jnp.int32),) + zeros)
+    return (jnp.zeros_like(n_blocks), ct_blocks, _float0_like(block_others), ct_args, _float0_like(arg_others))
+
+
+_blocked.defvjp(_blocked_fwd, _blocked_bwd)
+
+
+def blocked_map(function, blocks, n_blocks, args=()):
+    """``function(block, args)`` for the first ``n_blocks`` (traced) blocks
+    of ``blocks`` (a pytree with a leading axis of blocks); the results of
+    the other blocks are zeros. ``function`` must not close over traced
+    values: they are passed in ``args``.
+
+    The blocks run in a ``jax.lax.while_loop``, so that the cost is that of
+    the blocks needed (under ``jax.vmap``, of the largest number of blocks
+    of the batch), with the reverse-mode derivative from ``jax.custom_vjp``
+    (a second loop over the blocks, each recomputed and differentiated with
+    ``jax.vjp``). Forward-mode differentiation is not available."""
+    block_floats, block_others, block_meta = _split_leaves(blocks)
+    arg_floats, arg_others, arg_meta = _split_leaves(args)
+    count = jax.tree_util.tree_leaves(blocks)[0].shape[0]
+    # the arguments that function does not use: their cotangents would be
+    # zeros, and zeros multiplied by the (possibly infinite) derivatives of
+    # whatever computed them (padding, unused branches) can be NaN; behind
+    # stop_gradient they get none
+    first = [jax.lax.dynamic_index_in_dim(x, 0, keepdims=False) for x in block_floats]
+    others_first = [jax.lax.dynamic_index_in_dim(x, 0, keepdims=False) for x in block_others]
+    jaxpr = jax.make_jaxpr(lambda floats: function(_join_leaves(first, others_first, block_meta),
+                                                   _join_leaves(floats, arg_others, arg_meta)))(arg_floats).jaxpr
+    _, used = _partial_eval.dce_jaxpr(jaxpr, [True] * len(jaxpr.outvars))
+    arg_floats = [x if u else jax.lax.stop_gradient(x) for x, u in zip(arg_floats, used)]
+    n_blocks = jnp.minimum(jnp.asarray(n_blocks).astype(jnp.int32), count)
+    return _blocked(function, (block_meta, arg_meta), n_blocks, block_floats, block_others, arg_floats, arg_others)
+
+
+def chunked_map(function, xs, n, chunk, args=()):
+    """``function(xs, args)`` for arrays ``xs`` (a pytree with a leading
+    axis of static length ``capacity``) of which only the first ``n``
+    (traced) entries are needed: evaluated in chunks of ``chunk`` by
+    :func:`blocked_map` (the entries of the skipped chunks are zeros)."""
     leaves = jax.tree_util.tree_leaves(xs)
     capacity = leaves[0].shape[0]
     n_chunks = -(-capacity // chunk)
@@ -277,22 +391,7 @@ def chunked_map(function, xs, n, chunk):
         return x.reshape((n_chunks, chunk) + x.shape[1:])
 
     chunks = jax.tree_util.tree_map(pad_leaf, xs)
-    first = jax.tree_util.tree_map(lambda x: jnp.broadcast_to(x[:1], (chunk,) + x.shape[1:]), xs)
-    out_shape = jax.eval_shape(function, first)
-
-    def body(_, inputs):
-        index, x = inputs
-        active = index * chunk < n
-
-        def compute(x):
-            return function(x)
-
-        def skip(x):
-            return jax.tree_util.tree_map(lambda s: jnp.zeros(s.shape, s.dtype), out_shape)
-
-        return None, jax.lax.cond(active, compute, skip, x)
-
-    _, out = jax.lax.scan(body, None, (jnp.arange(n_chunks), chunks))
+    out = blocked_map(function, chunks, jnp.ceil(n / chunk), args)
     return jax.tree_util.tree_map(lambda y: y.reshape((n_chunks * chunk,) + y.shape[2:])[:capacity], out)
 
 
@@ -309,6 +408,49 @@ def barrier(tree):
         for i, value in zip(index, values):
             leaves[i] = value
     return jax.tree_util.tree_unflatten(treedef, leaves)
+
+
+def fenced(function):
+    """``function`` with :func:`barrier` on its results: the set-up
+    functions are islands for XLA's fusion (which otherwise copies their
+    scalar arithmetic, and that of their derivatives, into every kernel that
+    uses it)."""
+
+    @functools.wraps(function)
+    def wrapped(*args, **kwargs):
+        return barrier(function(*args, **kwargs))
+
+    return wrapped
+
+
+def _fenced_both(function):
+    """``function`` with :func:`barrier` on its arguments and results (and
+    so on the cotangents of both: its derivative is an island too)."""
+
+    @functools.wraps(function)
+    def wrapped(*args):
+        return barrier(function(*barrier(args)))
+
+    return wrapped
+
+
+class FencedModule:
+    """A module whose functions are :func:`fenced` (the generated fits of
+    the set-up: each value is computed once, not copied into its users)."""
+
+    def __init__(self, module):
+        self._module = module
+        self._cache = {}
+
+    def __getattr__(self, name):
+        try:
+            return self._cache[name]
+        except KeyError:
+            value = getattr(self._module, name)
+            if callable(value):
+                value = _fenced_both(value)
+            self._cache[name] = value
+            return value
 
 
 def sqrt_nonneg(x):

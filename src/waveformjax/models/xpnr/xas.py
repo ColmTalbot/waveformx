@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 
-from ._math import FRAC_PI_4, MPC_SI, MSUN_SI, Struct, fma, powers
+from ._math import FRAC_PI_4, MPC_SI, MSUN_SI, Struct, fenced, fma, powers
 from .amp22 import amp_coefficients, amp_ansatz
 from .internals import waveform_struct
 from .phase22 import phase_22, phase_coefficients, phase_xas, time_shift_22
@@ -17,6 +17,7 @@ from .phase22 import phase_22, phase_coefficients, phase_xas, time_shift_22
 __all__ = ["xas_setup", "phif_ref", "h22", "frequency_sequence"]
 
 
+@fenced
 def xas_setup(wf):
     """The (2,2) coefficients of ``IMRPhenomXASGenerateFD``: amplitude and
     phase coefficients (with the connection coefficients), ``linb`` and

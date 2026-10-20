@@ -1,8 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
-"""LAL's adaptive integration of the SpinTaylorT4 equations, step for step,
-to find where its output ends.
+"""LAL's adaptive integration of the SpinTaylorT4 equations, step for step.
 
 ``XLALSimInspiralSpinTaylorPNEvolveOrbit`` integrates with
 ``XLALAdaptiveRungeKutta4Hermite`` (``LALAdaptiveRungeKuttaIntegrator.c``):
@@ -13,23 +12,27 @@ ten times smaller step when the derivative fails, samples every
 stopping test after every step. The output ends with the samples of the step
 at which the stopping test fires, so where it ends depends on the exact
 sequence of steps. This module repeats that sequence (after waveformrs's
-``spintaylor/integrator.rs``) in a ``jax.lax.while_loop`` and returns the
-number of samples and where the integration stopped.
+``spintaylor/integrator.rs``) in a ``jax.lax.while_loop``:
 
-Only these integers and stopping points are used (the samples themselves
-come from :mod:`.trajectory`), so the replica is not differentiated: its
-inputs are wrapped in ``jax.lax.stop_gradient``.
+* :func:`evolve` returns the number of samples and where the integration
+  stopped (not differentiated: its inputs pass ``jax.lax.stop_gradient``);
+* :func:`evolve_recorded` also records every accepted step, from which
+  :func:`sample` interpolates LAL's samples. It is differentiable with
+  respect to the coefficients and the initial state, the accepted steps
+  being held fixed (``jax.custom_vjp``: a second loop backwards over the
+  steps, differentiating one step at a time).
 """
 
 from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from .._math import DBL_MIN, Struct
 from . import dynamics
 
-__all__ = ["evolve", "ABSOLUTE_TOLERANCE", "RELATIVE_TOLERANCE"]
+__all__ = ["evolve", "evolve_recorded", "sample", "ABSOLUTE_TOLERANCE", "RELATIVE_TOLERANCE"]
 
 ABSOLUTE_TOLERANCE = 1.0e-12
 RELATIVE_TOLERANCE = 1.0e-12
@@ -196,11 +199,29 @@ def hermite(t0, h, y0, y1, k1, k6, t):
 # ---------------------------------------------------------------------------
 
 
+_RKF45_A = np.zeros((6, 6))
+_RKF45_A[1, 0] = AH[0]
+_RKF45_A[2, :2] = B3
+_RKF45_A[3, :3] = B4
+_RKF45_A[4, :4] = B5
+_RKF45_A[5, :5] = B6
+_RKF45_C = np.array([C1, 0.0, C3, C4, C5, C6])
+
+
 def _accepted_step(c, y, k1, h):
     """An accepted RKF45 step of size ``h`` (a constant for the derivative):
-    the next state, its derivative and ``k6``."""
-    y_new, _, dydt_out, k6, _ = _rkf45(c, y, h, k1)
-    return y_new, dydt_out, k6
+    the next state, its derivative and ``k6``, with the stages in a
+    ``jax.lax.fori_loop`` (one copy of the equations; used for the
+    derivatives, so the different rounding of the sums does not matter)."""
+    k = jnp.zeros((6,) + y.shape, y.dtype).at[0].set(k1)
+
+    def stage(s, k):
+        return k.at[s].set(dynamics.derivatives(c, y + h * (jnp.asarray(_RKF45_A)[s] @ k))[0])
+
+    k = jax.lax.fori_loop(1, 6, stage, k)
+    y_new = y + h * (jnp.asarray(_RKF45_C) @ k)
+    dydt_out, _ = dynamics.derivatives(c, y_new)
+    return y_new, dydt_out, k[5]
 
 
 def _evolve_recording(c, y0, deltat, max_iterations, capacity):

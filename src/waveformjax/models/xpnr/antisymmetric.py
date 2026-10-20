@@ -1,0 +1,194 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# waveformrs: see NOTICE.md for the original code and its authors.
+"""The antisymmetric part of the co-precessing (2,|2|) modes of
+IMRPhenomXPNR (Ghosh et al. 2024, arXiv:2310.16980;
+``LALSimIMRPhenomX_AntisymmetricWaveform.c``), after waveformrs's
+``imrphenomx/pnr.rs``, with and without the fix of lalsuite !2593.
+
+The amplitude is the symmetric (2,2) amplitude times a ratio ``kappa(f)``
+smoothed by LAL's moving average over 81 frequencies. LAL averages in
+place, so each window reads the averages already written for the 40
+frequencies before its centre: an order-40 linear recurrence, evaluated here
+in blocks of 40 values (a ``lax.scan`` over the blocks with a triangular
+solve each), which gives LAL's values to rounding.
+"""
+
+from __future__ import annotations
+
+import jax
+import jax.numpy as jnp
+import jax.scipy.linalg  # noqa: F401
+
+from . import pnr
+from ._generated import inspiral as _inspiral
+from ._generated import intermediate as _intermediate
+from ._generated import ringdown as _ringdown
+from ._math import FRAC_PI_2, FRAC_PI_4, FencedModule, PI, Struct, barrier, fenced, fma, fnms, hz_to_mf, powers
+from .amp22 import amp_ansatz, amp_coefficients
+from .phase22 import phase_22, phase_coefficients, phase_xas, time_shift_22
+
+inspiral = FencedModule(_inspiral)
+intermediate = FencedModule(_intermediate)
+ringdown = FencedModule(_ringdown)
+
+__all__ = ["antisymmetric_waveform", "smooth_amp_ratio"]
+
+WIDTH = 80
+
+
+def _kappa_function(prec, wf):
+    """The amplitude ratio ``kappa(v)`` below the ringdown frequency and its
+    value at the ringdown frequency."""
+    m2 = wf.m2
+    delta = fnms(2.0, m2, 1.0)
+    eta = wf.eta
+    theta = prec.theta_antisymmetric
+    chi = prec.chi_single_spin_antisymmetric
+    b0, b1, b2, b3 = 18.0387, 15.4509, 55.1140, -203.6290
+    b = fma(b3 * eta, theta, fma(b2, theta, fma(b1, eta, b0)))
+    sin_theta, cos_theta = jnp.sin(theta), jnp.cos(theta)
+
+    def kappa_at(v):
+        v2 = v * v
+        v3 = v2 * v
+        v5 = v3 * v2
+        num = 21.0 * v2 * (1.0 + delta) * chi * sin_theta
+        den = 2.0 * fma(-(28.0 * v3 * (1.0 + delta - eta) * chi), cos_theta,
+                        fma(v2, fma(55.0, eta, -107.0), fma(84.0 * PI, v3, 42.0)))
+        return num / den * fma(b, v5, 1.0)
+
+    return kappa_at, kappa_at(jnp.cbrt(PI * wf.f_ring))
+
+
+def smooth_amp_ratio(kappa, frequencies):
+    """The moving average of ``IMRPhenomX_PNR_GenerateAntisymmetricAmpRatio``,
+    in place as LAL does it: for ``id = 0, 1, ...``, ``kappa[id + 40] =
+    sum_j kappa[id + j] df_j / sum_j df_j`` over ``j = 0 .. 80`` with ``df_j
+    = f[id + j + 1] - f[id + j]`` (fewer frequencies on short grids), each
+    window reading the values the earlier windows wrote."""
+    length = kappa.shape[-1]
+    width = WIDTH
+    if width > length - 1:
+        width = length // 2
+    half = width // 2
+    end = length - width - 1
+    if end <= 0:
+        return kappa
+    df = jnp.diff(frequencies)
+    # window id covers kappa[id .. id + width] with weights df[id .. id + width]
+    ids = jnp.arange(end)
+    window_df = jnp.stack([df[j:j + end] for j in range(width + 1)])  # (width + 1, end)
+    total_df = jnp.zeros(end)
+    for j in range(width + 1):
+        total_df = total_df + window_df[j]
+    # the part of each window that reads values not yet overwritten: j >= half
+    fixed = jnp.zeros(end)
+    for j in range(half, width + 1):
+        fixed = fma(kappa[j:j + end], window_df[j], fixed)
+    # u_{id + half} = (sum_{j < half} u_{id + j} w_j + fixed_id) / W_id with
+    # u the averaged values (the original kappa below index half)
+    weights = window_df[:half] / total_df  # (half, end): weight of u_{id + j}
+    rhs = fixed / total_df
+    # solve in blocks of `half` outputs
+    n_blocks = -(-end // half)
+    pad = n_blocks * half - end
+    weights = jnp.pad(weights, ((0, 0), (0, pad)))
+    rhs = jnp.pad(rhs, (0, pad))
+    weights = weights.reshape(half, n_blocks, half)  # [j, block, i]
+    rhs = rhs.reshape(n_blocks, half)
+    del ids
+
+    # within a block, output i reads u_{block * half + i + j}: the previous
+    # block's outputs for i + j < half, this block's earlier outputs
+    # otherwise; a unit lower-triangular system per block
+    i_index = jnp.arange(half)[:, None]
+    k_index = jnp.arange(half)[None, :]
+    j_previous = k_index - i_index
+    j_current = k_index + half - i_index
+
+    def block(previous, inputs):
+        w, r = inputs  # w[j, i]: weight of u_{id + j} for output id = block * half + i
+        from_previous = jnp.where(j_previous >= 0, w[jnp.clip(j_previous, 0, half - 1), i_index], 0.0)
+        lower = jnp.where(k_index < i_index, w[jnp.clip(j_current, 0, half - 1), i_index], 0.0)
+        out = jax.scipy.linalg.solve_triangular(
+            jnp.eye(half) - lower, r + from_previous @ previous, lower=True, unit_diagonal=True
+        )
+        return out, out
+
+    initial = kappa[:half]
+    _, outputs = jax.lax.scan(block, initial, (jnp.moveaxis(weights, 1, 0), rhs))
+    smoothed = outputs.reshape(-1)[:end]
+    return kappa.at[half:half + end].set(smoothed)
+
+
+@fenced
+def antisymmetric_coefficients(prec, wf, version):
+    """``IMRPhenomX_PNR_GenerateAntisymmetricPhaseCoefficients`` and the
+    frequency-independent quantities of
+    ``IMRPhenomX_PNR_GenerateAntisymmetricWaveform``."""
+    phase22 = phase_coefficients(wf)
+    amp22 = amp_coefficients(wf)
+    mf_t = 0.85 * wf.f_ring
+    lina = 0.0
+    linb = time_shift_22(phase22, wf)
+    inveta = 1.0 / wf.eta
+    phiref22 = fma(2.0, wf.phi0, fma(-inveta, phase_22(wf.mf_ref, powers(wf.mf_ref), phase22),
+                                     -(linb * wf.mf_ref)) - lina) + FRAC_PI_4
+    # the alpha parameters again, with the offsets of alpha after the PNR
+    # angle interpolants (IMRPhenomX_PNR_GenerateAntisymmetricPhaseCoefficients)
+    ap, error_ap = pnr.alpha_connection(prec, wf, pnr.precompute_alpha_coefficients(prec, wf, version), version)
+    delta_mf = 0.0005
+    pts = jnp.stack([mf_t + delta_mf, mf_t - delta_mf, mf_t, wf.mf_ref])
+    alphas, errors = pnr.region_alpha_at(prec, wf, pts, ap, version)
+    alpha_der_mf_t = (alphas[0] - alphas[1]) / 2.0 / delta_mf
+    alpha_mf_t = alphas[2]
+    p = powers(mf_t)
+    dphi_ins = inspiral.phase_22_ansatz_exact(mf_t, p, phase22)
+    phi_ins = inspiral.phase_22_ansatz_int_exact(mf_t, p, phase22)
+    dphi_rd = ringdown.phase_22_ansatz_exact(mf_t, p, phase22) + phase22.c2_mrd
+    phi_rd = fma(phase22.c2_mrd, mf_t, ringdown.phase_22_ansatz_int_exact(mf_t, p, phase22) + phase22.c1_mrd)
+    dphi_int = intermediate.phase_22_ansatz_exact(mf_t, p, phase22) + phase22.c2_int
+    phi_int = fma(phase22.c2_int, mf_t, intermediate.phase_22_ansatz_int_exact(mf_t, p, phase22) + phase22.c1_int)
+    ins = mf_t < phase22.f_phase_match_in
+    rd = mf_t > phase22.f_phase_match_im
+    dphi = jnp.where(ins, dphi_ins, jnp.where(rd, dphi_rd, dphi_int))
+    phi = jnp.where(ins, phi_ins, jnp.where(rd, phi_rd, phi_int))
+    dphi = dphi * inveta + linb
+    phi = phi * inveta + (fma(linb, mf_t, lina) + phiref22)
+    a0 = dphi / 2.0 - alpha_der_mf_t
+    if prec.parity_fix:
+        phi_a0 = -alphas[3] - FRAC_PI_2
+        error = jnp.any(errors) | error_ap
+    else:
+        phi_a0 = prec.alpha_offset
+        error = jnp.any(errors[:3]) | error_ap
+    phi_b0 = fma(a0, mf_t, alpha_mf_t - phi / 2.0) + phi_a0
+    phase_offset = prec.phi_j_sf if prec.parity_fix else prec.zeta_polarization
+    return Struct(alpha_params=ap, phase22=phase22, amp22=amp22, mf_t=mf_t, lina=lina, linb=linb, inveta=inveta, phiref22=phiref22,
+                  a0=a0, phi_a0=phi_a0, phi_b0=phi_b0, phase_offset=phase_offset,
+                  amp_prefactor=wf.amp0 * wf.amp_norm, error=error)
+
+
+def antisymmetric_waveform(prec, wf, frequencies, version):
+    """``IMRPhenomX_PNR_GenerateAntisymmetricWaveform``: amplitude and phase
+    of the antisymmetric (2,2) co-precessing mode at ``frequencies`` (Hz),
+    ``h = amp exp(i phase)``, and the error flag."""
+    prec, wf = barrier((prec, wf))
+    kappa_at, kappa_rd = _kappa_function(prec, wf)
+    mf = hz_to_mf(frequencies, wf.m_tot)
+    below = mf < wf.f_ring
+    kappa = jnp.where(below, kappa_at(jnp.cbrt(PI * jnp.where(below, mf, wf.f_ring))), kappa_rd)
+    kappa = smooth_amp_ratio(kappa, frequencies)
+    co = antisymmetric_coefficients(prec, wf, version)
+    alpha_pnr, errors = pnr.region_alpha_at(prec, wf, mf, co.alpha_params, version)
+    mf_cut = wf.f_max_prime * wf.m_sec
+    error = co.error | jnp.any(errors & (mf < co.mf_t) & (mf <= mf_cut))
+    mf = wf.m_sec * frequencies
+    p = powers(mf)
+    phi = phase_xas(mf, p, co.phase22) * co.inveta
+    phi = phi + (fma(co.linb, mf, co.lina) + co.phiref22)
+    a = amp_ansatz(mf, p, co.amp22)
+    amp_as = kappa * a
+    phi_as = jnp.where(mf < co.mf_t, fma(co.a0, mf, phi / 2.0 + alpha_pnr) + co.phi_a0, phi + co.phi_b0)
+    return co.amp_prefactor * p.m_seven_sixths * amp_as, co.phase_offset + phi_as, error

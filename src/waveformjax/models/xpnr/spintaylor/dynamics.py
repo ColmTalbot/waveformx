@@ -18,8 +18,10 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 
-from .._generated import spintaylor_coefficients as pn
-from .._math import MSUN_SI, MTSUN_SI, PI, REAL4_EPS, Struct, fma, fnms
+from .._generated import spintaylor_coefficients as _pn
+from .._math import MSUN_SI, MTSUN_SI, PI, REAL4_EPS, FencedModule, Struct, fenced, fma, fnms
+
+pn = FencedModule(_pn)
 
 __all__ = ["coefficients", "derivatives", "stopping_test", "NUM_VARIABLES", "ST_TEST_ENERGY",
            "ST_TEST_OMEGADOUBLEDOT", "ST_TEST_OMEGANAN", "ST_TEST_FREQBOUND", "ST_TEST_LARGEV",
@@ -35,6 +37,7 @@ ST_DERIVATIVE_OMEGANONPOS = 1030
 ST_TEST_LARGEV = 1031
 
 
+@fenced
 def coefficients(m1_si, m2_si, f_start, f_end):
     """``XLALSimInspiralSpinTaylorT4Setup`` (with
     ``XLALSimSpinTaylorEnergySpinDerivativeSetup``) for black holes:

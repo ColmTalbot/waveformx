@@ -59,18 +59,18 @@ def _forward(step, aux, y0, n, capacity):
     return rows, y_last, unravel
 
 
-@partial(jax.custom_vjp, nondiff_argnums=(0, 4))
-def _fixed_steps_rows(step, aux, y0, n, capacity):
+@partial(jax.custom_vjp, nondiff_argnums=(0, 1, 5))
+def _fixed_steps_rows(step, vjp_step, aux, y0, n, capacity):
     rows, y_last, _ = _forward(step, aux, y0, n, capacity)
     return rows, y_last
 
 
-def _fwd(step, aux, y0, n, capacity):
+def _fwd(step, vjp_step, aux, y0, n, capacity):
     rows, y_last, _ = _forward(step, aux, y0, n, capacity)
     return (rows, y_last), (aux, rows, n, y0)
 
 
-def _bwd(step, capacity, residuals, cotangents):
+def _bwd(step, vjp_step, capacity, residuals, cotangents):
     aux, rows, n, y0 = residuals
     ct_rows, ct_last = cotangents
     _, _, unravel = _layout(step, aux, y0)
@@ -78,7 +78,7 @@ def _bwd(step, capacity, residuals, cotangents):
     flat_aux, unravel_aux = ravel_pytree(aux)
 
     def flat_step(flat_aux, y):
-        return step(unravel_aux(flat_aux), y)
+        return vjp_step(unravel_aux(flat_aux), y)
 
     def cond(carry):
         return carry[0] >= 0
@@ -101,7 +101,7 @@ def _bwd(step, capacity, residuals, cotangents):
 _fixed_steps_rows.defvjp(_fwd, _bwd)
 
 
-def fixed_steps(step, aux, y0, n, capacity):
+def fixed_steps(step, aux, y0, n, capacity, vjp_step=None):
     """``y_{i+1}, out_i = step(aux, y_i)`` for ``i = 0 .. n - 1``.
 
     ``step`` must be a pure function of the pytrees ``aux`` (parameters)
@@ -109,10 +109,12 @@ def fixed_steps(step, aux, y0, n, capacity):
     traced integer, ``capacity`` a Python int bounding it. Returns ``(ys,
     outs, y_n)``: the states before each step and the outputs, stacked along
     a leading axis of length ``capacity`` (zeros beyond ``n``), and the
-    final state.
+    final state. ``vjp_step`` (default ``step``), the same map computed
+    differently (e.g. with fewer copies of the equations), is the one
+    differentiated.
     """
     n = jnp.asarray(n)
-    rows, y_last = _fixed_steps_rows(step, aux, y0, n, capacity)
+    rows, y_last = _fixed_steps_rows(step, step if vjp_step is None else vjp_step, aux, y0, n, capacity)
     _, _, unravel = _layout(step, aux, y0)
     ys, outs = jax.vmap(unravel)(rows)
     return ys, outs, y_last
