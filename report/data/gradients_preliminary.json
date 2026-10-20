@@ -1,0 +1,106 @@
+{
+ "preliminary": true,
+ "source": "report/gradients.py log of an interrupted run (20 October 2026): per binary only the largest column error was printed; the conversions did not finish",
+ "models": {
+  "IMRPhenomXPNR": {
+   "binaries": {
+    "36+29, precessing": {
+     "max_error": 0.15,
+     "worst": "spin_2y",
+     "finite": true,
+     "not_differentiable": []
+    },
+    "40+20, precessing": {
+     "max_error": 0.071,
+     "worst": "spin_2y",
+     "finite": true,
+     "not_differentiable": []
+    },
+    "q = 1/6, strongly precessing": {
+     "max_error": 0.015,
+     "worst": "spin_2y",
+     "finite": true,
+     "not_differentiable": []
+    },
+    "nearly aligned spins": {
+     "max_error": 0.048,
+     "worst": "spin_1y",
+     "finite": true,
+     "not_differentiable": []
+    }
+   },
+   "timings": {
+    "forward_compile": 29.8,
+    "forward": 0.01359,
+    "jvp_compile": 128.1,
+    "jvp": 0.11289,
+    "jacfwd_compile": 104.9,
+    "jacfwd": 0.11223000000000001,
+    "grad_compile": 109.1,
+    "grad": 0.115,
+    "vmap_grad_8_compile": 162.6,
+    "vmap_grad_8": 0.80542
+   }
+  },
+  "NRSur7dq4": {
+   "binaries": {
+    "40+20, precessing": {
+     "max_error": 2.9e-08,
+     "worst": "f_ref",
+     "finite": true,
+     "not_differentiable": []
+    },
+    "lighter first, q = 1/3": {
+     "max_error": 1.5e-08,
+     "worst": "f_ref",
+     "finite": true,
+     "not_differentiable": []
+    },
+    "aligned spins": {
+     "max_error": 1e-08,
+     "worst": "f_ref",
+     "finite": true,
+     "not_differentiable": []
+    },
+    "non-spinning": {
+     "max_error": 1.3e-08,
+     "worst": "f_ref",
+     "finite": true,
+     "not_differentiable": [
+      "spin_1x",
+      "spin_1y",
+      "spin_1z",
+      "spin_2x",
+      "spin_2y",
+      "spin_2z"
+     ]
+    }
+   },
+   "timings": {
+    "forward_compile": 2.7,
+    "forward": 0.0027300000000000002,
+    "jvp_compile": 5.1,
+    "jvp": 0.00621,
+    "jacfwd_compile": 5.9,
+    "jacfwd": 0.01902,
+    "grad_compile": 10.1,
+    "grad": 0.01824,
+    "vmap_grad_8_compile": 13.0,
+    "vmap_grad_8": 0.11266
+   }
+  },
+  "simulate_td IMRPhenomXPNR (2,2)": {
+   "binaries": {},
+   "timings": {
+    "forward_compile": 19.6,
+    "forward": 0.01156,
+    "jvp_compile": 86.7,
+    "jvp": 0.0927,
+    "jacfwd_compile": 70.7,
+    "jacfwd": 0.11558,
+    "grad_compile": 69.8,
+    "grad": 0.09355
+   }
+  }
+ }
+}

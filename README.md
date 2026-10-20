@@ -39,6 +39,12 @@ The package has the same interface as the Python bindings of
   functions of the binary, which keep the length and start time of a
   reference binary and can be differentiated.
 
+## Report
+
+`report/` holds a technical report on how the models were implemented and
+how they compare with LALSimulation and waveformrs, with the scripts that
+make its measurements (`report/measure_all.sh`).
+
 ## License
 
 waveformjax is free software, licensed under the GNU General Public License

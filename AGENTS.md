@@ -3,7 +3,7 @@
 - **Keep README.md up to date.** When you add a feature or a model, or remove
   one, update the lists in `README.md` in the same change. The README says
   what is implemented, in plain language: no technical details and no timing
-  or accuracy numbers.
+  or accuracy numbers. Those belong in the report (`report/`).
 - **Record ported code in NOTICE.md.** The package is GPL-3.0-or-later
   because it follows LALSuite (GPL-2.0-or-later), GSL (GPL-3.0-or-later) and
   waveformrs (GPL-3.0-or-later). Before porting code from anywhere else, check
@@ -21,3 +21,8 @@
   (`../waveformrs`), which reproduces LALSimulation 6.2.0 to rounding; its
   report (`report/waveformrs-report.html`) and comments describe LAL's
   quirks. Do not modify `../waveformrs` or `../lalsuite`.
+- **The report** (`report/`) is built from measurements in `report/data`
+  (`report/measure_all.sh` re-runs them all, on an idle machine). When a
+  model, its accuracy or its cost changes, re-run the affected measurement
+  and `python report/build_report.py`, and update the text of
+  `report/template.html` where it describes what changed.

@@ -1,0 +1,324 @@
+<title>waveformjax Report</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap">
+<style>
+{{css}}
+</style>
+<div class="shell">
+<header class="masthead">
+  <p class="eyebrow">Technical report · waveformjax</p>
+  <h1>IMRPhenomXPNR and NRSur7dq4 in JAX, checked against LALSimulation</h1>
+  <p class="dek">How two precessing waveform models, and LALSimulation's conversions between the time and frequency domains, were written as pure JAX functions that compile, vectorise and differentiate. The report covers how they compare with LALSimulation 6.2.0 and with waveformrs, how their derivatives compare with finite differences, and what they cost.</p>
+  <dl class="meta">
+    <div><dt>Repository</dt><dd><code>waveformjax</code>, branch <code>main</code> at <code>{{commit}}</code> ({{n_commits}} commits)</dd></div>
+    <div><dt>Reference</dt><dd>lalsimulation {{lalsim_version}}, lal {{lal_version}} (conda-forge, osx-arm64), and waveformrs's Python bindings</dd></div>
+    <div><dt>Platform</dt><dd>{{machine}}; JAX {{jax_version}} on the CPU; Python {{python_version}}</dd></div>
+    <div><dt>Generated</dt><dd>{{date}}</dd></div>
+  </dl>
+  <p class="links"><a href="waveformjax-report.pdf">PDF copy</a><a href="#summary">Summary</a><a href="#design">Design</a><a href="#xpnr">IMRPhenomXPNR</a><a href="#nrsur">NRSur7dq4</a><a href="#accuracy">Accuracy</a><a href="#gradients">Derivatives</a><a href="#performance">Performance</a></p>
+</header>
+
+<nav class="toc" aria-label="Contents">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#summary">Summary</a></li>
+    <li><a href="#design">Models as pure JAX functions</a></li>
+    <li><a href="#xpnr">IMRPhenomXPNR</a></li>
+    <li><a href="#nrsur">NRSur7dq4</a></li>
+    <li><a href="#conversions">Time and frequency domains</a></li>
+    <li><a href="#testing">How the package is tested</a></li>
+    <li><a href="#accuracy">Accuracy</a></li>
+    <li><a href="#gradients">Derivatives</a></li>
+    <li><a href="#performance">Performance</a></li>
+    <li><a href="#differences">Differences from LALSimulation</a></li>
+    <li><a href="#limits">Limitations and future work</a></li>
+    <li><a href="#reproduce">Reproducing the results</a></li>
+    <li><a href="#history">Commit history</a></li>
+  </ol>
+</nav>
+
+<main class="report">
+
+<section id="summary">
+  <h2>Summary</h2>
+  <p class="lede">waveformjax implements the frequency-domain model IMRPhenomXPNR and the time-domain surrogate NRSur7dq4 in JAX, with the interface of waveformrs's Python bindings and LALSimulation's conventions. Every model is a pure function of a <code>Binary</code> pytree, so it can be compiled with <code>jax.jit</code>, evaluated for many binaries at once with <code>jax.vmap</code>, and differentiated with respect to all twelve parameters of the binary with <code>jax.grad</code>, <code>jax.jvp</code> and <code>jax.jacfwd</code>. LALSimulation's <code>SimInspiralTD</code> and <code>SimInspiralFD</code> are reproduced as well, with LAL's lengths and start times, and are differentiable too. The models follow LAL's code branch for branch, with each branch written as traced arithmetic. They agree with LALSimulation 6.2.0 to rounding for NRSur7dq4, and for IMRPhenomXPNR to the level at which different builds of LAL agree with each other.</p>
+  {{preliminary_note}}
+  <div class="cards">
+    <div class="card"><span class="label">IMRPhenomXPNR against LAL 6.2.0</span><span class="value">≤ {{xpnr_max_rel}}</span><span class="note">Largest relative error, |h − h<sub>LAL</sub>| / max |h<sub>LAL</sub>|, over {{xpnr_n}} random binaries (median {{xpnr_median_rel}}); largest mismatch {{xpnr_max_mm}}. With the parity fix, against LAL patched with it: ≤ {{xpnr_fix_max_rel}}.</span></div>
+    <div class="card"><span class="label">NRSur7dq4 against LAL 6.2.0</span><span class="value">≤ {{nrsur_max_rel}}</span><span class="note">Over {{nrsur_n}} random binaries, with LAL's length and epoch in {{nrsur_same_grid}} of them; largest mismatch {{nrsur_max_mm}}.</span></div>
+    <div class="card"><span class="label">NRSur7dq4 derivatives</span><span class="value">≤ {{nrsur_gradient_worst}}</span><span class="note">Largest disagreement of any column of the Jacobian with finite differences, over four binaries, wherever the waveform is differentiable. For IMRPhenomXPNR the finite differences disagree by up to {{xpnr_gradient_worst}}, which is still being investigated (<a href="#gradients">section {{sec:gradients}}</a>).</span></div>
+    <div class="card"><span class="label">One IMRPhenomXPNR waveform</span><span class="value">{{xpnr_pure}}</span><span class="note">Compiled, on 8033 frequencies, against {{xpnr_lal}} for LALSimulation and {{xpnr_rs_grid}} for waveformrs. The first call compiles for {{xpnr_compile}}.</span></div>
+    <div class="card"><span class="label">Batches with <code>jax.vmap</code></span><span class="value">{{xpnr_batch_best}} / s</span><span class="note">IMRPhenomXPNR waveforms per second at best over batch sizes, against {{xpnr_rs_batch_all}} / s for waveformrs on all threads and {{xpnr_lal_batch}} / s for LALSimulation on one.</span></div>
+    <div class="card"><span class="label">Tests</span><span class="value">{{n_passed}} / {{n_tests}} pass</span><span class="note">pytest, including the slow random-draw tests, in {{test_minutes}} minutes. They compare every part of the models with LALSimulation and the reference data of waveformrs.</span></div>
+  </div>
+  <div class="table-wrap wide">
+    <table>
+      <thead><tr><th>Comparison</th><th class="num">Draws</th><th class="num">Max rel. error</th><th class="num">Median rel. error</th><th class="num">Max mismatch</th><th class="num">Median mismatch</th></tr></thead>
+      <tbody>
+{{random_rows}}
+      </tbody>
+      <caption>Random binaries drawn as in waveformrs's report (<a href="#accuracy">section {{sec:accuracy}}</a>). IMRPhenomXPNR is evaluated on {{xpnr_nf}} uniformly spaced frequencies per draw. "Draws" counts the draws compared. Mismatches use the aLIGO design sensitivity without maximisation.</caption>
+    </table>
+  </div>
+  <p>In short:</p>
+  <ul>
+    <li><strong>Implementation.</strong> {{n_files}} Python modules ({{n_lines}} lines, of which {{n_lines_generated}} are parameter-space fits generated from waveformrs's Rust by a translator) cover the two models, their checks and the conversions (<a href="#design">sections {{sec:design}}</a>–<a href="#conversions">{{sec:conversions}}</a>).</li>
+    <li><strong>Accuracy.</strong> NRSur7dq4 agrees with LAL at rounding level. IMRPhenomXPNR's (2,2) mode agrees to ~1e-9. Its higher modes agree to ~1e-5, because LAL takes derivatives by finite differences whose rounding noise JAX's different, but valid, arithmetic changes (<a href="#accuracy">section {{sec:accuracy}}</a>).</li>
+    <li><strong>Derivatives.</strong> IMRPhenomXPNR is differentiated in forward mode, and its reverse-mode gradient is the transpose of that forward-mode Jacobian. NRSur7dq4 is differentiated directly in either mode. NRSur7dq4's derivatives agree with finite differences to ~1e-8. For IMRPhenomXPNR, finite differences of the full waveform disagree with the derivatives by up to {{xpnr_gradient_worst}}, most in the in-plane spins; the transform tests, which use the (2,2) mode, agree to ~1e-7. This is still being investigated (<a href="#gradients">section {{sec:gradients}}</a>).</li>
+    <li><strong>Cost.</strong> A compiled IMRPhenomXPNR waveform costs about as much as LALSimulation's, and a few times as much as waveformrs's. <code>jax.vmap</code> over many binaries is how JAX code would use it. Compilation takes tens of seconds for the model and minutes for its gradient (<a href="#performance">section {{sec:performance}}</a>).</li>
+  </ul>
+  <div class="callout bad">
+    <p><strong>Two bugs found while preparing this report, both fixed.</strong> First, the conversions and the IMRPhenomXPNR speed-ups had been developed on separate branches. After the merge, <code>jax.grad</code> of <code>simulate_td_function</code> failed with "Linearization failed to produce known values". The conversions called the model through a reverse-mode wrapper, while the speed-ups had made the model's loops forward-mode only. The conversions now use the model's forward-mode Jacobians, with respect to the binary and to the starting frequency, which itself depends on the binary (<code>deeffce</code>). Second, when the first use of NRSur7dq4's data was the pure function under <code>jax.jit</code>, the cached data were built inside the trace and leaked tracers into later calls. The tests had always read the data through a plain call first; the gradient measurements of <a href="#gradients">section {{sec:gradients}}</a> did not (<code>0a93b55</code>, with a test).</p>
+  </div>
+</section>
+
+<section id="design">
+  <h2>Models as pure JAX functions</h2>
+  <p class="lede">The package has the interface of waveformrs's Python bindings, with the same function names, keyword arguments, options, result classes and exceptions. Underneath, every model is a pure function of a <code>Binary</code>: a <code>NamedTuple</code> of float64 arrays, and so a JAX pytree.</p>
+<pre class="code"><code>import jax, jax.numpy as jnp, numpy as np
+import waveformjax as wf
+
+frequencies = np.arange(20.0, 1024.0, 0.125)
+hp, hc = wf.polarizations("IMRPhenomXPNR", frequencies, mass_1=36.0, mass_2=29.0,
+                          spin_1=(0.4, 0.2, 0.3), spin_2=(-0.2, 0.3, -0.1), f_ref=20.0)
+
+# the pure function, for jit, vmap and grad
+model = wf.polarizations_function("IMRPhenomXPNR")          # f(binary, frequencies)
+binary = wf.Binary(mass_1=36.0, mass_2=29.0, spin_1=jnp.array([0.4, 0.2, 0.3]),
+                   spin_2=jnp.array([-0.2, 0.3, -0.1]), f_ref=20.0)
+loss = lambda b: jnp.sum(jnp.abs(model(b, frequencies)[0]) ** 2)
+jax.grad(loss)(binary)                                      # a Binary of derivatives
+jax.vmap(model, in_axes=(0, None))(binaries, frequencies)    # many binaries at once
+
+h = wf.td_polarizations("NRSur7dq4", 1 / 4096, 20.0, mass_1=40.0, mass_2=20.0)
+h = wf.simulate_td("IMRPhenomXPNR", 1 / 4096, 20.0, mass_1=36.0, mass_2=29.0)</code></pre>
+  <p>A call goes through four stages:</p>
+  <ol class="pipeline">
+    <li><span class="step-title">Checks on the host</span><span class="step-body">The public functions convert the arguments and run LALSimulation's checks on concrete values (<code>MODEL.validate</code>), outside any JAX transformation. Invalid masses, spins or frequencies, or a precession version LAL would replace while <code>version_fallback=False</code>, raise the exceptions of waveformrs: <code>InvalidParameterError</code>, <code>PrecessionVersionUnavailableError</code> and so on.</span></li>
+    <li><span class="step-title">A compiled function per configuration</span><span class="step-body">The model method is compiled with <code>jax.jit</code> with the options fixed. <code>WaveformOptions</code> is a frozen dataclass, so it can be a static argument. JAX caches the compiled function per options and array shape, so a sampler that keeps its frequency grid compiles once.</span></li>
+    <li><span class="step-title">Traced arithmetic</span><span class="step-body">Inside, nothing branches in Python on the binary. Each of LAL's <code>if</code>s becomes a <code>jnp.where</code> between branches that are both evaluated, with safe arguments, so that the branch not taken cannot put NaN into the value or the gradient. Loops of fixed length are <code>lax.scan</code>; loops whose length depends on the binary are <code>lax.while_loop</code>. The precession prescriptions are branches of a switch.</span></li>
+    <li><span class="step-title">Failures as NaN</span><span class="step-body">Failures that LAL can only detect while computing, such as a SpinTaylor integration that cannot reach the reference frequency, make the output NaN. The batch functions report those binaries as <code>ModelError</code> in <code>errors</code> and set their rows to zero.</span></li>
+  </ol>
+  <p>Importing the package enables 64-bit floats (<code>jax_enable_x64</code>), which the models need. The thousands of fitted coefficients of IMRPhenomX are not copied by hand. <code>scripts/rust_to_python.py</code> parses the straight-line Rust of waveformrs (its <code>let</code> bindings, arithmetic, <code>fma</code> calls and <code>f64</code> methods) and emits the same expressions on JAX arrays. <code>scripts/generate_fits.py</code> then writes them into <code>models/xpnr/_generated/</code>. The control flow is written by hand, file by file after LAL's, and each module's docstring names the LAL function it follows.</p>
+  <p>Each model package defines a <code>MODEL</code> with a fixed contract. A frequency-domain model has <code>validate</code>, <code>polarizations</code>, <code>modes</code> and <code>choose_fd_modes</code>. A time-domain model has <code>validate</code>, <code>td_polarizations</code>, <code>td_modes</code> and <code>polarizations_at</code>, the last of which evaluates the waveform at any given times. The public functions, the batches and the conversions are written once, against that contract.</p>
+</section>
+
+<section id="xpnr">
+  <h2>IMRPhenomXPNR</h2>
+  <p class="lede">IMRPhenomXPNR is IMRPhenomXPHM with the phenomenological PNR precession angles, a co-precessing (2,2) mode tuned to numerical relativity, an antisymmetric (2,|2|) contribution and the 122019 release of the higher modes. In LALSimulation it draws on many of the 49 IMRPhenomX source files, together with the SpinTaylor code and GSL. Here it is about 14,800 lines of Python, of which 4,400 are generated fits.</p>
+  <h3>Four prescriptions in one compiled function</h3>
+  <p>LALSimulation chooses the Euler angles by the binary. In-plane spins below 1e-7 give plain IMRPhenomXPHM with the NNLO angles, without the PNR machinery. Below 1e-6, the PNR machinery runs with the NNLO angles (version 102). Otherwise the SpinTaylor angles are used (version 330). Where LAL's SpinTaylor integration fails, it falls back to the MSA angles (223), or to NNLO if the MSA system cannot be set up. Here the decision is a traced index, and the prescriptions are three branches of a switch; versions 102 and 223 of the PNR machinery share one branch, chosen by a traced flag. Under <code>jax.vmap</code>, <code>lax.switch</code> with a batched index would compute every branch for every binary. The model's own <code>switch</code>, <code>cond</code> and <code>while_loop</code> (<code>_transforms.py</code>) instead have batching rules: a branch is computed for the whole batch only if some binary in the batch takes it, and a loop runs to the longest binary in the batch while selecting only its small carry at each iteration.</p>
+  <h3>The SpinTaylor angles</h3>
+  <p>The SpinTaylor angles are the hardest part to make traceable. LAL integrates the orbit-averaged SpinTaylorT4 equations from <code>f_ref</code> backwards to below <code>f_min</code> and forwards to the end of the inspiral. It uses GSL's adaptive RKF45 at tolerances of 1e-12, samples the solution every Δt = 5 / f<sub>cut</sub>, repeats the end with ten times finer sampling, and passes all the samples, millions for light binaries, to natural cubic splines of α and cos β. Where each run ends, and so how many samples there are, depends on the exact sequence of steps. The JAX version therefore splits the work:</p>
+  <ul>
+    <li><strong>The forward and fine runs</strong> repeat LAL's adaptive steps one for one in a <code>while_loop</code> (<code>spintaylor/replica.py</code>): GSL's step control, the retries after a failed derivative, the Hermite-like interpolant and the stopping test. The run then ends where LAL's ends, with the same samples. Its derivatives are those of the recorded steps with the step sizes held fixed.</li>
+    <li><strong>The backward run</strong> is long and only ends at a frequency, so it is solved with Dormand–Prince 8(5,3) and its seventh-order dense output. The steps are equal increments of u = 1 / (Mω), so each step covers about the same precession angle, and a few hundred steps resolve a whole inspiral to ~1e-12. The step size is a smooth function of the state, so the solution is differentiable. It differs from LAL's samples by LAL's own integration error, ~1e-9.</li>
+    <li><strong>The splines</strong> have as many knots as LAL has samples. Up to 8192 knots they are built as GSL builds them. Beyond that, a natural cubic spline at x depends on knots k intervals away only through factors ~(2 − √3)<sup>k</sup>. It is then evaluated from the 34 knots around x, which gives the same values to ~1e-15 at a cost per point independent of the number of samples.</li>
+  </ul>
+  <h3>Reproducing LAL's discrete choices</h3>
+  <p>Much of LAL's code makes decisions on values that are themselves results of iterations or of NaN arithmetic. Each has to be reproduced exactly, or the waveform changes discontinuously:</p>
+  <ul>
+    <li><strong>MSA angles.</strong> GSL's Jacobi elliptic function and elliptic integral are ported with a fixed number of iterations, and the iterations GSL would not do are masked out. Unlike LAL, which stores the roots of the spin cubic in a shared struct and races on them under OpenMP, every value here is local, so the angles agree with single-threaded LAL.</li>
+    <li><strong>Higher modes.</strong> The order of the intermediate amplitude polynomial is lowered when it would cross zero. <code>CrossZeroP5</code> takes the roots from GSL's <code>gsl_poly_complex_solve</code>, and LAL's indexing of the roots depends on their order, so GSL's balanced companion matrix and Francis QR iteration are ported step for step in <code>while_loop</code>s that end where GSL's end.</li>
+    <li><strong>PNR β connection.</strong> LAL picks the connection frequencies of β from the turning and inflection points of a cubic. The computation often produces NaN (complex roots, square roots of negative numbers), which LAL's comparisons then treat as false. It is evaluated twice. The first pass uses LAL's arithmetic, NaN included and under <code>stop_gradient</code>, to make the decisions. The second uses finite stand-ins that follow those decisions, to give the values and their gradients. The inflection points are roots from the trigonometric formula, close to an <code>acos</code> of 1, so there LAL's fused multiply-adds are reproduced exactly, giving ~1e-12 rather than ~1e-8.</li>
+    <li><strong>Antisymmetric amplitude.</strong> LAL smooths the amplitude ratio with an 81-point moving average computed in place, so each window reads averages it has already written. That is an order-40 linear recurrence. It is evaluated in blocks of 40 values with a triangular solve per block, inside a <code>lax.scan</code>.</li>
+  </ul>
+  <h3>Derivatives in forward mode</h3>
+  <p>Loops whose number of iterations is traced, such as the SpinTaylor runs and GSL's QR iteration, can be differentiated in forward mode but not in reverse mode. Reverse mode through the model's many scalar set-up computations also compiles slowly. So <code>_transforms.differentiable</code> makes the model a <code>jax.custom_jvp</code> function. Its rule computes the Jacobian with respect to the parameters that have non-zero tangents, one <code>jax.jvp</code> per parameter, and contracts it with the tangents. The contraction is linear, so <code>jax.grad</code>, which transposes it, works as well as <code>jax.jvp</code> and <code>jax.jacfwd</code>. The Jacobian is itself a <code>custom_vmap</code> function, so under <code>jax.vmap</code> of a gradient the binaries are batched inside the differentiation. Where LAL takes derivatives by finite differences, with steps of 1e-9 and 1e-7 in the intermediate region of the higher modes, the values follow LAL. Their tangents, however, are those of the exact derivatives. The tangents of the finite differences themselves would amplify rounding by up to 1e14.</p>
+  <h3>The parity fix</h3>
+  <p>By default the model includes the fix of lalsuite !2593 from LALSuite's development branch, as waveformrs does. The fix restores the mirror symmetry of the antisymmetric modes: flipping the in-plane spins and taking ι → π − ι gives (h<sub>+</sub>, −h<sub>×</sub>). <code>pnr_parity_fix=False</code>, or <code>WaveformOptions.lalsimulation_defaults()</code>, gives the released LALSimulation 6.2.0. Both are compared with LAL in <a href="#accuracy">section {{sec:accuracy}}</a>, the fixed model with a LALSimulation 6.2.0 patched with the fix ({{xpnr_patched_build}}).</p>
+  <h3>Making it compile and run faster</h3>
+  <p>The first complete version took about 32 ms per waveform and 2.3 s for <code>jax.vmap</code> over 64 binaries; compiling its reverse-mode gradient took 714 s. A second round of work brought these to about 18 ms, 0.74 s and 132 s (measured during development on this machine). It moved the derivatives to forward mode and added the batch-aware branches and loops. It merged versions 102 and 223 into one branch, computed only the PNR β of the binary's region, chose the intermediate polynomials of all higher modes together, and solved the SpinTaylor equations with the 3-vectors as arrays. The current numbers are in <a href="#performance">section {{sec:performance}}</a>.</p>
+</section>
+
+<section id="nrsur">
+  <h2>NRSur7dq4</h2>
+  <p class="lede">NRSur7dq4 interpolates numerical-relativity waveforms of precessing binaries. It was trained on mass ratios up to 4 and spin magnitudes up to 0.8, and LAL allows it to extrapolate beyond those. It integrates an ODE for the coprecessing frame, the orbital phase and the spins, with time derivatives given by fits at 233 nodes. It then evaluates the coorbital modes from fits at their empirical-interpolation nodes and rotates them to the inertial frame. The JAX version follows <code>LALSimIMRPrecessingNRSur.c</code> and waveformrs's translation of it.</p>
+  <ul>
+    <li><strong>Data.</strong> The 17 MB HDF5 file is read once with h5py. Every dynamics fit becomes a dense row over the union of the monomials the fits use, so the nine fits of a node are one matrix–vector product. The fits of the waveform nodes are stored by the order of their mass-ratio monomial, so the mass ratio, which is the same at every node, is folded into the coefficients once per binary.</li>
+    <li><strong>Dynamics.</strong> LAL steps from the reference frequency to the nearest node, takes three RK4 steps (forwards or backwards, depending on that node), and covers the remaining nodes with fourth-order Adams–Bashforth steps in both directions. Since the starting node depends on the binary, the integration is one <code>lax.scan</code> of fixed length. It walks backwards from the start and then forwards, evaluating the fits of one node per step as LAL does. The Adams–Bashforth weights depend only on the node and are tabulated once.</li>
+    <li><strong>Splines.</strong> GSL's natural cubic splines solve a tridiagonal system whose matrix depends only on the knots. As in waveformrs, it is factorised once when the data are read, so fitting a spline needs only the two substitution sweeps.</li>
+    <li><strong>Frame rotation.</strong> LAL's Wigner D-matrices use negative powers of the quaternion's components, with special cases where they vanish, as they do for spins along the orbital angular momentum. Here the negative powers are cancelled analytically, which makes each element a polynomial in the quaternion: the same values, no special cases, and finite gradients in the non-precessing limit.</li>
+    <li><strong>Output grid.</strong> The number of samples depends on when the orbital frequency reaches π f<sub>min</sub>, so it is found on the host. A compiled pass evaluates the frequency fits, and numpy repeats LAL's search operation by operation. The waveform is then computed on a power-of-two buffer of at least 256 samples, which waveforms of similar length share, and trimmed to the binary's length.</li>
+  </ul>
+  <p><code>polarizations_at(binary, times)</code> evaluates the waveform at any times relative to the peak. It is pure and differentiable with respect to every parameter, including <code>f_ref</code>, which moves the reference time and so the frame. It is what <code>jax.vmap</code>, <code>jax.grad</code> and the conversions use.</p>
+</section>
+
+<section id="conversions">
+  <h2>Time and frequency domains</h2>
+  <p class="lede"><code>simulate_td</code> and <code>simulate_fd</code> reproduce LALSimulation 6.2.0's <code>SimInspiralTD</code> and <code>SimInspiralFD</code>. IMRPhenomXPNR can be given in the time domain and NRSur7dq4 in the frequency domain, and each model can also be conditioned in its own domain. They follow waveformrs's <code>src/conversions/</code> and <code>src/conditioning.rs</code>.</p>
+  <p>LAL's conditioning starts the model below the requested frequency by an amount set by bounds on the chirp time, merger time and ringdown time. It tapers the extra length, applies a Butterworth high-pass filter, shifts the waveform in time and crops it to a length and epoch derived from the same bounds. The work is split by what needs to be exact:</p>
+  <ul>
+    <li><strong>On the host, in Python floats.</strong> The lengths, shifts, taper widths and GPS epochs are computed with LAL's arithmetic. This includes C's <code>pow</code>, <code>cbrt</code> and <code>round</code>, and the fused multiply-adds of clang's arm64 build, reproduced exactly through rational arithmetic. As a result, lengths and epochs are LAL's bit for bit.</li>
+    <li><strong>In JAX, pure and differentiable.</strong> The bounds are computed again where the waveform depends on them continuously: the starting frequency given to the model and the cutoff of the first high-pass filter. So do the filter coefficients, the filter itself (a <code>lax.scan</code> of LAL's recursion per second-order section), the tapers and the Fourier transforms. Arrays have fixed, power-of-two lengths, so one compilation serves many binaries.</li>
+  </ul>
+  <p>IMRPhenomXPNR smooths its antisymmetric amplitude with a moving average over the array of frequencies, which LAL takes over its band. To keep one array length per transform length, the model is evaluated on the band, followed by frequencies just above it and then the band's last 82 frequencies again. The first L − 41 values are then averaged as LAL averages them, and the last 41 are taken from the end. <code>simulate_td_function</code> and <code>simulate_fd_function</code> return the conversion as a pure function. It keeps the lengths, shifts, tapers and epoch of a reference binary, while the starting frequencies and filter cutoffs follow the binary, so the gradient includes their dependence on the masses and spins.</p>
+</section>
+
+<section id="testing">
+  <h2>How the package is tested</h2>
+  <p class="lede">{{n_tests}} pytest tests ({{n_passed}} passed, {{n_failed}} failed, {{n_skipped}} skipped in the run below) compare every layer of the models with LALSimulation 6.2.0, through its Python API or, for internal functions, through ctypes. They also reuse waveformrs's reference suites, which cover each regime switch and fallback of the models.</p>
+  <div class="table-wrap wide">
+    <table>
+      <thead><tr><th>Test file</th><th class="num">Tests</th><th>Result</th><th class="num">Time</th></tr></thead>
+      <tbody>
+{{test_rows}}
+      </tbody>
+      <caption>The full run with <code>WAVEFORMJAX_SLOW=1</code> (the random-draw tests) on the merged <code>main</code>, with <code>OMP_NUM_THREADS=1</code> for LALSimulation. Data: <code>report/data/pytest.xml</code>.</caption>
+    </table>
+  </div>
+  <p>The tests are layered as the model was built: the (2,2) mode, then the higher modes, the angles, the PNR helpers, the polarizations and the modes. Each layer is compared at a tolerance set by what LAL itself can resolve there. The MSA angles, for example, are ill-conditioned for nearly aligned spins, where LAL's own output changes by ~5e-8 for a change of the inputs in the last bit. Every model also has a transform test. It checks that <code>jax.jit</code> and <code>jax.vmap</code> give the plain call, that gradients agree with central finite differences for every parameter, and that they are finite at removable singularities such as aligned, vanishing or single spins.</p>
+</section>
+
+<section id="accuracy">
+  <h2>Accuracy</h2>
+  <p class="lede">The random draws are those of waveformrs's report, so the two reports can be compared. For IMRPhenomXPNR: total masses log-uniform in 5–300 M<sub>☉</sub>, mass ratios uniform in 1/20–1, isotropic spins of magnitude up to 0.99, f<sub>min</sub> ∈ {10, 15, 20} Hz, f<sub>ref</sub> = f<sub>min</sub> or up to 3 f<sub>min</sub>, and isotropic lines of sight. For NRSur7dq4: mass ratios 1–6 with either body first, total masses 20–300 M<sub>☉</sub>, sampling at 1–8 kHz, and f<sub>min</sub> above the surrogate's start or zero.</p>
+  <figure class="wide">
+    <div class="plot">{{accuracy_svg}}</div>
+    <figcaption>Largest relative error of each draw against total mass. Left: IMRPhenomXPNR on {{xpnr_nf}} uniformly spaced frequencies from f<sub>min</sub> to min(0.3/M, 2048 Hz), without the parity fix against LALSimulation 6.2.0, and with it against 6.2.0 patched with lalsuite !2593. Right: NRSur7dq4 against <code>SimInspiralChooseTDWaveform</code>. Data: <code>report/data/validation_*.json</code>.</figcaption>
+  </figure>
+  <p><strong>NRSur7dq4</strong> agrees with LAL to {{nrsur_max_rel}} at most (median {{nrsur_median_rel}}), with LAL's length and epoch in every compared draw ({{nrsur_same_grid}}/{{nrsur_n}}). {{nrsur_failure_text}} The residual comes from summing the fits in a different order and from XLA's own <code>exp</code>, <code>sin</code> and <code>cos</code>. The rotation to the inertial frame and the splines are linear, so the errors stay at rounding level. waveformrs, which agrees with LAL bit for bit, gives the same comparison ({{nrsur_rs_max_rel}}).</p>
+  <p><strong>IMRPhenomXPNR</strong> agrees with LAL 6.2.0 to {{xpnr_max_rel}} at most, with median {{xpnr_median_rel}}, a 90th percentile of {{xpnr_p90_rel}} and mismatches below {{xpnr_max_mm}}. The tests show where the difference comes from. The (2,2) mode alone, with its PNR angles and antisymmetric part, agrees to ~1e-9. The higher modes agree to ~1e-5, as different builds of LAL agree with each other. LAL fixes the intermediate amplitude of each higher mode with a fourth-order finite difference of the inspiral amplitude, with a step of 1e-9, which turns rounding of 1e-16 into ~1e-7 in the derivative. It fixes the intermediate phase of the (3,2) mode with a second derivative of a phase of up to 1e4 rad, by central differences with a step of 1e-7, amplifying rounding by ~1e14. Without fused multiply-adds, which JAX does not expose portably, the JAX arithmetic rounds differently from LAL's arm64 build, and these finite differences turn that into a visible difference. Neither value is more accurate than the other. The errors grow with the total mass, where the merger and ringdown, and so the higher modes, carry more of the band: the median is {{xpnr_median_light}} below 20 M<sub>☉</sub> and {{xpnr_median_heavy}} above 150 M<sub>☉</sub>. The largest errors, a few 1e-5, are for heavy binaries with in-plane spins near 0.9. {{xpnr_frac_1e5}} of the draws exceed 1e-5.</p>
+  <p>With the parity fix, the model agrees with LAL 6.2.0 patched with lalsuite !2593 to {{xpnr_fix_max_rel}} (median {{xpnr_fix_median_rel}}, mismatch ≤ {{xpnr_fix_max_mm}}, over {{xpnr_fix_n}} draws). On the same draws waveformrs agrees with that patched library to {{xpnr_rs_fix_max_rel}}. {{xpnr_failure_text}}</p>
+  <h3>Conversions</h3>
+  <div class="table-wrap wide">
+    <table>
+      <thead><tr><th>Function</th><th>Model</th><th>Binary</th><th>Setting</th><th>Modes</th><th class="num">Samples</th><th>Grid</th><th class="num">vs LAL</th><th class="num">vs waveformrs</th><th class="num">LAL multibanding</th><th class="num">waveformjax</th><th class="num">waveformrs</th><th class="num">LAL</th></tr></thead>
+      <tbody>
+{{conversion_rows}}
+      </tbody>
+      <caption>End-to-end <code>simulate_td</code> and <code>simulate_fd</code> against <code>SimInspiralTD</code> and <code>SimInspiralFD</code> with multibanding off. IMRPhenomXPNR is without the parity fix. "Grid" says whether the length, epoch and sampling are LAL's exactly. Errors are max |h − h<sub>LAL</sub>| / max |h<sub>LAL</sub>| over both polarizations. "LAL multibanding" is how far LAL's default output, with multibanding on, is from the output without it. Times are for one call after the first. Data: <code>report/data/validation_conversions.json</code>.</caption>
+    </table>
+  </div>
+  <p>All lengths, epochs and samplings are LAL's ({{conversion_exact}}). With LAL's own model in place of the JAX one, the conversions agree with LAL to ~1e-12 of the peak in the time domain and to rounding in the frequency domain (<code>test_conversions.py</code>). The time-domain high-pass filter, whose poles are close to z = 1, amplifies the rounding differences of the Fourier transforms, which are not FFTW's, by ~1e4. End to end, NRSur7dq4 agrees to {{conv_nrsur_max}}, IMRPhenomXPNR's (2,2) mode to {{conv_dominant_max}}, and all its modes to {{conv_all_max}}, as the models do. LALSimulation's default multibanding, which waveformjax does not implement, changes LAL's own output by {{conv_mb_range}}. This is far more than the differences between the implementations.</p>
+</section>
+
+<section id="gradients">
+  <h2>Derivatives</h2>
+  <p class="lede">For each model and four binaries, every column of the Jacobian (<code>jax.jacfwd</code>) is compared with central finite differences of the compiled model. The error of a column is max |J<sub>i</sub> − D<sub>i</sub>| / max |J<sub>i</sub>| over the frequencies or times and both polarizations. The finite difference is the better of a second-order difference with a step of 1e-6 and a fourth-order difference with a step of 1e-4, both relative for the masses, the distance and f<sub>ref</sub>. The first is limited by rounding, the second by the model's discontinuities.</p>
+  {{gradients_figure}}
+  {{gradient_table}}
+  <p>The derivatives are those of the function JAX computes, which is smooth almost everywhere but not everywhere. Wherever LAL makes a discrete choice that depends on the binary, the waveform is continuous only up to the size of that choice's effect, and the derivative is that of the branch taken. Such choices include the number of SpinTaylor samples, where LAL's adaptive integration stops, the node where NRSur7dq4's integration starts, the precession prescription, and the order of the intermediate polynomials of the higher modes. In IMRPhenomXPNR the SpinTaylor waveform jumps by about LAL's integration error, ~1e-9 relative, wherever the number of samples changes. A finite difference that straddles such a jump is wrong by the jump divided by the step, which is why small steps are used. The spins are the parameters that move the precession most, and they show the largest disagreements. For nearly aligned in-plane spins the waveform is also far from linear on the scale of the step. None of this affects the derivatives themselves, which are those of the smooth pieces.</p>
+  <p>One case is not a jump but a point where no derivative exists. After every step of its dynamics, NRSur7dq4 rescales each spin to its initial magnitude (LAL's <code>PrecessingNRSur_normalize_y</code>). For a body with no spin, an infinitesimal spin then evolves by a factor that depends on its direction, not only on its size. The waveform therefore has a cone-shaped kink in that body's three spin components: one-sided finite differences tend to different values, and no step size makes them converge. At such a point the JAX derivative is finite, as the transform tests require, but it is a convention rather than a derivative. The table reports these components apart. As soon as a body has any spin, even an aligned one, its derivatives agree with finite differences as for the other binaries.</p>
+  <p><strong>IMRPhenomXPNR: under investigation.</strong> For the full IMRPhenomXPNR waveform, the finite differences disagree with the derivatives by up to {{xpnr_gradient_worst}}, by far the most in the in-plane spins. The transform tests, which compare the gradient of a weighted sum of the (2,2) mode with finite differences, agree to ~1e-7. The likely cause is in the higher modes. Their intermediate region is fixed by LAL's finite differences with steps of 1e-9 and 1e-7, which leave rounding noise of ~1e-8 in the waveform. That noise is not smooth in the parameters, so a parameter step of 1e-6 sees a slope of up to ~1e-2 relative from it alone, while the JAX tangents are those of the exact derivatives. If so, the derivatives are right and the finite differences are not. The check still to run: the (2,2) mode alone, and the full model with larger steps, where that noise matters less.</p>
+  <h3>Cost of derivatives</h3>
+  <div class="table-wrap wide">
+    <table>
+      <thead><tr><th>Function</th><th class="num">Compile</th><th class="num">Value</th><th class="num"><code>jvp</code></th><th class="num">Compile <code>jacfwd</code></th><th class="num"><code>jacfwd</code></th><th class="num">Compile <code>grad</code></th><th class="num"><code>grad</code></th><th class="num">Compile <code>vmap(grad)</code></th><th class="num"><code>vmap(grad)</code> / binary</th><th class="num">grad vs J<sup>T</sup>w</th></tr></thead>
+      <tbody>
+{{derivative_rows}}
+      </tbody>
+      <caption>Times of the first call (which compiles) and of later calls, for IMRPhenomXPNR on 2048 frequencies, NRSur7dq4 on 2048 samples and the two conversions. <code>grad</code> is of a scalar, a weighted sum of the polarizations. <code>vmap(grad)</code> is over 8 binaries (4 for the conversions). The last column is the relative difference between <code>jax.grad</code> and the Jacobian contracted with the same weights.</caption>
+    </table>
+  </div>
+  <p>For IMRPhenomXPNR a gradient costs {{xpnr_grad_time}}, {{xpnr_grad_ratio}} the cost of a waveform. It is a forward-mode Jacobian of twelve columns, evaluated together. Its compilation takes {{xpnr_grad_compile}}. A <code>jax.jvp</code> along a direction that moves every parameter costs as much as <code>jax.jacfwd</code>, because the rule computes the columns of all the parameters with non-zero tangents and then contracts them. When only some parameters are differentiated, as in <code>jax.grad</code> with respect to the masses alone with the rest of the binary held fixed, only their columns are computed. NRSur7dq4 is differentiated directly in reverse mode: a gradient costs {{nrsur_grad_time}} ({{nrsur_grad_ratio}} a waveform) after {{nrsur_grad_compile}} of compilation.</p>
+</section>
+
+<section id="performance">
+  <h2>Performance</h2>
+  <p class="lede">All timings are on the CPU ({{machine}}), with JAX's default settings and LALSimulation single-threaded. The binaries and grids are those of waveformrs's Python benchmark: IMRPhenomXPNR for 36 + 29 M<sub>☉</sub> on 8033 frequencies (20–1024 Hz, Δf = 1/8 Hz), and NRSur7dq4 for 40 + 20 M<sub>☉</sub> at 4096 Hz from 20 Hz. IMRPhenomXPNR is timed without the parity fix, which costs the same.</p>
+  <div class="table-wrap wide">
+    <table>
+      <thead><tr><th>Waveform</th><th class="num">First call</th><th class="num">Public function</th><th class="num">Compiled function</th><th class="num">waveformrs</th><th class="num">LAL</th><th class="num">LAL / compiled</th></tr></thead>
+      <tbody>
+{{single_rows}}
+      </tbody>
+      <caption>One waveform per call. "First call" includes LAL's checks, tracing and compilation. "Public function" is a later call of <code>wf.polarizations</code> (or <code>td_polarizations</code>, <code>simulate_*</code>), including the checks on the host and the copy of the result. "Compiled function" is the jitted pure function alone. waveformrs is its fastest path from Python. Medians of 7 repeats. {{single_note}} Data: <code>report/data/timings.json</code>.</caption>
+    </table>
+  </div>
+  <p>A compiled IMRPhenomXPNR waveform takes {{xpnr_pure}}, against {{xpnr_lal}} for LALSimulation and {{xpnr_rs}} ({{xpnr_rs_grid}} on its grid path) for waveformrs. The JAX version is {{xpnr_vs_rs}} slower than waveformrs's fastest path. The difference is the cost of being traceable. Every <code>jnp.where</code> evaluates both branches. Loops whose length depends on the binary run as <code>while_loop</code>s, which XLA cannot fuse across iterations. The SpinTaylor replica must step one GSL step at a time, and XLA's CPU code has no fused multiply-adds. XLA keeps about {{xpnr_cpu_share}} cores busy for one IMRPhenomXPNR waveform, while LAL and waveformrs use one; JAX on a single core is still to be measured. NRSur7dq4 is dominated by vectorisable work (the fits at the nodes and the rotation of every mode sample), and takes {{nrsur_pure}} against {{nrsur_lal}} for LAL and {{nrsur_rs}} for waveformrs (from its one-thread batch).</p>
+  <h3>Batches</h3>
+  <figure class="wide">
+    <div class="plot">{{batch_svg}}</div>
+    <figcaption>Waveforms per second against the number of binaries per call of <code>jax.jit(jax.vmap(model))</code>, for binaries around the benchmark binary (masses ±10%, spin components in ±0.5, random angles). The horizontal lines are waveformrs's batch function and a loop over LALSimulation for 64 binaries.</figcaption>
+  </figure>
+  <div class="table-wrap wide">
+    <table>
+      <thead><tr><th>Binaries per call</th>{{batch_header}}</tr></thead>
+      <tbody>
+{{batch_rows}}
+      </tbody>
+      <caption>Throughput, compilation time and cores kept busy (process CPU time over wall time) for each batch size. NRSur7dq4 is evaluated on LAL's output grid of the benchmark binary.</caption>
+    </table>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>64 binaries</th><th class="num">LAL loop</th><th class="num">waveformrs, 1 thread</th><th class="num">waveformrs, all threads</th><th class="num">waveformjax</th><th class="num">First call</th></tr></thead>
+      <tbody>
+{{public_batch_rows}}
+      </tbody>
+      <caption>Waveforms per second through the public batch functions (<code>batch_polarizations</code>, <code>batch_td_polarizations</code>), including LAL's checks of every binary on the host.</caption>
+    </table>
+  </div>
+  <p>Under <code>jax.vmap</code>, IMRPhenomXPNR reaches {{xpnr_batch_best}} waveforms per second. Batching amortises the per-call overhead and XLA spreads the vectorised work over cores, but the loops run to the longest binary in the batch and the branches of all binaries are computed. Each batch size is compiled separately ({{xpnr_batch_compile}} for 64). waveformrs on all threads, with a thread per binary and no padding, remains faster on a CPU. The JAX version is meant for code that is itself written in JAX: a likelihood that is jitted and differentiated end to end, or a sampler that runs on an accelerator.</p>
+</section>
+
+<section id="differences">
+  <h2>Differences from LALSimulation</h2>
+  <ul>
+    <li><strong>Rounding, not bit-identity.</strong> waveformrs reproduces LAL bit for bit on macOS arm64, using the fused multiply-adds that clang emits. JAX has no portable fused multiply-add and XLA reorders arithmetic, so waveformjax agrees with LAL to rounding (NRSur7dq4, the (2,2) mode of IMRPhenomXPNR) or to the rounding amplified by LAL's own finite differences (the higher modes, ~1e-5). Only where LAL's decisions hinge on the last bits are its fused multiply-adds reproduced exactly: the PNR inflection points and, on the host, the conversions' lengths and epochs.</li>
+    <li><strong>SpinTaylor backward integration.</strong> The integration from <code>f_ref</code> down to <code>f_min</code> is a dense Dormand–Prince solution, not LAL's RKF45 steps. It differs from LAL's samples by LAL's integration error (~1e-9).</li>
+    <li><strong>Values where LAL divides by zero.</strong> At isolated points of the parameter space, LAL's MSA formulas divide by an exact zero and produce inf or NaN. Here the values there are finite, and so are the gradients nearby, for example at equal masses or for a single spin.</li>
+    <li><strong>No multibanding.</strong> LAL's <code>SimInspiralChooseFDWaveform</code> uses multibanding by default for IMRPhenomXPNR; waveformjax, like waveformrs, evaluates every frequency. <code>SimInspiralChooseFDWaveformSequence</code> has multibanding off, and the conversions are compared with it off.</li>
+    <li><strong>No data race.</strong> LAL's MSA and PNR angles race under OpenMP. waveformjax agrees with single-threaded LAL.</li>
+  </ul>
+</section>
+
+<section id="limits">
+  <h2>Limitations and future work</h2>
+  <ul>
+    <li><strong>Two approximants.</strong> Only IMRPhenomXPNR and NRSur7dq4 are public. IMRPhenomXAS and the 122019 higher modes exist as parts of IMRPhenomXPNR, but IMRPhenomXHM, XP and XPHM with their own flags, TaylorF2 and IMRPhenomD are not exposed.</li>
+    <li><strong>Compilation time.</strong> IMRPhenomXPNR takes tens of seconds to compile, its gradient minutes, and every array shape and batch size compiles separately. JAX's persistent compilation cache (<code>jax_compilation_cache_dir</code>) would make the cost one-off per machine; it is not set up by the package.</li>
+    <li><strong>Accelerators untested.</strong> Everything here ran on the CPU. The code uses only float64 JAX operations and should run on a GPU, where float64 is slow on consumer hardware, but neither its accuracy nor its speed has been measured there.</li>
+    <li><strong>Forward-mode derivatives of IMRPhenomXPNR.</strong> A gradient costs one Jacobian column per parameter with a non-zero tangent, evaluated together. That is affordable for the twelve parameters of a binary (<a href="#gradients">section {{sec:gradients}}</a>), but it does not scale to derivatives with respect to the frequencies or to many other inputs. A reverse-mode path would need the loops with traced lengths rewritten with fixed bounds.</li>
+    <li><strong>Discontinuities.</strong> The waveform inherits LAL's discrete choices. Gradient-based samplers near a regime boundary, such as in-plane spins near 1e-6, or a SpinTaylor integration that just fails, see the derivative of one side only.</li>
+    <li><strong>Long waveforms.</strong> For light binaries from low frequencies the SpinTaylor splines have millions of knots and the conversions' Fourier transforms millions of samples. These are fixed-shape arrays held in memory, and both cost and compilation grow with them.</li>
+    <li><strong>Multibanding.</strong> LAL's multibanding is not implemented (as in waveformrs).</li>
+  </ul>
+</section>
+
+<section id="reproduce">
+  <h2>Reproducing the results</h2>
+<pre class="code"><code># environment (conda-forge), with waveformrs checked out next to waveformjax
+mamba create -n waveformjax -c conda-forge python=3.12 python-lalsimulation jax numpy h5py scipy matplotlib pytest
+conda activate waveformjax
+pip install -e .
+(cd ../waveformrs/python &amp;&amp; maturin develop --release)       # optional: the waveformrs comparisons
+
+# the tests (the data file NRSur7dq4_v1.0.h5 from zenodo.org/records/14999310,
+# found through NRSUR7DQ4_DATA, LAL_DATA_PATH or ../waveformrs/lal_data)
+WAVEFORMJAX_SLOW=1 python -m pytest
+
+# IMRPhenomXPNR with the parity fix needs LALSimulation 6.2.0 + lalsuite !2593
+CC=/path/to/conda-forge/clang-19 bash ../waveformrs/scripts/build_patched_lalsimulation.sh ../lalsuite build/lal-2593
+export PATCHED_LALSIMULATION=$PWD/build/lal-2593/liblalsimulation.37.dylib
+
+# every measurement and this report, on an idle machine
+bash report/measure_all.sh
+
+# or one at a time
+python report/validate_xpnr.py --n-draws 200
+python report/validate_nrsur7dq4.py --n-draws 200
+python report/validate_conversions.py
+python report/gradients.py
+python report/benchmark.py
+python report/build_report.py</code></pre>
+</section>
+
+<section id="history">
+  <h2>Commit history</h2>
+  <p>The commits on <code>main</code>, oldest first. The package was built model by model and milestone by milestone, each checked against LAL before the next. The conversions and the speed-ups of IMRPhenomXPNR were developed in parallel on two branches and merged. Commits that only add or regenerate this report are not listed. The repository has no remote.</p>
+  <div class="table-wrap wide long">
+    <table>
+      <thead><tr><th>Commit</th><th>Type</th><th>Summary</th></tr></thead>
+      <tbody>
+{{commit_rows}}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+</main>
+</div>
