@@ -29,6 +29,13 @@ The package has the same interface as the Python bindings of
   with LALSimulation's names, parameters and options.
 - Pure JAX functions of a `Binary` for use inside your own `jit`, `vmap` and
   `grad` code.
+- LALSimulation's conditioned waveforms and its conversions between the time
+  and frequency domains (`SimInspiralTD` and `SimInspiralFD`):
+  IMRPhenomXPNR in the time domain and NRSur7dq4 in the frequency domain,
+  each also conditioned in its own domain, with LAL's tapers, high-pass
+  filter, lengths and start times. They are also available as pure
+  functions of the binary, which keep the length and start time of a
+  reference binary and can be differentiated.
 
 ## License
 
