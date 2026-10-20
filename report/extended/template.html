@@ -1,0 +1,291 @@
+<title>Extended SpinTaylor Angles</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap">
+<style>
+{{css}}
+</style>
+<div class="shell">
+<header class="masthead">
+  <p class="eyebrow">Technical report · waveformjax</p>
+  <h1>IMRPhenomXPNR without fallbacks: where the SpinTaylor angles fail, how to extend them, and a continuous model</h1>
+  <p class="dek">LALSimulation's IMRPhenomXPNR switches between three prescriptions for the precession angles, and between many branches inside them. This report maps where its main prescription, the SpinTaylor angles, fails. It then extends that prescription to every binary and replaces LAL's discrete switches with continuous versions, so that the waveform and its derivatives are continuous in the binary's parameters. Where LAL keeps the SpinTaylor angles, the extended model agrees with LAL to a mismatch of {{val_max_low}} or better for mass ratios up to 12.</p>
+  <dl class="meta">
+    <div><dt>Repository</dt><dd><code>waveformjax</code>, branch <code>{{branch}}</code> at <code>{{commit}}</code></dd></div>
+    <div><dt>Reference</dt><dd>lalsimulation {{lalsim_version}}, through waveformrs (LAL to rounding) and waveformjax's own LAL-exact model</dd></div>
+    <div><dt>Platform</dt><dd>{{machine}}; JAX {{jax_version}} on the CPU</dd></div>
+    <div><dt>Generated</dt><dd>{{date}}</dd></div>
+  </dl>
+  <p class="links"><a href="extended-spintaylor-report.pdf">PDF copy</a><a href="#summary">Summary</a><a href="#failures">Failures</a><a href="#extension">Extension</a><a href="#switches">Switches</a><a href="#continuous">Continuous model</a><a href="#accuracy">Accuracy</a></p>
+</header>
+
+<nav class="toc" aria-label="Contents">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#summary">Summary</a></li>
+    <li><a href="#variants">Three variants of the model</a></li>
+    <li><a href="#failures">Where the SpinTaylor angles fail</a></li>
+    <li><a href="#extension">Extending the SpinTaylor angles</a></li>
+    <li><a href="#switches">The discontinuities of LAL's model</a></li>
+    <li><a href="#continuous">A continuous model</a></li>
+    <li><a href="#accuracy">Agreement with LAL</a></li>
+    <li><a href="#derivatives">Derivatives</a></li>
+    <li><a href="#cost">Cost</a></li>
+    <li><a href="#limits">What remains</a></li>
+    <li><a href="#reproduce">Reproducing the results</a></li>
+  </ol>
+</nav>
+
+<main class="report">
+
+<section id="summary">
+  <h2>Summary</h2>
+  <p class="lede">IMRPhenomXPNR uses the SpinTaylor precession angles (version 330) for {{frac_ok}} of {{n_draws}} random binaries. For the other {{frac_fail}}, LAL falls back to the MSA angles. Every one of these failures has the same cause: the reference frequency, where the spins are given, lies beyond the frequency at which the post-Newtonian (PN) binding energy stops decreasing, so LAL's integration of the SpinTaylor equations backwards from it stops at once. The extended model integrates through that region. It evaluates every binary, and its waveform and derivatives are continuous across all the switches LAL makes between prescriptions and branches.</p>
+  <div class="cards">
+    <div class="card"><span class="label">LAL leaves the SpinTaylor angles</span><span class="value">{{frac_fail}}</span><span class="note">of {{n_draws}} random binaries (total masses 5–500 M<sub>☉</sub>, f<sub>min</sub> 10–20 Hz). All of them fail the PN energy test at f<sub>ref</sub> (≤ {{max_fail_test}}); every binary tested that keeps the angles passes it (≥ {{min_ok_test}}).</span></div>
+    <div class="card"><span class="label">Extended angles evaluate</span><span class="value">{{ext_finite}} / {{n_fail}}</span><span class="note">of the binaries where LAL leaves the SpinTaylor angles, as well as all those where it keeps them, and aligned, single and vanishing spins.</span></div>
+    <div class="card"><span class="label">Agreement with LAL, q ≤ 12</span><span class="value">≤ {{val_max_low}}</span><span class="note">Largest mismatch over {{val_n}} random binaries for which LAL keeps the SpinTaylor angles; median {{val_median}}. Above q = 12, where the PNR transition region ends and LAL's waveform itself jumps, ≤ {{val_max_high}}.</span></div>
+    <div class="card"><span class="label">Jumps across LAL's switches</span><span class="value">≤ {{switch_ext_jump}}</span><span class="note">Largest relative change of the waveform across any of LAL's threshold switches tested, between points 10<sup>−12</sup> (relative) on either side of each threshold, against up to {{switch_lal_jump}} (a mismatch of {{switch_lal_max}}) for LAL.</span></div>
+    <div class="card"><span class="label">Numerical noise</span><span class="value">{{noise_ext}}</span><span class="note">Change of the waveform for a change of the mass in its last bit, against {{noise_lal}} for LAL's model (and up to {{noise_rs_xpnr}} for waveformrs, which follows LAL bit for bit).</span></div>
+    <div class="card"><span class="label">Derivatives</span><span class="value">≤ {{gradient_worst}}</span><span class="note">Largest disagreement of a gradient with central finite differences (steps of 3 × 10<sup>−5</sup>), over every parameter of three binaries with all modes. The gradients are finite for aligned and non-spinning binaries.</span></div>
+  </div>
+  <p>The work is on the branch <code>{{branch}}</code>. The options are two fields of <code>WaveformOptions</code>: <code>version_fallback=False</code> gives LAL's model without fallbacks, and <code>extended_spintaylor=True</code> gives the extended, continuous model. The default model is unchanged and still agrees with LAL. Tests: {{test_summary}}; the {{n_extended_tests}} tests of the new options (<code>tests/test_xpnr_extended.py</code>) all pass ({{n_extended_passed}}).</p>
+</section>
+
+<section id="variants">
+  <h2>Three variants of the model</h2>
+  <p class="lede">LAL decides the precession prescription from the binary. In-plane spins below 10<sup>−7</sup> switch the PNR machinery off; below 10<sup>−6</sup>, the NNLO angles are used; otherwise the SpinTaylor angles (version 330), unless their integration fails, in which case LAL uses the MSA angles (223), or the NNLO angles if the MSA system fails too.</p>
+  <div class="table-wrap wide">
+    <table>
+      <thead><tr><th>Option</th><th>What is computed</th><th>Against LAL</th></tr></thead>
+      <tbody>
+        <tr><td>default</td><td>LAL's choice among the prescriptions (three branches of a traced switch)</td><td>LAL's waveform</td></tr>
+        <tr><td><code>version_fallback=False</code></td><td>Only the SpinTaylor branch; NaN where LAL would switch. The public functions raise <code>PrecessionVersionUnavailableError</code> there, as waveformrs does.</td><td>LAL's waveform where LAL uses the SpinTaylor angles (mismatch with waveformrs ≤ {{val_strict}})</td></tr>
+        <tr><td><code>extended_spintaylor=True</code></td><td>The SpinTaylor angles for every binary, with the continuous replacements of <a href="#continuous">section {{sec:continuous}}</a></td><td>Not LAL's waveform; close to it where LAL uses the SpinTaylor angles (<a href="#accuracy">section {{sec:accuracy}}</a>)</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Without fallbacks, the model compiles only the SpinTaylor branch, which removes the MSA and NNLO code from the compiled function (<a href="#cost">section {{sec:cost}}</a>).</p>
+</section>
+
+<section id="failures">
+  <h2>Where the SpinTaylor angles fail</h2>
+  <p class="lede">For {{n_draws}} random binaries, waveformrs (which reproduces LAL to rounding) was asked for IMRPhenomXPNR with version fallbacks switched off. The draws: total masses log-uniform in 5–500 M<sub>☉</sub>, mass ratios uniform in 1/20–1, isotropic spins of magnitude up to 0.99, f<sub>min</sub> ∈ {10, 15, 20} Hz, and f<sub>ref</sub> = f<sub>min</sub> for 30% of them, otherwise uniform up to min(5 f<sub>min</sub>, f<sub>max</sub>). {{n_fail}} of them ({{frac_fail}}) fail.</p>
+  <figure class="wide">
+    <div class="plot">{{failure_map_svg}}</div>
+    <figcaption>Left: total mass against M f<sub>ref</sub> (dimensionless), for a sample of the binaries that keep the SpinTaylor angles (blue) and all that fail (orange). Right: the PN energy test of <code>XLALSimInspiralSpinTaylorStoppingTest</code> (proportional to dE/dv, which LAL requires to be positive) evaluated at f<sub>ref</sub> with the spins given there, for every failure and {{n_ok_tested}} of the others. Data: <code>report/extended/data/failures.json</code>.</figcaption>
+  </figure>
+  <p><strong>One cause.</strong> All {{n_fail}} failures end LAL's backward integration from f<sub>ref</sub> with the energy code ({{fail_codes}}). LAL integrates the SpinTaylor equations backwards from f<sub>ref</sub> to below f<sub>min</sub> and forwards to the end of the inspiral. After every step it applies the SpinTaylor stopping test, and the first test is whether the PN binding energy still decreases with frequency. If f<sub>ref</sub> already lies beyond the frequency where it stops decreasing (a PN analogue of the minimum energy circular orbit, which depends on the masses and spins), the backward run stops after its first step with a single sample, and LAL's driver falls back to the MSA angles. Evaluating the same test at f<sub>ref</sub> separates the two groups exactly: it is at most {{max_fail_test}} for every failure and at least {{min_ok_test}} for every binary tested that keeps the angles.</p>
+  <p>The failures need a reference frequency late in the inspiral: M f<sub>ref</sub> ≥ {{min_mfref_fail}} in every case. That happens for heavy binaries (the lightest failure is {{min_mass_fail}} M<sub>☉</sub>, the median {{median_mass_fail}} M<sub>☉</sub>), for reference frequencies above f<sub>min</sub>, and earlier for spins anti-aligned with the orbit, which move the PN energy minimum to lower frequencies.</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>M f<sub>ref</sub></th><th class="num">Binaries</th><th class="num">Failures</th><th class="num">Fraction</th></tr></thead>
+      <tbody>
+{{failure_rows}}
+      </tbody>
+    </table>
+  </div>
+  <figure>
+    <div class="plot">{{failure_fraction_svg}}</div>
+    <figcaption>Fraction of binaries for which LAL leaves the SpinTaylor angles, against M f<sub>ref</sub>.</figcaption>
+  </figure>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Total mass</th><th class="num">Binaries</th><th class="num">Fraction failing</th></tr></thead>
+      <tbody>
+{{mass_rows}}
+      </tbody>
+    </table>
+  </div>
+  <p>None of the draws hit LAL's other failure conditions (a forward run too short for a spline, a fine run that cannot start, an integration start at a negative frequency), and none hit the NNLO cases of in-plane spins below 10<sup>−6</sup>, which have zero probability under these draws but matter for aligned-spin priors.</p>
+</section>
+
+<section id="extension">
+  <h2>Extending the SpinTaylor angles</h2>
+  <p class="lede">The SpinTaylor equations themselves remain regular beyond the energy test: the derivative of the orbital frequency stays positive from f<sub>ref</sub> down to f<sub>min</sub> in every failure examined, so they can be integrated backwards from f<sub>ref</sub>. Only the stopping test, which guards the validity of the forward evolution, ends LAL's run.</p>
+  <ol class="pipeline">
+    <li><span class="step-title">Integrate backwards through the energy test</span><span class="step-body">Where the test fails at f<sub>ref</sub>, the backward run ignores it and continues to below f<sub>min</sub>, so the spins given at f<sub>ref</sub> are carried to lower frequencies by the same equations. Where LAL's backward run succeeds, the test never fails along it (the energy test only fails at high frequencies), so nothing changes there.</span></li>
+    <li><span class="step-title">End the inspiral where the PN energy test holds</span><span class="step-body">The knots of the inspiral angles stop at the last sample of the backward run that passes the energy test, found by bisection. From there the fine run goes on to where the energy test fails, as LAL's does for a reference frequency just below it. The PN angles are therefore never used beyond the validity of the PN equations, and the merger-ringdown continuation takes over as usual.</span></li>
+    <li><span class="step-title">A larger step budget</span><span class="step-body">waveformjax integrates the backward run with DOP853 on a fixed number of steps in u = 1/(Mω), estimating the time of each step from the leading-order evolution. From frequencies beyond the energy test that estimate is poor in the first steps, so the budget is 25% above the range rather than 3%.</span></li>
+    <li><span class="step-title">Drop checks on an unused quantity</span><span class="step-body">For a few very heavy binaries the whole band lies after the end of the inspiral, and LAL's checks on its own interpolation of γ (<code>IMRPhenomX_InterpolateGamma_SpinTaylor</code>) fail. The PNR angles never use that γ (they integrate their own on the PNR grid), so the extended model skips those checks.</span></li>
+    <li><span class="step-title">Every in-plane spin</span><span class="step-body">The thresholds at 10<sup>−7</sup> and 10<sup>−6</sup> are removed: the PNR machinery and the SpinTaylor angles are used down to aligned spins. Where the in-plane spin vanishes, the J frame equals the L frame, and the angles are evaluated without division by zero (see <a href="#continuous">section {{sec:continuous}}</a>).</span></li>
+  </ol>
+  <p>With these changes, the extended model evaluates all {{ext_finite}} of the {{n_fail}} binaries that LAL cannot evaluate with the SpinTaylor angles. There is no reference waveform for them, but two checks show the extension behaves as an extension should. First, it is continuous with LAL's SpinTaylor waveform across the reference frequency at which LAL gives up: for a 300 M<sub>☉</sub> binary, LAL's waveform jumps by a mismatch of {{fref_jump_lal}} at f<sub>ref</sub> = {{fref_boundary}} Hz (where it changes to the MSA angles), while the extended one changes by {{fref_jump_ext}} (relative) across the same interval, 10<sup>−9</sup> (relative) on either side. (Within ~10<sup>−12</sup> of that frequency LAL's decision is not monotonic: the energy test there is at the level of rounding.) Second, its mismatch with LAL's MSA fallback is of the size expected between two different angle prescriptions: median {{msa_median}}, 90th percentile {{msa_p90}}.</p>
+</section>
+
+<section id="switches">
+  <h2>The discontinuities of LAL's model</h2>
+  <p class="lede">Besides the choice of prescription, LAL's waveform depends on many discrete quantities: how many samples each SpinTaylor run has, the size of the grid of the PNR interpolants, and the branches of the PNR fits. Each is a jump in the waveform as a function of the parameters. A gradient sees none of them, but samplers and finite differences do.</p>
+  <p><strong>Method.</strong> Five binaries were scanned along four parameters each (m<sub>1</sub>, χ<sub>1x</sub>, χ<sub>1z</sub>, f<sub>ref</sub>) at 101 points, recording every discrete quantity of the set-up. Wherever one changes between neighbouring points, bisection locates the change to adjacent floating-point values, and the jump of the waveform across it is measured as |h<sub>+</sub>(x⁺) − h<sub>+</sub>(x⁻)| / |h<sub>+</sub>| with aLIGO design weights. LAL's switches that depend on fixed thresholds were measured directly across the threshold.</p>
+  <figure class="wide">
+    <div class="plot">{{jumps_svg}}</div>
+    <figcaption>Jumps at the changes of each kind of discrete quantity along the scans, for LAL's model (blue circles, {{jumps_lal_n}} changes) and the extended one (orange squares, {{jumps_ext_n}} changes). Data: <code>report/extended/data/jumps.json</code>.</figcaption>
+  </figure>
+  <div class="table-wrap wide">
+    <table>
+      <thead><tr><th>What changes</th><th class="num">LAL: n</th><th class="num">median</th><th class="num">max</th><th class="num">Extended: n</th><th class="num">median</th><th class="num">max</th></tr></thead>
+      <tbody>
+{{jump_rows}}
+      </tbody>
+    </table>
+  </div>
+  <p>The most frequent jumps in LAL's model come from where its fine SpinTaylor run stops. The end of the inspiral angles, and the spins that the PNR fits use, are taken at the last sample of the run, so they jump by a whole sample (a few per cent in frequency near the end of the inspiral) whenever the number of samples changes. The relative jump is {{fine_lal_median}} in median and up to {{fine_lal_max}}. Over the whole survey, LAL's jumps have median {{jumps_lal_median}} and maximum {{jumps_lal_max}}; the extended model's have median {{jumps_ext_median}} and maximum {{jumps_ext_max}}. The jumps are measured between adjacent floating-point values, so they include the numerical noise of each model (below): LAL's jumps at the first backward sample and the PNR grid, ~10<sup>−6</sup>, are mostly that noise, and the extended model's are at its own noise floor.</p>
+  <figure class="wide">
+    <div class="plot">{{switches_svg}}</div>
+    <figcaption>Mismatch across LAL's threshold switches, between points 10<sup>−12</sup> (relative) on either side of the threshold (10<sup>−9</sup> for f<sub>ref</sub>). The dashed line marks 10<sup>−3</sup>. Data: <code>report/extended/data/switches.json</code>.</figcaption>
+  </figure>
+  <div class="table-wrap wide">
+    <table>
+      <thead><tr><th>Switch</th><th class="num">LAL: |Δh|/|h|</th><th class="num">LAL: mismatch</th><th class="num">Extended: |Δh|/|h|</th><th class="num">Extended: mismatch</th></tr></thead>
+      <tbody>
+{{switch_rows}}
+      </tbody>
+    </table>
+  </div>
+  <p>The edges of the PNR calibration region (q = 8.5, χ = 0.85) are continuous in LAL, by design. Three switches are not:</p>
+  <ul>
+    <li><strong>The edge of the transition region, q = 12.</strong> Inside the region, the PN part of β is the opening angle of the optimal emission direction (Eq. 41 of arXiv:2107.08876) behind an arctangent window; outside, it is the dynamical opening angle. The higher modes also change their frequency map there. These differ at the edge, by a mismatch of up to a few 10<sup>−3</sup>.</li>
+    <li><strong>The two-spin construction, |χ<sub>2</sub>| = 10<sup>−3</sup>.</strong> Above this threshold, LAL tapers the SpinTaylor β into the β of an equivalent single-spin MSA system near the connection frequency and uses that system in the connection. These are two different PN approximations of the same angle, so the jump does not shrink as χ<sub>2</sub> → 0. Over {{ts_n}} random binaries the jump has median {{ts_median}}, 90th percentile {{ts_p90}} and maximum {{ts_max}}: {{ts_frac}} exceed 10<sup>−3</sup>. It is largest for 4 ≤ q &lt; 12 (median {{ts_mid_median}}) and below {{ts_low_max}} for q &lt; 4.</li>
+    <li><strong>The connection frequencies of the PNR β.</strong> PNR joins the inspiral β to its merger-ringdown fit at a lower connection frequency, and holds β at the minimum of the fit beyond an upper one. Both are chosen by a decision tree on the shape of the fit: which root of a cubic is its inflection point, whether the fit turns over, rules that switch formula at M f = 0.06, and whether the fit is attached at all. Along {{beta_n}} decision changes found by bisection on random lines through spin space, {{beta_visible}} change the waveform visibly, {{beta_big}} by more than 10<sup>−3</sup>, the largest by {{beta_lal_max}}.</li>
+  </ul>
+  <p>The thresholds in in-plane spin (10<sup>−7</sup>, 10<sup>−6</sup> and 10<sup>−3</sup>, the last for the remapping of the J frame) give smaller jumps, as does the end of LAL's SpinTaylor angles in f<sub>ref</sub>, which is a switch to the MSA angles.</p>
+  <p><strong>Numerical noise.</strong> A change of m<sub>1</sub> in its last bit changes LAL's waveform by up to {{noise_rs_xpnr}} (waveformrs; {{noise_rs_xhm}} for IMRPhenomXHM, {{noise_rs_xas}} for the (2,2) mode alone). Almost all of it is in the {{noise_worst_mode}} mode (up to {{noise_worst_mode_value}} relative). LAL fixes the intermediate phase of that mode with the second derivative of the mode-mixed ringdown phase by central differences with a step of 10<sup>−7</sup>, which amplifies rounding by ~10<sup>14</sup>. waveformjax's default model already differentiates this exactly for its gradients, but its values keep LAL's finite differences.</p>
+</section>
+
+<section id="continuous">
+  <h2>A continuous model</h2>
+  <p class="lede">The extended model replaces each discontinuity with a continuous version, chosen to stay as close to LAL as the discontinuity allows: where LAL jumps between two values, any continuous version must lie away from at least one of them near the jump.</p>
+  <h3>The end of the inspiral</h3>
+  <p>LAL's fine run ends at the end of the integration step in which the stopping test first fails, and its samples sit on a lattice counted from the start of the run. The extended model finds the time t<sub>stop</sub> at which the stopping condition is met on LAL's interpolant of the last step: the PN energy or v = 1 crossing zero, the frequency reaching its bound, or the second derivative of the frequency vanishing. It uses bisection, then a Newton step, so that the derivatives are those of the root. Its last knot lies half a lattice step before t<sub>stop</sub>, at the centre of the range in which LAL's last sample falls, and the fine knots are counted back from there. The end of the angles, the spins at the end (used by the PNR fits) and the knots near the end (where the merger-ringdown angles are fitted) then all move continuously with the parameters. A knot still appears or leaves where the fine run meets the coarse knots, about a hundred knots earlier, which changes the splines only at the level of their interpolation error. Centring matters: for binaries whose frequency rises quickly near the end, a continuous end placed at t<sub>stop</sub> itself differed from LAL by a systematic half step.</p>
+  <h3>Small and vanishing spins</h3>
+  <p>Without the in-plane thresholds, the model has to stay regular as the in-plane spin vanishes. The precession angle α = atan2(l<sub>y</sub>, l<sub>x</sub>) of L in the J frame is set to zero with zero derivative where both components vanish. The effective single-spin cosine of the PNR fits is kept 10<sup>−15</sup> away from ±1, because the generated fits take √(1 − cos²θ) and arccos(cos θ) with infinite derivatives there; this changes their sine by less than 5 × 10<sup>−8</sup>. The spin magnitude and the cosine of the PN waveform β are computed without dividing zero by zero for non-spinning binaries. The remapping of the J frame is applied for every in-plane spin, which removes LAL's switch at 10<sup>−3</sup>. As the in-plane spin goes to zero, the extended model tends to within a mismatch of ~2 × 10<sup>−7</sup> of LAL's waveform with the PNR machinery switched off.</p>
+  <h3>The two-spin construction for every binary</h3>
+  <p>The extended model uses LAL's two-spin construction for every binary, including those with χ<sub>2</sub> = 0 exactly and non-spinning ones, so there is no switch at |χ<sub>2</sub>| = 10<sup>−3</sup>; its jump there is {{ts_ext_max}} at most over the same {{ts_n}} binaries. For |χ<sub>2</sub>| ≥ 10<sup>−3</sup> (all but a fraction ~10<sup>−3</sup> of a uniform spin prior) this is LAL's model. For smaller χ<sub>2</sub> it differs from LAL by up to the size of LAL's jump, mostly for q between 4 and 12. Two other choices were considered: LAL's single-spin construction everywhere (which would change almost every binary), and a ramp between the two over a range of χ<sub>2</sub> (which only spreads the change). The two-spin construction is finite, with finite gradients, for χ<sub>2</sub> = 0, χ<sub>1</sub> = 0 and both zero. Its cost is a finer PNR grid where |χ<sub>2</sub>| &lt; 10<sup>−3</sup>, the same grid LAL uses for any larger χ<sub>2</sub>.</p>
+  <h3>The connection of the PNR β</h3>
+  <p>The decision tree of <code>IMRPhenomX_PNR_BetaConnectionFrequencies</code> and <code>IMRPhenomX_PNR_AttachMRBeta</code> needed three kinds of change.</p>
+  <ul>
+    <li><strong>Accurate inflection points.</strong> Most of the large jumps found along random lines were not LAL's design but rounding. The inflection points of the fit are the roots of a cubic whose leading coefficient passes through zero within the parameter space. LAL's trigonometric formula then loses most of the digits of the two finite roots, about 10<sup>−2</sup> of them for b/a ~ 10<sup>7</sup>. It collapses them onto the vertex of the quadratic, and LAL's choice of root jumps between them. The extended model computes the real roots robustly: it brackets each between the stationary points of the cubic (from the stable form of the quadratic formula), bisects, and takes one Newton step. It keeps LAL's order of the roots and LAL's choice among them. The chosen root is then continuous through the change of sign of the leading coefficient.</li>
+    <li><strong>Blends instead of choices.</strong> Each choice between two candidate frequencies is blended across a band of ±0.002 in M f of the quantity it compares: the rules at M f = 0.06, whether the fit turns over, which way Eq. 69 picks the root, and whether the maximum lies above the lower candidate. The blend uses a C² ramp, and only where both candidates are finite; elsewhere LAL's choice stands. Holding β at the minimum of the fit becomes a weight that goes from one to zero as the minimum falls below the inflection point, instead of the upper frequency jumping to 100. Attaching the merger-ringdown β becomes a weight blending the attached and detached β across the same tests: in M f for the lowest connection frequency, in radians for the upper bound on β, and in the sign of β relative to its size for the lower bound. Where the coefficient of the cubic changes sign, the maximum of the fit runs off to infinity and comes back from the other side. The fit's shape does not change in any waveform's band, but LAL's turnover test does, so beyond |M f| = 10 the two outcomes are blended in 1/(M f) of the maximum, which passes continuously through zero.</li>
+    <li><strong>Bands that scale.</strong> Some decision variables shrink with the spin. For small or nearly aligned effective spins, the step from the maximum of the fit (Eqs. 56–57) is ~10<sup>−5</sup> in M f, inside any fixed band, without LAL's choice changing. A first version that blended it differed from LAL by a mismatch of 0.4 for one such binary. That choice is kept as in LAL, and the attachment test on the sign of β is normalised by the size of β.</li>
+  </ul>
+  <figure class="wide">
+    <div class="plot">{{two_spin_beta_svg}}</div>
+    <figcaption>Left: mismatch across |χ<sub>2</sub>| = 10<sup>−3</sup> for {{ts_n}} random binaries, LAL (blue) and extended (orange; the points at the bottom are exact zeros). Right: at {{beta_n}} decision changes of LAL's β connection found along random lines, LAL's jump (between adjacent floats) against the change of the extended model across ±5 × 10<sup>−5</sup> of spin magnitude around the same point. Where LAL's decision changes nothing visible (left), the extended points show the ordinary variation of the waveform over 10<sup>−4</sup> of spin. Where LAL jumps visibly, the extended model changes by a comparable amount within that window: it moves from one side's value to the other's through a steep, continuous transition.</figcaption>
+  </figure>
+  <p>A blend replaces a jump with a steep but continuous change, so the waveform is continuous but can change quickly within the bands. At the steepest point found, the mismatch between points a step apart falls from {{steps_first}} at {{steps_first_h}} to {{steps_last}} at {{steps_last_h}}, as the square of the step: the signature of a continuous function.</p>
+  <figure>
+    <div class="plot">{{steps_svg}}</div>
+    <figcaption>Mismatch between two extended waveforms a given step apart in spin magnitude, at the steepest point of a blended switch of the β connection, with the dashed line ∝ step².</figcaption>
+  </figure>
+  <h3>Beyond the transition region</h3>
+  <p>For mass ratios above 12 the agreement required was relaxed to a mismatch of 10<sup>−1</sup>. LAL's model is kept exactly for q ≤ 12 and for q ≥ 14. Between them, β is blended from LAL's value at the edge of the transition region to LAL's value outside, and the frequency map of the higher modes from LAL's linear map to its inspiral scaling, with a C² weight in q. Along a line in q at 120 M<sub>☉</sub>, the extended model differs from LAL by at most {{q12_below}} below q = 12, {{q12_band}} between 12 and 14, and {{q12_above}} above 14.</p>
+  <figure>
+    <div class="plot">{{q12_svg}}</div>
+    <figcaption>Mismatch between the extended model and LAL along the mass ratio at M = 120 M<sub>☉</sub>; the shaded band is the blend, 12 &lt; q &lt; 14. LAL's own jump at q = 12 is the first point above 12.</figcaption>
+  </figure>
+  <h3>Exact derivatives in the higher modes</h3>
+  <p>In the extended model, the higher modes use the exact derivatives (from <code>jax.jvp</code> along the frequency) for their values as well as their gradients, where LAL takes finite differences: the derivative of the inspiral and ringdown amplitudes, and the first and second derivatives of the mode-mixed (3,2) ringdown phase. The change of the waveform for a change of the mass in its last bit drops from {{noise_lal}} to {{noise_ext}}, so values and gradients are now consistent, and finite differences of the waveform can be taken with small steps.</p>
+  <figure>
+    <div class="plot">{{noise_svg}}</div>
+    <figcaption>Relative change of h<sub>+</sub> (aLIGO weights) for a change of m<sub>1</sub> in its last bit at six masses of a 36+29 M<sub>☉</sub> binary; points at the left edge are exact zeros. Data: <code>report/extended/data/noise.json</code>.</figcaption>
+  </figure>
+</section>
+
+<section id="accuracy">
+  <h2>Agreement with LAL</h2>
+  <p class="lede">Over {{val_n}} random binaries (same distribution as above) for which LAL keeps the SpinTaylor angles, the extended model agrees with LAL to a mismatch of {{val_median}} in median and {{val_p99}} at the 99th percentile. For mass ratios up to 12, the largest mismatch is {{val_max_low}}, within the required 10<sup>−3</sup>; {{val_frac_1e4}} of these binaries exceed 10<sup>−4</sup>. Of the {{val_n_high}} binaries above q = 12, {{val_high_over}} exceeds the 10<sup>−1</sup> allowed there, with {{q12_worst_mismatch}}: for that binary, LAL's own waveform jumps by a mismatch of {{q12_worst_jump}} at q = 12. A model that is LAL's up to q = 12 and continuous has to differ from LAL by about that jump just above 12, so no continuous choice meets 10<sup>−1</sup> there. The mismatch uses aLIGO design weights, 1024 uniformly spaced frequencies from f<sub>min</sub> to min(0.3/M, 1024 Hz), no maximisation, and the larger of the two polarizations.</p>
+  <figure>
+    <div class="plot">{{validation_svg}}</div>
+    <figcaption>Fraction of binaries whose mismatch with LAL exceeds a value, for three half-widths of the β blends (in M f; the angle band is ten times larger in radians). The dashed line marks 10<sup>−3</sup>. Data: <code>report/extended/data/validation.json</code>.</figcaption>
+  </figure>
+  <div class="table-wrap wide">
+    <table>
+      <thead><tr><th>Blend half-width (M f)</th><th class="num">Median</th><th class="num">99th percentile</th><th class="num">Max, q ≤ 12</th><th class="num">Above 10<sup>−3</sup>, q ≤ 12</th><th class="num">Max, q &gt; 12</th><th class="num">Failed</th></tr></thead>
+      <tbody>
+{{validation_rows}}
+      </tbody>
+    </table>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th class="num">q</th><th class="num">M</th><th class="num">Extended against LAL</th><th class="num">LAL's jump at q = 12</th></tr></thead>
+      <tbody>
+{{q12_rows}}
+      </tbody>
+    </table>
+  </div>
+  <p>The binaries above q = 12 that differ from LAL by more than 10<sup>−2</sup>, with LAL's own jump at q = 12 for the same total mass and spins (data: <code>report/extended/data/q12_jumps.json</code>).</p>
+  <p>The default is the narrowest band, ±0.002 in M f, which keeps the bands thinnest at the price of steeper changes inside them. Near LAL's own jumps the extended model necessarily differs from LAL: a binary that sits on one side of LAL's switch is compared with a continuous model that already moves towards the other side. Such binaries are rare in random draws, but they exist for any continuous model, and the largest mismatches above are of this kind.</p>
+</section>
+
+<section id="derivatives">
+  <h2>Derivatives</h2>
+  <p class="lede">The extended model is differentiated as the default one is, with forward-mode Jacobians behind <code>jax.grad</code>. Central differences approach the gradients as the step shrinks, until the numerical noise of the waveform divided by the step takes over. For the extended model they agree with the gradient to ~2 × 10<sup>−7</sup> in the mass and to ~10<sup>−4</sup> in an in-plane spin component over steps from 3 × 10<sup>−3</sup> to 3 × 10<sup>−5</sup>, before the noise (~10<sup>−9</sup>) takes over below ~10<sup>−5</sup>. The in-plane plateau does not shrink with the step as a truncation error would, so it is a residual at that level that we have not traced. For LAL's model, with noise ~10<sup>−6</sup> from its finite differences in the higher modes and the jumps of <a href="#switches">section {{sec:switches}}</a>, the differences in the in-plane spin do not settle at any step.</p>
+  <figure class="wide">
+    <div class="plot">{{convergence_svg}}</div>
+    <figcaption>Relative difference between central finite differences and the forward-mode derivative (<code>jax.jvp</code>) of a fixed linear function of the polarizations (all modes) of a generic 36+29 M<sub>☉</sub> binary, against the step: left in χ<sub>2x</sub>, right in m<sub>1</sub> (relative). At a step of 10<sup>−6</sup> in χ<sub>2x</sub> the difference is {{conv_ext_spin_1e6}} for the extended model and {{conv_lal_spin_1e6}} for LAL's; the smallest over steps is {{conv_ext_spin_best}} and {{conv_lal_spin_best}}. Data: <code>report/extended/data/convergence.json</code>.</figcaption>
+  </figure>
+  <p>With steps of 3 × 10<sup>−5</sup> (relative for the masses, the distance and f<sub>ref</sub>), in the range where the differences resolve the derivative, they agree with the gradients to {{gradient_worst}} or better for every parameter of three binaries, all modes included.</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Binary</th><th>Finite</th><th class="num">Largest disagreement with finite differences</th></tr></thead>
+      <tbody>
+{{gradient_rows}}
+      </tbody>
+    </table>
+  </div>
+  <p>For aligned and non-spinning binaries the gradients are finite. With respect to the in-plane spin components there, they are not the derivative of the waveform, which depends on the in-plane spin through β e<sup>iα</sup> while the model is written in terms of α and β separately. They are finite stand-ins at a point of zero measure.</p>
+</section>
+
+<section id="cost">
+  <h2>Cost</h2>
+  <p class="lede">For the benchmark binary of the main report on {{n_timing_frequencies}} frequencies, through <code>jax.jit</code> of the public pure function, and for <code>jax.grad</code> of a scalar function of its (2,2) mode on 96 frequencies:</p>
+  <div class="table-wrap wide">
+    <table>
+      <thead><tr><th>Variant</th><th class="num">First call (compile)</th><th class="num">Later calls</th><th class="num">Gradient: first call</th><th class="num">Gradient: later calls</th></tr></thead>
+      <tbody>
+{{timing_rows}}
+      </tbody>
+    </table>
+  </div>
+  <p>Leaving out the fallback prescriptions shortens compilation, most of all for the gradient. The extended model computes a few more things than LAL's SpinTaylor branch: the root of the stopping condition, both variants of β where a blend is active, and both frequency maps between q = 12 and 14.</p>
+</section>
+
+<section id="limits">
+  <h2>What remains</h2>
+  <ul>
+    <li><strong>Choices kept from LAL.</strong> The step from the maximum of the PNR β fit (Eqs. 56–57) is still chosen as LAL chooses it, so a jump remains where the slope of the fit at its inflection point changes sign. So do LAL's fail-safes (no connection when the lower frequency is negative or NaN, a single real inflection root, a vanishing cubic). These are rare in random draws, but they were not targeted by the jump survey.</li>
+    <li><strong>Interpolation-level jumps.</strong> The grid of the PNR interpolants and the junction of the coarse and fine SpinTaylor knots still change size with the parameters, which moves the waveform by the interpolation error of the splines (the PNR grid and first-sample rows of the jump table).</li>
+    <li><strong>Steep bands.</strong> A blended switch is continuous but steep. The bands are narrow in the quantities LAL compares, which can be narrow in the binary's parameters. A sampler crossing one sees a large gradient rather than a jump.</li>
+    <li><strong>No NR check.</strong> Where the extended model departs from LAL — beyond the energy test, for |χ<sub>2</sub>| &lt; 10<sup>−3</sup>, inside the blends — its choices are made for continuity and closeness to LAL, not checked against numerical relativity. The region where the two-spin choice matters most, 4 ≤ q ≤ 12, lies largely outside NRSur7dq4's range.</li>
+    <li><strong>A residual in the in-plane derivatives.</strong> Finite differences in an in-plane spin component agree with the gradient to ~10<sup>−4</sup> but no better at any step (<a href="#derivatives">section {{sec:derivatives}}</a>). Something at that level, perhaps one of the interpolation-level steps above, remains to be found.</li>
+    <li><strong>Gradients at aligned spins.</strong> They are finite, but they are not the in-plane derivatives of the waveform (<a href="#derivatives">section {{sec:derivatives}}</a>).</li>
+  </ul>
+</section>
+
+<section id="reproduce">
+  <h2>Reproducing the results</h2>
+  <p>Every number and figure comes from the scripts in <code>report/extended</code>, which write to <code>report/extended/data</code>; <code>report/extended/measure_all.sh</code> runs them in order (the timings last, on an idle machine) and rebuilds this report.</p>
+  <pre class="code">bash report/extended/measure_all.sh</pre>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Script</th><th>Measures</th></tr></thead>
+      <tbody>
+        <tr><td><code>failures.py</code></td><td>The failure map (waveformrs, in parallel), the energy test at f<sub>ref</sub>, the extended model where LAL fails</td></tr>
+        <tr><td><code>jumps.py</code></td><td>The jump survey along 1-D scans, LAL and extended</td></tr>
+        <tr><td><code>switches.py</code></td><td>LAL's threshold switches, the two-spin jump, the β connection along random lines, the q = 12 line, the step scaling</td></tr>
+        <tr><td><code>noise.py</code></td><td>The change of the waveform in the last bit of the mass</td></tr>
+        <tr><td><code>validate.py</code></td><td>The mismatch with LAL over random binaries, for three blend widths</td></tr>
+        <tr><td><code>gradients.py</code></td><td>Gradients against finite differences</td></tr>
+        <tr><td><code>convergence.py</code></td><td>Finite differences against the step, LAL and extended</td></tr>
+        <tr><td><code>q12_jumps.py</code></td><td>LAL's own jump at q = 12 for the binaries above it that differ most</td></tr>
+        <tr><td><code>timing.py</code></td><td>Compilation and evaluation times</td></tr>
+        <tr><td><code>build.py</code></td><td>The figures, this page and its PDF</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+</main>
+</div>

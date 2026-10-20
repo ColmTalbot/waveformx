@@ -224,7 +224,7 @@ ol.pipeline .step-body { font-size: 0.97rem; }
   <h1>IMRPhenomXPNR and NRSur7dq4 in JAX, checked against LALSimulation</h1>
   <p class="dek">How two precessing waveform models, and LALSimulation's conversions between the time and frequency domains, were written as pure JAX functions that compile, vectorise and differentiate. The report covers how they compare with LALSimulation 6.2.0 and with waveformrs, how their derivatives compare with finite differences, and what they cost.</p>
   <dl class="meta">
-    <div><dt>Repository</dt><dd><code>waveformjax</code>, branch <code>main</code> at <code>823cfa2</code> (39 commits)</dd></div>
+    <div><dt>Repository</dt><dd><code>waveformjax</code>, branch <code>main</code> at <code>c9148cd</code> (39 commits)</dd></div>
     <div><dt>Reference</dt><dd>lalsimulation 6.2.0, lal 7.7.0 (conda-forge, osx-arm64), and waveformrs's Python bindings</dd></div>
     <div><dt>Platform</dt><dd>Apple M2 Ultra, 24 cores; JAX 0.11.2 on the CPU; Python 3.12.15</dd></div>
     <div><dt>Generated</dt><dd>20 October 2026</dd></div>
@@ -280,7 +280,7 @@ ol.pipeline .step-body { font-size: 0.97rem; }
   </div>
   <p>In short:</p>
   <ul>
-    <li><strong>Implementation.</strong> 67 Python modules (19,243 lines, of which 4,381 are parameter-space fits generated from waveformrs's Rust by a translator) cover the two models, their checks and the conversions (<a href="#design">sections 2</a>–<a href="#conversions">5</a>).</li>
+    <li><strong>Implementation.</strong> 67 Python modules (19,621 lines, of which 4,381 are parameter-space fits generated from waveformrs's Rust by a translator) cover the two models, their checks and the conversions (<a href="#design">sections 2</a>–<a href="#conversions">5</a>).</li>
     <li><strong>Accuracy.</strong> NRSur7dq4 agrees with LAL at rounding level. IMRPhenomXPNR's (2,2) mode agrees to ~1e-9. Its higher modes agree to ~1e-5, because LAL takes derivatives by finite differences whose rounding noise JAX's different, but valid, arithmetic changes (<a href="#accuracy">section 7</a>).</li>
     <li><strong>Derivatives.</strong> IMRPhenomXPNR is differentiated in forward mode, and its reverse-mode gradient is the transpose of that forward-mode Jacobian. NRSur7dq4 is differentiated directly in either mode. NRSur7dq4's derivatives agree with finite differences to ~1e-8. For IMRPhenomXPNR, finite differences of the full waveform disagree with the derivatives by up to 1.5×10<sup>-1</sup>, most in the in-plane spins; the transform tests, which use the (2,2) mode, agree to ~1e-7. This is still being investigated (<a href="#gradients">section 8</a>).</li>
     <li><strong>Cost.</strong> A compiled IMRPhenomXPNR waveform costs about as much as LALSimulation's, and a few times as much as waveformrs's. <code>jax.vmap</code> over many binaries is how JAX code would use it. Compilation takes tens of seconds for the model and minutes for its gradient (<a href="#performance">section 9</a>).</li>
@@ -3932,6 +3932,7 @@ L 480.508828 165.109844
     <li><strong>Values where LAL divides by zero.</strong> At isolated points of the parameter space, LAL's MSA formulas divide by an exact zero and produce inf or NaN. Here the values there are finite, and so are the gradients nearby, for example at equal masses or for a single spin.</li>
     <li><strong>No multibanding.</strong> LAL's <code>SimInspiralChooseFDWaveform</code> uses multibanding by default for IMRPhenomXPNR; waveformjax, like waveformrs, evaluates every frequency. <code>SimInspiralChooseFDWaveformSequence</code> has multibanding off, and the conversions are compared with it off.</li>
     <li><strong>No data race.</strong> LAL's MSA and PNR angles race under OpenMP. waveformjax agrees with single-threaded LAL.</li>
+    <li><strong>Two options that are not LAL's defaults.</strong> With <code>version_fallback=False</code> the compiled model contains only the SpinTaylor prescription and is NaN where LAL would switch to the MSA or NNLO angles. With <code>extended_spintaylor=True</code> it is a different model: the SpinTaylor angles for every binary, with LAL's discrete switches made continuous. A separate report, <code>report/extended</code>, maps where the SpinTaylor angles fail and describes and validates the extended model.</li>
   </ul>
 </section>
 

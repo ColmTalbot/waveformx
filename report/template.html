@@ -263,6 +263,7 @@ h = wf.simulate_td("IMRPhenomXPNR", 1 / 4096, 20.0, mass_1=36.0, mass_2=29.0)</c
     <li><strong>Values where LAL divides by zero.</strong> At isolated points of the parameter space, LAL's MSA formulas divide by an exact zero and produce inf or NaN. Here the values there are finite, and so are the gradients nearby, for example at equal masses or for a single spin.</li>
     <li><strong>No multibanding.</strong> LAL's <code>SimInspiralChooseFDWaveform</code> uses multibanding by default for IMRPhenomXPNR; waveformjax, like waveformrs, evaluates every frequency. <code>SimInspiralChooseFDWaveformSequence</code> has multibanding off, and the conversions are compared with it off.</li>
     <li><strong>No data race.</strong> LAL's MSA and PNR angles race under OpenMP. waveformjax agrees with single-threaded LAL.</li>
+    <li><strong>Two options that are not LAL's defaults.</strong> With <code>version_fallback=False</code> the compiled model contains only the SpinTaylor prescription and is NaN where LAL would switch to the MSA or NNLO angles. With <code>extended_spintaylor=True</code> it is a different model: the SpinTaylor angles for every binary, with LAL's discrete switches made continuous. A separate report, <code>report/extended</code>, maps where the SpinTaylor angles fail and describes and validates the extended model.</li>
   </ul>
 </section>
 
