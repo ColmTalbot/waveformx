@@ -324,7 +324,8 @@ def amplitude_coefficients(wf, hm, rotate=None, defer=False):
 
     # the inspiral at its end and its derivative (by finite differences)
     f1 = f_amp_match_in
-    insp_f1, d1 = value_and_nd_derivative(f1, lambda x: inspiral_rescaled(powers(x), amp))
+    exact = "exact_derivatives" in wf
+    insp_f1, d1 = value_and_nd_derivative(f1, lambda x: inspiral_rescaled(powers(x), amp), exact)
 
     # ------------------------------ ringdown ------------------------------
     alambda, lambda_, sigma = fits.ringdown_fits(mode_int)
@@ -347,7 +348,7 @@ def amplitude_coefficients(wf, hm, rotate=None, defer=False):
             re, im = rotate(x, amp.rd)
             return jnp.hypot(re, im)
 
-        rd_f4, d4 = value_and_nd_derivative(f4, rotated)
+        rd_f4, d4 = value_and_nd_derivative(f4, rotated, exact)
     else:
         rd_f4 = rd_amp_ansatz(f4, amp)
         d4 = rd_amp_dansatz(f4, amp)

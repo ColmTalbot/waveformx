@@ -28,6 +28,15 @@ range of modes, mapped with ``jax.lax.map``.
 The derivatives are forward-mode Jacobians (:mod:`._transforms`):
 ``jax.grad``, ``jax.jvp`` and ``jax.jacfwd`` work with respect to the
 binary. Failures that LAL reports as errors give NaN polarizations.
+
+Without version fallbacks (``WaveformOptions.version_fallback``) only the
+SpinTaylor branch is computed, and the polarizations are NaN where LAL
+would switch. The extended angles (``WaveformOptions.extended_spintaylor``)
+are that branch with the static flags ``extended`` and ``smooth`` of the
+set-up (:func:`.pnr.common_setup`): the SpinTaylor solution goes on where
+LAL's stops (:func:`.spintaylor.angles.pn_solution`), every binary keeps the
+PNR machinery, and LAL's discrete switches are made continuous (see
+``report/extended`` for what changes and by how much).
 """
 
 from __future__ import annotations
@@ -209,8 +218,7 @@ def _mode_angles_pnr(prec, wf, splines, ell, emm, mf):
         mf_rd_lm = pnr.ringdown_frequency(ell, emm, wf)
         low, high = pa.linear_frequency_map_transition_frequencies(emm, wf.f_ring, mf_rd_lm, prec.pnr_hm_mflow,
                                                                    prec.pnr_hm_mfhigh)
-        mf_mapped, map_error = pa.linear_frequency_map(mf, ell, emm, low, high, wf.f_ring, mf_rd_lm,
-                                                       prec.pnr_inspiral_scaling)
+        mf_mapped, map_error = pnr.frequency_map(prec, mf, ell, emm, low, high, wf.f_ring, mf_rd_lm)
     f_mapped = mf_to_hz(mf_mapped, wf.m_tot)
     alpha, beta, gamma, inside = pnr.spline_angles(splines, f_mapped)
     return alpha - prec.alpha_offset, jnp.cos(beta), -gamma - prec.epsilon_offset, map_error | ~inside
@@ -376,6 +384,10 @@ def _angle_data(prec, wf, splines, modes, frequencies, version, tuned):
         h_as = jnp.zeros(frequencies.shape, jnp.complex128)
     wf_out = Struct(**{name: getattr(wf, name) for name in WF_FIELDS})
     wf_out.hm_release = jnp.asarray(122019)
+    if prec.smooth:
+        # (a marker: the higher modes take exact derivatives where LAL takes
+        # finite differences, see hm.finite_differences)
+        wf_out.exact_derivatives = jnp.zeros(())
     return Struct(
         wf=wf_out, alpha=jnp.stack(alphas), cos_beta=jnp.stack(cos_betas), epsilon=jnp.stack(epsilons), h_as=h_as,
         theta_jn=prec.theta_jn, zeta=prec.zeta_polarization, error=error,
@@ -495,9 +507,17 @@ def _pipeline_330(setup, modes, frequencies, active=True):
     return data
 
 
-def _decide(binary, frequencies, delta_f, f_min, f_max, modes, parity_fix, mode_range_=None, check_reference=True):
+def _decide(binary, frequencies, delta_f, f_min, f_max, modes, parity_fix, mode_range_=None, check_reference=True,
+            fallback=True, extended=False, smooth=None):
     """Set up the binary and compute the angle data of the prescription LAL
-    would use."""
+    would use. Without ``fallback`` (static), only the SpinTaylor angles
+    (version 330) are computed, with the error flag set where LAL would use
+    another prescription. With ``extended`` (static, implies no
+    ``fallback``), the SpinTaylor angles are extended beyond LAL's and,
+    with ``smooth`` (static, default ``extended``), made continuous in the
+    parameters (:func:`.spintaylor.angles.pn_solution`)."""
+    fallback = fallback and not extended
+    smooth = extended if smooth is None else smooth
     wf, m1_si, m2_si, chi1, chi2 = setup_waveform(binary, delta_f, f_min, f_max)
     wf.hm_release = 122019
     error = wf_errors(wf)
@@ -507,13 +527,17 @@ def _decide(binary, frequencies, delta_f, f_min, f_max, modes, parity_fix, mode_
         error = error | ~((wf.f_ref >= f_min) & (wf.f_ref <= upper))
     if mode_range_ is None:
         mode_range_ = pnr.mode_range(modes)
-    base, wf0 = barrier(pnr.common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, parity_fix))
+    base, wf0 = barrier(pnr.common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, parity_fix, extended, smooth))
     error = error | base.error_spin | (wf0.f_max_prime <= wf0.f_min)
 
     # the SpinTaylor integration, where LAL attempts it
     needs_st = base.pnr_on & ~base.nnlo_from_start
     setup = _spintaylor_setup(base, wf0, m1_si, m2_si, modes, needs_st)
     st_failed = needs_st & setup[3].failed
+    if not fallback:
+        data = _pipeline_330(setup, modes, frequencies, needs_st & ~st_failed)
+        data.error = data.error | error | ~needs_st | st_failed
+        return data
     system = pnr._msa.system(pnr.msa_inputs(base, wf0, base.chi1, base.chi2))
     msa_error = pnr._msa.msa_error(system)
     # 0: PNR off (NNLO angles); 1: NNLO angles in PNR; 2: MSA; 3: SpinTaylor
@@ -548,7 +572,8 @@ def _polarizations(binary, frequencies, options):
     pnr.clear_cache()
     frequencies = jnp.asarray(frequencies, dtype=jnp.float64)
     modes = coprecessing_modes(options.mode_array)
-    data = _decide(binary, frequencies, 0.0, frequencies[0], frequencies[-1], modes, options.pnr_parity_fix)
+    data = _decide(binary, frequencies, 0.0, frequencies[0], frequencies[-1], modes, options.pnr_parity_fix,
+                   fallback=options.version_fallback, extended=options.extended_spintaylor)
     hp, hc = _twist_polarizations(data, modes, frequencies)
     nan = jnp.asarray(jnp.nan + 1j * jnp.nan, jnp.complex128)
     return jnp.where(data.error, nan, hp), jnp.where(data.error, nan, hc)
@@ -622,7 +647,8 @@ def _jframe_modes(binary, frequencies, options, delta_f, f_min, f_max):
     if custom:
         ((key, jmodes),) = groups.items()
         data = _decide(binary, frequencies, delta_f, f_min, f_max, modes, parity_fix, mode_range_=key,
-                       check_reference=False)
+                       check_reference=False, fallback=options.version_fallback,
+                       extended=options.extended_spintaylor)
         hs = dict(zip(modes, _coprecessing_modes(data.wf, modes, frequencies)))
         results.append((jmodes, data, hs))
     else:
@@ -642,7 +668,8 @@ def _jframe_modes(binary, frequencies, options, delta_f, f_min, f_max):
             key, ell_index = args
             pnr.clear_cache()
             data = _decide(binary, frequencies, delta_f, f_min, f_max, modes, parity_fix,
-                           mode_range_=(key[0], key[1], key[2]), check_reference=False)
+                           mode_range_=(key[0], key[1], key[2]), check_reference=False,
+                           fallback=options.version_fallback, extended=options.extended_spintaylor)
             hs = jax.lax.switch(ell_index, [modes_of(ell) for ell in ells], data.wf)
             return data, hs
 

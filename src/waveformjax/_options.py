@@ -68,23 +68,39 @@ class WaveformOptions:
     * ``mode_array``: LAL's ``ModeArray`` (``(l, m)`` pairs) or ``None`` for
       all modes. For IMRPhenomXPNR, the co-precessing modes.
     * ``version_fallback``: whether IMRPhenomXPNR may change its precession
-      prescription as LALSimulation does (default ``True``).
+      prescription as LALSimulation does (default ``True``). Without, only
+      the SpinTaylor angles are computed, and the waveform is NaN where LAL
+      would leave them.
     * ``pnr_parity_fix``: whether IMRPhenomXPNR applies the fix of lalsuite
       merge request !2593, which restores the mirror symmetry of the
       waveform (default ``True``, as LALSimulation master); ``False``
       reproduces LALSimulation 6.2.0 and 6.2.1.
+    * ``extended_spintaylor``: IMRPhenomXPNR with the SpinTaylor angles for
+      every binary (default ``False``): also where LALSimulation cannot use
+      them (a reference frequency beyond the PN energy test, small in-plane
+      spins), with LAL's discrete switches replaced by continuous versions
+      (the end of the inspiral, the two-spin construction for every
+      binary, the connection of the PNR ``beta``, the edge of the PNR
+      transition region at ``q = 12``) and exact derivatives in the higher
+      modes where LAL takes finite differences, so that the waveform and
+      its derivatives are continuous. This is not LAL's waveform: where LAL
+      uses the SpinTaylor angles the two agree closely except near LAL's
+      own switches (``report/extended``). ``version_fallback`` is then
+      ignored.
     """
 
     precession_version: int = 320
     mode_array: Optional[Tuple[Tuple[int, int], ...]] = None
     version_fallback: bool = True
     pnr_parity_fix: bool = True
+    extended_spintaylor: bool = False
 
     def __post_init__(self):
         object.__setattr__(self, "precession_version", _precession_version(self.precession_version))
         object.__setattr__(self, "mode_array", _mode_array(self.mode_array))
         _bool(self.version_fallback, "version_fallback")
         _bool(self.pnr_parity_fix, "pnr_parity_fix")
+        _bool(self.extended_spintaylor, "extended_spintaylor")
 
     @staticmethod
     def lalsimulation_defaults() -> "WaveformOptions":

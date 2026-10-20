@@ -131,7 +131,7 @@ def _time_at_omega(traj, omega, backwards):
 
 
 @fenced
-def pn_solution(m1_si, m2_si, chi1, chi2, f_ref, f_min, f_cut, active=True):
+def pn_solution(m1_si, m2_si, chi1, chi2, f_ref, f_min, f_cut, active=True, extended=False, smooth=False):
     """``IMRPhenomX_InspiralAngles_SpinTaylor`` (version 330, black holes):
     the SpinTaylor solution from ``f_min`` (Hz, including LAL's buffer) through
     ``f_ref`` to the end of the inspiral, for masses in kg (heavier first)
@@ -150,6 +150,27 @@ def pn_solution(m1_si, m2_si, chi1, chi2, f_ref, f_min, f_cut, active=True):
     exceeded). Where ``active`` (traced) is false, the integrations take no
     steps (under ``jax.vmap``, a branch of :func:`.._transforms.cond` runs for
     the whole batch if any binary takes it).
+
+    With ``extended`` (static), a reference frequency beyond the PN energy
+    test (where LAL's backward run stops at once and its drivers leave the
+    SpinTaylor angles) is not a failure: the backward run goes on from
+    ``f_ref`` (its equations stay regular there), and the knots end at the
+    last sample of the backward run that passes the energy test, from which
+    the fine run goes on to the end of the inspiral, as LAL's does for a
+    reference frequency just below the test (:func:`_last_valid_sample`).
+    Elsewhere the solution is LAL's.
+
+    With ``smooth`` (static), the inspiral ends half a step of the fine
+    lattice before the condition that stops the fine run is met on its
+    interpolant (:func:`_stop_time`; LAL's last sample lies up to a step
+    before it, depending on where the lattice falls), rather than at its
+    last sample, and the knots of the fine run are counted back from there
+    (``t_stop - j delta_t``) rather than from its start: the spins and
+    LNhat at the end, the last knot and the knots near it (where the angles
+    of the merger and ringdown are fitted) are continuous in the
+    parameters. A knot still appears or leaves where the
+    fine run meets the coarse knots, which changes the splines by their
+    interpolation error.
     """
     max_iterations = jnp.where(active, MAX_REPLICA_ITERATIONS, 0)
     m_tot = m1_si + m2_si
@@ -177,6 +198,9 @@ def pn_solution(m1_si, m2_si, chi1, chi2, f_ref, f_min, f_cut, active=True):
     c_back = dynamics.coefficients(m1_si, m2_si, f_ref, f_min - 0.5)
     start = replica.evolve(c_back, y_ref, -dt_coarse, jnp.where(active, EARLY_STOP_ITERATIONS, 0))
     stopped = ~start.exhausted & (start.code != dynamics.ST_TEST_FREQBOUND)
+    # (extended: f_ref beyond the energy test only stops LAL's backward run)
+    beyond = stopped & (start.code == dynamics.ST_TEST_ENERGY) if extended else jnp.asarray(False)
+    stopped = stopped & ~beyond
 
     # the backward solution down to the sample below f_min - 0.5 Hz
     du_step = _du_per_step(m1_si, m2_si)
@@ -185,7 +209,10 @@ def pn_solution(m1_si, m2_si, chi1, chi2, f_ref, f_min, f_cut, active=True):
     k_dot_low = dynamics.derivatives(c_fwd, y_ref.at[1].set(omega_low_safe))[0][1]
     # one coarse interval below f_min - 0.5 Hz, and the shortfall of the step rule
     u_low = 1.0 / omega_low_safe + 1.5 * dt_coarse * k_dot_low / omega_low_safe ** 2
-    range_back = jax.lax.stop_gradient(jnp.where(no_backward, 1.0, u_low - 1.0 / omega_ref) * 1.03)
+    # (from beyond the energy test, the steps' leading-order estimate of the
+    # time per step in u is poor in the first steps: a larger margin)
+    margin = jnp.where(beyond, 1.25, 1.03)
+    range_back = jax.lax.stop_gradient(jnp.where(no_backward, 1.0, u_low - 1.0 / omega_ref) * margin)
     n_back_steps = jnp.clip(jnp.ceil(range_back / du_step), 1, BACKWARD_CAPACITY).astype(jnp.int64)
     n_back_steps = jnp.where(active, n_back_steps, 0)
     du_back = range_back / jnp.maximum(n_back_steps, 1)
@@ -200,11 +227,17 @@ def pn_solution(m1_si, m2_si, chi1, chi2, f_ref, f_min, f_cut, active=True):
     # the coarse sequence (appendTS drops the last two backward samples)
     split = jnp.where(no_backward, 0.0, n_b - 2.0)
     len_low = jnp.where(no_backward, n_fwd, split + n_fwd + 1.0)
+    if extended:
+        # beyond the energy test: the backward samples up to the last valid
+        # one (t = -k_e delta_t), without the forward run
+        k_e = _last_valid_sample(back, c_back, dt_coarse, n_b)
+        split = jnp.where(beyond, n_b - k_e, split)
+        len_low = jnp.where(beyond, split, len_low)
     nbuffer = jnp.minimum(9.0, len_low - 1.0)
     copy_length = len_low - 1.0 - nbuffer
     in_forward = copy_length >= split
     t_c = jnp.where(in_forward, (copy_length - split) * dt_coarse, -(n_b - 1.0 - copy_length) * dt_coarse)
-    zero_sample = ~no_backward & (copy_length >= split + n_fwd)
+    zero_sample = ~no_backward & (copy_length >= split + n_fwd) & ~beyond
 
     # the fine run from the sample at t_c, step for step
     forward_c, recorded_c = replica.sample_full(fwd, jnp.maximum(t_c, 0.0)[None])
@@ -219,8 +252,15 @@ def pn_solution(m1_si, m2_si, chi1, chi2, f_ref, f_min, f_cut, active=True):
     fine = replica.evolve_recorded(c_fine, y_fine, dt_fine, max_iterations, FINE_CAPACITY)
     n_fine = _trim_forward(fine, c_fine, dt_fine)
 
+    if smooth:
+        # LAL's last sample lies up to a step of the lattice before the end:
+        # half a step before it on average
+        t_stop = jnp.maximum(_stop_time(fine, c_fine) - 0.5 * dt_fine, 0.0)
+        n_fine = jax.lax.stop_gradient(jnp.floor(t_stop / dt_fine) + 1.0)
+    else:
+        t_stop = (n_fine - 1.0) * dt_fine
     len_pn = copy_length + n_fine
-    last = replica.sample(fine, ((n_fine - 1.0) * dt_fine)[None])[0]
+    last = replica.sample(fine, t_stop[None])[0]
     norm1 = (m1_si / m_tot) ** 2
     norm2 = (m2_si / m_tot) ** 2
     sol = Struct(
@@ -243,6 +283,9 @@ def pn_solution(m1_si, m2_si, chi1, chi2, f_ref, f_min, f_cut, active=True):
         s1_end=[last[5] / norm1, last[6] / norm1, last[7] / norm1],
         s2_end=[last[8] / norm2, last[9] / norm2, last[10] / norm2],
         lnhat_end=[last[2], last[3], last[4]],
+        # the time of the last knot from the start of the fine run, from
+        # which the fine knots are counted back
+        t_stop=t_stop,
     )
     # the first knot and the check that the solution starts below f_min
     omega_first = knot_states(sol, jnp.zeros(()))[0]
@@ -264,6 +307,70 @@ def pn_solution(m1_si, m2_si, chi1, chi2, f_ref, f_min, f_cut, active=True):
     # limits of this implementation
     sol.incomplete = fwd.exhausted | fine.exhausted | ~covered_back | ((t_c >= 0) & ~recorded_c[0])
     return sol
+
+
+def _stop_time(rec, c):
+    """The time (from the start of the forward run ``rec``) at which the
+    condition of ``XLALSimInspiralSpinTaylorStoppingTest`` that ended the
+    run is met, on LAL's interpolant of its last step (LAL's run ends at the
+    end of that step, after which the test first fails): ``M omega`` reaches
+    ``omega_end``, the PN energy test or ``v = 1`` crosses zero, or
+    ``domega/dt`` peaks. A bisection, then a Newton step for the
+    derivatives (those of the root). Continuous in the parameters, unlike
+    the end of the run; the end of the run for other codes."""
+    last = jnp.maximum(rec.accepted - 1, 0)
+    t0, h, y0, k1, k6 = replica.steps(rec, last)
+    y1 = rec.y_end
+    code = rec.code
+
+    def condition(t):
+        # positive while the run goes on
+        y = replica.hermite(t0, h, y0, y1, k1, k6, t)
+        test, v = dynamics.energy_test(c, y)
+        dydt, _ = dynamics.derivatives(c, y)
+        _, ddomega = jax.jvp(lambda x: dynamics.derivatives(c, x)[0][1], (y,), (dydt,))
+        return jnp.select(
+            [code == dynamics.ST_TEST_FREQBOUND, code == dynamics.ST_TEST_ENERGY, code == dynamics.ST_TEST_LARGEV,
+             code == dynamics.ST_TEST_OMEGADOUBLEDOT],
+            [c.omega_end - y[1], test, 1.0 - v, ddomega],
+            jnp.ones_like(t),
+        )
+
+    def bisect(_, bounds):
+        lo, hi = bounds
+        mid = 0.5 * (lo + hi)
+        going = condition(mid) > 0.0
+        return jnp.where(going, mid, lo), jnp.where(going, hi, mid)
+
+    end = t0 + h
+    fires = (condition(jax.lax.stop_gradient(end)) <= 0.0) & (condition(jax.lax.stop_gradient(t0)) > 0.0)
+    lo, hi = jax.lax.fori_loop(0, 60, bisect, jax.lax.stop_gradient((t0, end)))
+    root = jax.lax.stop_gradient(0.5 * (lo + hi))
+    value, slope = jax.jvp(condition, (root,), (jnp.ones_like(root),))
+    root = root - value / jnp.where(slope != 0.0, slope, 1.0)
+    return jnp.where(fires, root, end)
+
+
+def _last_valid_sample(back, c, deltat, n_b):
+    """The smallest ``k`` for which the sample ``t = -k deltat`` of the
+    backward solution passes the PN energy test of
+    ``XLALSimInspiralSpinTaylorStoppingTest`` (which only fails at high
+    frequencies, so that it holds for every sample below): a bisection over
+    the samples ``0 .. n_b - 1``. Not differentiated: it chooses the knots."""
+    back = jax.lax.stop_gradient(back)
+
+    def valid(k):
+        y = trajectory.evaluate_full(back, -k * deltat, True)
+        return dynamics.energy_test(c, y)[0] >= 0.0
+
+    def bisect(_, bounds):
+        lo, hi = bounds  # sample lo fails, sample hi passes
+        mid = jnp.floor((lo + hi) / 2.0)
+        ok = valid(mid)
+        return jnp.where(ok, lo, mid), jnp.where(ok, mid, hi)
+
+    _, k = jax.lax.fori_loop(0, 64, bisect, (jnp.zeros(()), jnp.maximum(n_b - 1.0, 1.0)))
+    return k
 
 
 def _trim_forward(rec, c, deltat):
@@ -306,7 +413,7 @@ def knot_times(sol, index):
     in_back = index < sol.split
     t_back = -(sol.n_b - 1.0 - index) * sol.dt_coarse
     t_fwd = (index - sol.split) * sol.dt_coarse
-    t_fine = sol.t_c + (index - sol.copy_length) * sol.dt_fine
+    t_fine = sol.t_c + sol.t_stop - (sol.len_pn - 1.0 - index) * sol.dt_fine
     return jnp.where(coarse, jnp.where(in_back, t_back, t_fwd), t_fine)
 
 
@@ -330,7 +437,8 @@ def index_at_time(sol, t):
     i_back = sol.n_b - 1.0 - jnp.ceil(-t / sol.dt_coarse)
     i_fwd = split + jnp.floor(t / sol.dt_coarse)
     i_coarse = jnp.where(t < -1.5 * sol.dt_coarse, i_back, jnp.where(t < 0.0, split - 1.0, i_fwd))
-    i_fine = copy_length + jnp.floor((t - sol.t_c) / sol.dt_fine)
+    first_fine = sol.t_stop - (sol.len_pn - 1.0 - copy_length) * sol.dt_fine
+    i_fine = copy_length + jnp.floor((t - sol.t_c - first_fine) / sol.dt_fine)
     i = jnp.where(t >= sol.t_c, i_fine, i_coarse)
     return jnp.clip(i, 0.0, sol.len_pn - 2.0)
 
@@ -344,7 +452,7 @@ def spline_context(sol, rotation, mf_scale):
     tables = _alpha_tables(sol, rotation)
     state0 = knot_states(sol, jnp.zeros(()))
     lx0, ly0, _ = _rotate(state0[1], state0[2], state0[3], phi_j, theta_j, kappa)
-    raw0 = jnp.arctan2(ly0, lx0)
+    raw0 = _atan2(ly0, lx0)
     alpha_first = _continuous_alpha(sol, tables, knot_times(sol, jnp.zeros(())), raw0)
     table = spline_table(sol, rotation, mf_scale)
     return Struct(table=table, tables=tables, shift=jnp.round((raw0 - alpha_first) / (2 * PI)) * 2 * PI,
@@ -378,6 +486,7 @@ def spline_many(sol, rotation, mf, n, chunk, mf_scale, context=None):
 def _spline_either(mf, args):
     """:func:`table_eval` or :func:`windowed_spline` (under ``jax.vmap``,
     each only if some binary of the batch needs it)."""
+
     def from_table(operands):
         mf, (_, _, _, context) = operands
         return table_eval(context.table, mf)
@@ -408,7 +517,7 @@ def spline_table(sol, rotation, mf_scale):
     ly = jnp.where(valid, ly, 0.0)
     cosb = jnp.where(valid, lz, 0.0)
     knot_mf = jnp.cbrt(om) ** 3 * mf_scale
-    raw = jnp.arctan2(ly, lx)
+    raw = _atan2(ly, lx)
     d = jnp.diff(raw)
     d = jnp.where(d > PI, d - 2 * PI, jnp.where(d < -PI, d + 2 * PI, d))
     d = jnp.where(valid[1:], d, 0.0)
@@ -496,7 +605,7 @@ def windowed_spline(sol, rotation, mf, mf_scale, context):
     om = state[..., 0]
     lx, ly, lz = _rotate(state[..., 1], state[..., 2], state[..., 3], phi_j, theta_j, kappa)
     knot_mf = jnp.cbrt(om) ** 3 * mf_scale
-    alpha_raw = jnp.arctan2(ly, lx)
+    alpha_raw = _atan2(ly, lx)
     cosb = lz
     # unwrap within the window, then the branch of the window's first knot
     dalpha = jnp.diff(alpha_raw, axis=-1)
@@ -515,6 +624,13 @@ def windowed_spline(sol, rotation, mf, mf_scale, context):
     b_val, b_der = _natural_spline_eval(knot_mf, cosb, valid, mf, true_start, true_end)
     inside = (mf >= context.first_mf) & (mf <= context.last_mf)
     return a_val, a_der, b_val, b_der, inside
+
+
+def _atan2(y, x):
+    """``atan2(y, x)``, zero with a zero derivative where both vanish (LNhat
+    along J: aligned spins), where ``atan2`` has none."""
+    both = (x == 0.0) & (y == 0.0)
+    return jnp.arctan2(jnp.where(both, 0.0, y), jnp.where(both, 1.0, x))
 
 
 def _rotate(x, y, z, phi_j, theta_j, kappa):
@@ -556,7 +672,7 @@ def _unwrap_nodes(lx, ly, lz, rotation, n):
     # the nodes beyond the n integrated ones are zeros: keep atan2 (and its
     # derivative) finite there
     valid = jnp.arange(x.shape[0]) < n
-    raw = jnp.arctan2(jnp.where(valid, y, 0.0), jnp.where(valid, x, 1.0))
+    raw = _atan2(jnp.where(valid, y, 0.0), jnp.where(valid, x, 1.0))
     d = jnp.diff(raw)
     d = jnp.where(d > PI, d - 2 * PI, jnp.where(d < -PI, d + 2 * PI, d))
     return jnp.concatenate([raw[:1], raw[:1] + jnp.cumsum(d)])
@@ -590,7 +706,7 @@ def _unwrap_steps(rec, rotation):
         start = jnp.minimum(index * chunk, cap - chunk)
         lnh = jax.lax.dynamic_slice(rows, (start, 4), (chunk, 3))
         x, y, _ = _rotate(lnh[:, 0], lnh[:, 1], lnh[:, 2], *rotation)
-        raw = jnp.arctan2(y, x)
+        raw = _atan2(y, x)
         previous = jnp.concatenate([jnp.where(first, raw[:1], last_raw[None]), raw[:-1]])
         d = raw - previous
         d = jnp.where(d > PI, d - 2 * PI, jnp.where(d < -PI, d + 2 * PI, d))

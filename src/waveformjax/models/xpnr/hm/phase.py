@@ -347,7 +347,7 @@ def phase_coefficients(wf, hm, phase22, mix=None):
             re, im = spheroidal_to_spherical(ff, powers(ff), mix, mix.rd)
             return jnp.arctan2(im, re)
 
-        phi0_rd, dphi0_rd, d2phi0_rd = phase_derivatives(fcut_rd, rotated_phase)
+        phi0_rd, dphi0_rd, d2phi0_rd = phase_derivatives(fcut_rd, rotated_phase, "exact_derivatives" in wf)
         comparable = eta > hm.eta_emr
         freqs = list(freqs)
         freqs[n_inter - 2] = jnp.where(comparable, fcut_rd, freqs[n_inter - 2])

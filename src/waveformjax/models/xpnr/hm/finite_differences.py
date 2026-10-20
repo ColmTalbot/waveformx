@@ -15,6 +15,12 @@ amplify (by up to ~1e14 for the second derivative of a phase of ~1e4 rad):
 the tangents (``jax.jvp``, and so ``jax.grad``) are instead those of the exact
 derivatives, obtained by differentiating the ansatz with respect to the
 frequency.
+
+With ``exact`` (the smooth angles of IMRPhenomXPNR, which mark their
+waveform struct with ``exact_derivatives``), the values are the exact
+derivatives too: LAL's finite differences of the second derivative of the
+(3,2) phase change by ~1e-4 for a change of the binary in the last bit,
+which makes the (3,2) mode noisy at that level.
 """
 
 from __future__ import annotations
@@ -34,11 +40,14 @@ ND_STEP = 10e-10
 PHASE_STEP = 0.0000001
 
 
-def value_and_nd_derivative(f, at):
+def value_and_nd_derivative(f, at, exact=False):
     """``at(f)`` and LAL's fourth-order finite difference of ``at`` at ``f``
-    with step 1e-9. ``at`` maps an array of frequencies to values (it is
-    evaluated on five frequencies at once); the tangents are exact."""
+    with step 1e-9 (the exact derivative with ``exact``). ``at`` maps an
+    array of frequencies to values (it is evaluated on five frequencies at
+    once); the tangents are exact."""
     f = jnp.asarray(f, jnp.float64)
+    if exact:
+        return jax.jvp(lambda x: at(jnp.stack([x] * 5))[0], (f,), (jnp.ones_like(f),))
     fun, consts = jax.closure_convert(at, jnp.zeros(5))
     return _nd(fun, f, *consts)
 
@@ -65,14 +74,25 @@ def _nd_jvp(fun, primals, tangents):
     return out, tangent
 
 
-def phase_derivatives(fcut, phase_of):
+def phase_derivatives(fcut, phase_of, exact=False):
     """The phase, its first and its second derivative at ``fcut`` as
     ``IMRPhenomXHM_GetPhaseCoefficients`` computes them for the (3,2) ringdown:
     ``phase_of`` (an array of frequencies to phases in ``(-pi, pi]``, the
     ``atan2`` of the rotated ringdown) at ``fcut - 1e-7``, ``fcut``, ``fcut +
     1e-7``, reduced modulo ``2 pi`` to ``(-2 pi, 0]``, and central
-    differences; the tangents are exact."""
+    differences (the exact derivatives with ``exact``); the tangents are
+    exact."""
     fcut = jnp.asarray(fcut, jnp.float64)
+    if exact:
+        def phase(x):
+            return phase_of(jnp.stack([x] * 3))[0]
+
+        def derivative(x):
+            return jax.jvp(phase, (x,), (jnp.ones_like(x),))[1]
+
+        value = jnp.fmod(phase(fcut), 2.0 * PI)
+        value = jnp.where(value > 0.0, value - 2.0 * PI, value)
+        return value, derivative(fcut), jax.jvp(derivative, (fcut,), (jnp.ones_like(fcut),))[1]
     fun, consts = jax.closure_convert(phase_of, jnp.zeros(3))
     return _phase(fun, fcut, *consts)
 

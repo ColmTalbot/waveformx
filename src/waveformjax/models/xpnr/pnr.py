@@ -120,7 +120,7 @@ def mode_range(modes):
     return m_min, m_max, l_max
 
 
-def common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, parity_fix):
+def common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, parity_fix, extended=False, smooth=False):
     """The part of ``IMRPhenomXGetAndSetPrecessionVariables`` before the
     SpinTaylor integration: the spin quantities, the decisions on the
     prescription that do not need the integration, and the start of the
@@ -129,8 +129,11 @@ def common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, parity_fix):
     ``m1_si``, ``m2_si`` (kg) and the spins (3-vectors) are ordered as
     ``XLALIMRPhenomXPCheckMassesAndSpins`` orders them; ``mode_range_`` is
     :func:`mode_range` of the co-precessing modes (static, or traced with
-    ``M_MAX = L_MAX_PNR``, as for the J-frame modes). Returns ``(prec,
-    wf)``; ``wf`` gets the tuned co-precessing flag as LAL sets it.
+    ``M_MAX = L_MAX_PNR``, as for the J-frame modes). ``extended`` and
+    ``smooth`` (static) select the extended SpinTaylor angles and their
+    continuous variant (see :func:`.model._decide`).
+    Returns ``(prec, wf)``; ``wf`` gets the tuned co-precessing flag as LAL
+    sets it.
     """
     wf = _copy(wf)
     chi1x, chi1y, chi1z = chi1
@@ -168,8 +171,10 @@ def common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, parity_fix):
 
     prec = Struct(
         chi_in_plane=chip_,
-        pnr_on=chip_ >= 1e-7,
-        nnlo_from_start=chip_ < 1e-6,
+        # (the extended angles keep the PNR machinery and the SpinTaylor
+        # angles for all in-plane spins)
+        pnr_on=jnp.asarray(True) if extended else chip_ >= 1e-7,
+        nnlo_from_start=jnp.asarray(False) if extended else chip_ < 1e-6,
         m1=m1, m2=m2, m1_2=m1_2, m2_2=m2_2, q=q,
         pi_gm=pi_gm,
         eta=eta,
@@ -191,6 +196,13 @@ def common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, parity_fix):
         pnr_hm_mflow=jnp.zeros(()),
         pnr_hm_mfhigh=jnp.zeros(()),
         parity_fix=parity_fix,
+        extended=extended,
+        smooth=smooth,
+        pole=jnp.asarray(1.0 - 1e-15 if smooth else 1.0),
+        all_two_spin=jnp.asarray(smooth),
+        transition_q=jnp.asarray(pa.PNR_Q_WINDOW_UPPER + (Q_SMOOTH_WIDTH if smooth else 0.0)),
+        q12_weight=jnp.zeros(()),
+        scaling_weight=jnp.zeros(()),
         error_spin=(chi1_norm > 1.0) | (chi2_norm > 1.0),
     )
     prec.l = _prec.three_pn(eta, wf.delta, chi1z, chi2z)
@@ -206,7 +218,7 @@ def common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, parity_fix):
         tmp = _copy(prec)
         set_pnr_variables(tmp, wf, 223)
         alpha_params = precompute_alpha_coefficients(tmp, wf, 223)
-        beta_params = pa.beta_connection_frequencies(precompute_beta_coefficients(tmp, wf, 223))
+        beta_params = pa.beta_connection_frequencies(precompute_beta_coefficients(tmp, wf, 223), _soft(prec))
         mf_alpha_upper = alpha_params.a4 / 3.0
         mf_low_cut = (3.0 / 3.5) * mf_alpha_upper
         mf_high_cut = beta_params.mf_beta_lower
@@ -243,7 +255,8 @@ def spintaylor_solution(prec, wf, m1_si, m2_si, flow=None, fcut=None, active=Tru
     if fcut is None:
         fcut = prec.st_fcut
     flow_safe = jnp.where(prec.st_flow_ok, flow, wf.f_min)
-    sol = st_angles.pn_solution(m1_si, m2_si, prec.chi1, prec.chi2, wf.f_ref, flow_safe, fcut, active)
+    sol = st_angles.pn_solution(m1_si, m2_si, prec.chi1, prec.chi2, wf.f_ref, flow_safe, fcut, active,
+                                extended=prec.extended, smooth=prec.smooth)
     sol.failed = sol.failed | ~prec.st_flow_ok
     return sol
 
@@ -299,9 +312,28 @@ def _at_least_200(version):
     return version.msa if isinstance(version, Fallback) else version >= 200
 
 
+def _soft(prec):
+    """The half-width of the smooth connection of the PNR ``beta``
+    (:func:`.pnr_angles.beta_connection_frequencies`), ``None`` for LAL's."""
+    return pa.BETA_SOFT_WIDTH if prec.smooth else None
+
+
 def two_spin(prec, version):
-    """``IMRPhenomX_PNR_CheckTwoSpin``."""
-    return (prec.chi1_norm != 0.0) & (prec.chi2_norm >= 1.0e-3) & _at_least_200(version)
+    """``IMRPhenomX_PNR_CheckTwoSpin``; for the smooth angles
+    (``prec.all_two_spin``), the two-spin construction for every binary:
+    LAL's changes the PNR ``beta`` by up to a mismatch of ~1e-1 at ``|chi2| =
+    1e-3``, a step that does not vanish with the second spin."""
+    lal = (prec.chi1_norm != 0.0) & (prec.chi2_norm >= 1.0e-3)
+    return (prec.all_two_spin | lal) & _at_least_200(version)
+
+
+def _off_poles(prec, costheta):
+    """``costheta`` kept off ``+-1`` for the smooth angles: the fits of the
+    single-spin system and the PN waveform ``beta`` take ``sqrt(1 -
+    costheta^2)`` or ``acos(costheta)``, whose derivatives are infinite for
+    aligned spins (a change of their sine below ``5e-8``). ``prec.pole``
+    (traced) is 1, or ``1 - 1e-15`` for the smooth angles."""
+    return jnp.where(prec.pole < 1.0, jnp.clip(costheta, -prec.pole, prec.pole), costheta)
 
 
 def set_pnr_variables(prec, wf, version):
@@ -334,7 +366,7 @@ def set_pnr_variables(prec, wf, version):
     prec.theta_antisymmetric = jnp.where(
         chi_mag_antisymmetric >= 1.0e-6, acos_safe(safe_div(chipar, chi_mag_antisymmetric)), 0.0
     )
-    prec.costheta_single_spin = costheta
+    prec.costheta_single_spin = _off_poles(prec, costheta)
     xfparr = utilities.final_spin_2017(wf.eta, chi_mag * costheta, 0.0)
     qfactor = q / (1.0 + q)
     xfperp = qfactor * qfactor * chi_mag * pa.sqrt_one_minus_square(costheta)
@@ -342,7 +374,17 @@ def set_pnr_variables(prec, wf, version):
     prec.costheta_final_single_spin = jnp.where(xf > 1.0e-6, safe_div(xfparr, xf), 0.0)
     prec.pnr_hm_mflow = jnp.zeros(())
     prec.pnr_hm_mfhigh = jnp.zeros(())
-    prec.pnr_inspiral_scaling = (q > pa.PNR_Q_WINDOW_UPPER) | (prec.chi_single_spin > pa.PNR_CHI_WINDOW_UPPER)
+    scaling = (q > pa.PNR_Q_WINDOW_UPPER) | (prec.chi_single_spin > pa.PNR_CHI_WINDOW_UPPER)
+    if prec.smooth:
+        # beyond q = 12, from LAL's angles at the edge of the transition
+        # region to LAL's beyond it (see merged_beta_at, frequency_map)
+        x = jnp.clip((q - pa.PNR_Q_WINDOW_UPPER) / Q_SMOOTH_WIDTH, 0.0, 1.0)
+        prec.q12_weight = x * x * x * fma(x, fma(6.0, x, -15.0), 10.0)
+        weight = jnp.where(prec.chi_single_spin > pa.PNR_CHI_WINDOW_UPPER, 1.0, prec.q12_weight)
+    else:
+        weight = jnp.where(scaling, 1.0, 0.0)
+    prec.scaling_weight = weight
+    prec.pnr_inspiral_scaling = weight >= 1.0
     return prec
 
 
@@ -819,27 +861,30 @@ def initialize_euler_angles(prec, wf):
         flat=flat,
         dfdamp=dfdamp,
     )
-    # IMRPhenomX_InterpolateGamma_SpinTaylor: the failure conditions
+    # IMRPhenomX_InterpolateGamma_SpinTaylor: the failure conditions (the
+    # PNR angles do not use its gamma: the extended angles leave them out)
     mf_min = hz_to_mf(fmin_angles, wf.m_tot)
     delta_mf = _prec.delta_mf_from_wfstruct(wf)
     delta_f = mf_to_hz(delta_mf, wf.m_tot)
     i_start = jnp.floor(fmin_angles / delta_f)
     i_stop = jnp.floor(fmax_angles / delta_f) + 1.0
     output_length = i_stop - i_start
-    error = error | (output_length < 4)
+    gamma_error = output_length < 4
     # gamma_from_alpha_cosbeta evaluates the splines from mf_min up to
     # ftrans_MRD (in steps of delta_mf, four sub-steps each)
     last_inspiral = jnp.minimum(
         jnp.ceil((ftrans_mrd - mf_min) / delta_mf) - 1.0, output_length - 1.0
     )
     mf_last_eval = fma(jnp.maximum(last_inspiral, 1.0), delta_mf, mf_min) + delta_mf
-    error = error | ((last_inspiral >= 1.0) & ((mf_min + delta_mf < mf_first) | (mf_last_eval > mfmax_pn)))
+    gamma_error = gamma_error | ((last_inspiral >= 1.0) & ((mf_min + delta_mf < mf_first) | (mf_last_eval > mfmax_pn)))
     mf_last = fma(output_length - 1.0, delta_mf, mf_min)
     gamma_contains = lambda mf: (mf >= mf_min) & (mf <= mf_last)  # noqa: E731
-    error = error | ~gamma_contains(wf.mf_ref)
+    gamma_error = gamma_error | ~gamma_contains(wf.mf_ref) | ~gamma_contains(ftrans_mrd)
+    if not prec.extended:
+        error = error | gamma_error
     mf_alpha_ref = jnp.where(wf.mf_ref <= ftrans_mrd, wf.mf_ref, ftrans_mrd)
     error = error | (mf_alpha_ref < mf_first) | (mf_alpha_ref > mfmax_pn)
-    error = error | (ftrans_mrd < mf_first) | (ftrans_mrd > mfmax_pn) | ~gamma_contains(ftrans_mrd)
+    error = error | (ftrans_mrd < mf_first) | (ftrans_mrd > mfmax_pn)
     prec.st_angles = Struct(ftrans_mrd=ftrans_mrd, alpha_mrd=alpha_mrd, beta_mrd=beta_mrd, mf_first=mf_first,
                             mfmax_pn=mfmax_pn)
     prec.error_euler = error
@@ -975,7 +1020,7 @@ def waveform_beta(prec, wf, mf, pn_beta_value):
     l_norm = wf.eta / v
     l_3pn = big_m * big_m * _prec.l_ansatz(prec.l, v, l_norm)
     chi_temp = pa.chi_calc(m1, l_3pn, prec.j0_norm, prec.l_ref, chi_parr, pn_beta_value)
-    costheta_temp = chi_parr / chi_temp
+    costheta_temp = _off_poles(prec, safe_div(chi_parr, chi_temp))
     return pa.pn_waveform_beta(mf, pn_beta_value, m1, m2, chi_temp, costheta_temp)
 
 
@@ -1024,7 +1069,7 @@ def alpha_connection(prec, wf, ap, version):
 def beta_connection(prec, wf, bp, version):
     """``IMRPhenomX_PNR_beta_connection_parameters`` (versions 102, 223)."""
     dmf = pa.PNR_DMF
-    bp = pa.beta_connection_frequencies(bp)
+    bp = pa.beta_connection_frequencies(bp, _soft(prec))
     mf_beta_lower = bp.mf_beta_lower
     points = jnp.stack([mf_beta_lower - dmf, mf_beta_lower, mf_beta_lower + dmf])
     beta, errors = pn_beta(prec, wf, points, bp, version, jnp.asarray(False))
@@ -1042,14 +1087,14 @@ def beta_connection(prec, wf, bp, version):
         derivative_beta_upper=derivative_beta_upper, beta_rescale_1=jnp.where(jnp.isnan(r1), 0.0, r1),
         beta_rescale_2=jnp.where(jnp.isnan(r2), 0.0, r2),
     )
-    return bp, jnp.any(errors)
+    return bp.replace(attach_weight=pa.attach_weight(bp)), jnp.any(errors)
 
 
 @fenced
 def st_beta_connection(prec, wf, bp):
     """``IMRPhenomX_ST_PNR_beta_connection_parameters`` (version 330)."""
     dmf = pa.PNR_DMF
-    bp = pa.beta_connection_frequencies(bp)
+    bp = pa.beta_connection_frequencies(bp, _soft(prec))
     sa = prec.st_angles
     ftrans = jnp.where(sa.ftrans_mrd <= 0.9 * bp.mf_beta_lower, sa.ftrans_mrd, 0.9 * bp.mf_beta_lower)
     mfa = jnp.where(ftrans - dmf < prec.mfmin_integration + 2.0 * dmf, prec.mfmin_integration + 2.0 * dmf, ftrans - dmf)
@@ -1092,7 +1137,7 @@ def st_beta_connection(prec, wf, bp):
         beta_lower=bc, beta_upper=bd, derivative_beta_lower=dbc, derivative_beta_upper=dbd,
         beta_rescale_1=jnp.where(jnp.isnan(r1), 0.0, r1), beta_rescale_2=jnp.where(jnp.isnan(r2), 0.0, r2),
     )
-    return bp, error
+    return bp.replace(attach_weight=pa.attach_weight(bp, _soft(prec))), error
 
 
 @fenced
@@ -1133,7 +1178,26 @@ def _in_calibration(prec, wf):
 
 
 def _in_transition(prec, wf):
-    return (wf.q <= pa.PNR_Q_WINDOW_UPPER) & (prec.chi_single_spin <= pa.PNR_CHI_WINDOW_UPPER)
+    # (for the smooth angles, up to q = 12 + Q_SMOOTH_WIDTH)
+    return (wf.q <= prec.transition_q) & (prec.chi_single_spin <= pa.PNR_CHI_WINDOW_UPPER)
+
+
+#: The smooth angles go from LAL's at the edge of the transition region (q =
+#: 12) to LAL's beyond it over this range of the mass ratio.
+Q_SMOOTH_WIDTH = 2.0
+
+
+def frequency_map(prec, mf, ell, emm, mf_low, mf_high, mf_rd_22, mf_rd_lm):
+    """:func:`.pnr_angles.linear_frequency_map` with the binary's inspiral
+    scaling; for the smooth angles between q = 12 and 12 +
+    :data:`Q_SMOOTH_WIDTH`, the linear map blended into the scaling with
+    ``prec.scaling_weight``."""
+    value, error = pa.linear_frequency_map(mf, ell, emm, mf_low, mf_high, mf_rd_22, mf_rd_lm, prec.pnr_inspiral_scaling)
+    w = prec.scaling_weight
+    partial = (w > 0.0) & (w < 1.0)
+    linear, linear_error = pa.linear_frequency_map(mf, ell, emm, mf_low, mf_high, mf_rd_22, mf_rd_lm, jnp.asarray(False))
+    blended = fma(w, 2.0 * mf / emm - linear, linear)
+    return jnp.where(partial, blended, value), jnp.where(partial, linear_error, error)
 
 
 def pnr_alpha_at(prec, wf, mf, ap, version):
@@ -1183,6 +1247,12 @@ def region_alpha_many(prec, wf, mf, ap, version, n):
     return chunked_map(evaluate, mf, n, PNR_GRID_CHUNK, (prec, wf, ap, version.msa if fallback else None))
 
 
+def _held(bp, held, free):
+    """``beta`` above ``mf_beta_upper``: held at its value there (LAL), or
+    with the smooth connection, held with the weight ``bp.beta_freeze``."""
+    return jnp.where(bp.beta_freeze >= 1.0, held, fma(bp.beta_freeze, held - free, free))
+
+
 def pnr_beta_at(prec, wf, mf, bp, version, use_mr_beta):
     """``IMRPhenomX_PNR_GeneratePNRBetaAtMf``."""
     beta_pn, error = pn_beta(prec, wf, mf, bp, version, use_mr_beta)
@@ -1195,12 +1265,15 @@ def pnr_beta_at(prec, wf, mf, bp, version, use_mr_beta):
     upper = pa.arctan_window(pa.mr_beta(bp.mf_beta_upper, bp))
     mid = pa.arctan_window(pa.mr_beta(mf, bp))
     below = mf <= bp.mf_beta_lower
-    value = jnp.where(below, low, jnp.where(mf >= bp.mf_beta_upper, upper, mid))
+    value = jnp.where(below, low, jnp.where(mf >= bp.mf_beta_upper, _held(bp, upper, mid), mid))
     return value, error & below
 
 
-def merged_beta_at(prec, wf, mf, bp, version):
-    """``IMRPhenomX_PNR_GenerateMergedPNRBetaAtMf``."""
+def merged_beta_at(prec, wf, mf, bp, version, smooth=False):
+    """``IMRPhenomX_PNR_GenerateMergedPNRBetaAtMf``; with ``smooth``
+    (static), blended into LAL's ``beta`` beyond the transition region
+    (:func:`beta_no_mr`) with ``prec.q12_weight`` (between q = 12 and 12 +
+    :data:`Q_SMOOTH_WIDTH`)."""
     pnr_window = pa.angles_window(wf.q, prec.chi_single_spin)
     msa_window = 1.0 - pnr_window
     below = mf <= bp.mf_beta_lower
@@ -1223,9 +1296,16 @@ def merged_beta_at(prec, wf, mf, bp, version):
         beta_waveform_high = beta_waveform2
         error_high = e2
     low = pa.arctan_window(fma(pnr_window, pnr_beta, msa_window * pn_b))
-    mr = jnp.where(mf >= bp.mf_beta_upper, pa.mr_beta(bp.mf_beta_upper, bp), pa.mr_beta(mf, bp))
+    mr_mf = pa.mr_beta(mf, bp)
+    mr = jnp.where(mf >= bp.mf_beta_upper, _held(bp, pa.mr_beta(bp.mf_beta_upper, bp), mr_mf), mr_mf)
     high = pa.arctan_window(fma(pnr_window, mr, msa_window * beta_waveform_high))
-    return jnp.where(below, low, high), jnp.where(below, error, error_high)
+    value, error = jnp.where(below, low, high), jnp.where(below, error, error_high)
+    if smooth:
+        beyond, error_beyond = beta_no_mr(prec, wf, mf, bp, version, jnp.asarray(False))
+        u = prec.q12_weight
+        value = jnp.where(u > 0.0, fma(u, beyond - value, value), value)
+        error = error | ((u > 0.0) & error_beyond)
+    return value, error
 
 
 def beta_no_mr(prec, wf, mf, bp, version, use_mr_beta):
@@ -1234,7 +1314,7 @@ def beta_no_mr(prec, wf, mf, bp, version, use_mr_beta):
     return pa.arctan_window(waveform_beta(prec, wf, mf, beta)), error
 
 
-def uniform_angles(prec, wf, mf, version, st_values=None):
+def uniform_angles(prec, wf, mf, version, st_values=None, smooth=False):
     """``IMRPhenomX_PNR_GeneratePNRAngles_UniformFrequencies`` without
     ``gamma``: ``alpha`` and ``beta`` at ``mf`` (an array) and the error
     flag of each point. ``st_values`` are the SpinTaylor splines at ``mf``
@@ -1243,10 +1323,13 @@ def uniform_angles(prec, wf, mf, version, st_values=None):
     LAL's ``beta`` depends on the region of the binary (calibration,
     transition, outside) and on whether the MR ``beta`` is attached: only
     the variant of the binary is computed (:func:`._transforms.switch`;
-    under ``jax.vmap``, those of the batch)."""
+    under ``jax.vmap``, those of the batch). With ``smooth`` (static), the
+    ``beta`` with and without the MR ``beta`` are blended with the weight
+    ``bp.attach_weight`` where it lies between 0 and 1."""
     prec, wf = barrier((prec, wf))
     ap, bp = prec.alpha_params, prec.beta_params
-    attach = pa.attach_mr_beta(bp)
+    weight = bp.attach_weight
+    attach = weight > 0.0
     cal = _in_calibration(prec, wf)
     tra = _in_transition(prec, wf)
     if st_values is not None:
@@ -1271,12 +1354,29 @@ def uniform_angles(prec, wf, mf, version, st_values=None):
             return beta_of(prec, wf, mf, bp, v, attach)
         return run
 
+    def attached_cal(prec, wf, mf, bp, v, attach):
+        return pnr_beta_at(prec, wf, mf, bp, v, attach)
+
+    def attached_tra(prec, wf, mf, bp, v, attach):
+        return merged_beta_at(prec, wf, mf, bp, v, smooth)
+
+    def detached(prec, wf, mf, bp, v, attach):
+        return beta_no_mr(prec, wf, mf, bp, v, jnp.asarray(False))
+
+    def blended(attached):
+        def beta_of(prec, wf, mf, bp, v, attach):
+            b1, e1 = attached(prec, wf, mf, bp, v, jnp.asarray(True))
+            b0, e0 = detached(prec, wf, mf, bp, v, attach)
+            return fma(bp.attach_weight, b1 - b0, b0), e1 | e0
+        return beta_of
+
     case = jnp.where(attach & cal, 0, jnp.where(attach & tra, 1, 2))
-    beta, error_beta = switch(case, [
-        variant(lambda prec, wf, mf, bp, v, attach: pnr_beta_at(prec, wf, mf, bp, v, attach)),
-        variant(lambda prec, wf, mf, bp, v, attach: merged_beta_at(prec, wf, mf, bp, v)),
-        variant(lambda prec, wf, mf, bp, v, attach: beta_no_mr(prec, wf, mf, bp, v, jnp.asarray(False))),
-    ], (prec, wf, mf, bp, attach, version.msa if fallback else None, st_values))
+    variants = [variant(attached_cal), variant(attached_tra), variant(detached)]
+    if smooth:
+        partial = (weight > 0.0) & (weight < 1.0)
+        case = jnp.where(partial & cal, 3, jnp.where(partial & tra, 4, case))
+        variants += [variant(blended(attached_cal)), variant(blended(attached_tra))]
+    beta, error_beta = switch(case, variants, (prec, wf, mf, bp, attach, version.msa if fallback else None, st_values))
     return alpha, beta, error_alpha | error_beta
 
 
@@ -1322,10 +1422,8 @@ def interpolation_grid(prec, wf, modes, version):
         mf_rd_22 = wf.f_ring
         mf_rd_lm = ringdown_frequency(ell, emm, wf)
         mf_low, mf_high = pa.linear_frequency_map_transition_frequencies(emm, mf_rd_22, mf_rd_lm, mflow, mfhigh)
-        lo, e1 = pa.linear_frequency_map(hz_to_mf(f_min_22, wf.m_tot), ell, emm, mf_low, mf_high, mf_rd_22, mf_rd_lm,
-                                         prec.pnr_inspiral_scaling)
-        hi, e2 = pa.linear_frequency_map(hz_to_mf(f_max_22, wf.m_tot), ell, emm, mf_low, mf_high, mf_rd_22, mf_rd_lm,
-                                         prec.pnr_inspiral_scaling)
+        lo, e1 = frequency_map(prec, hz_to_mf(f_min_22, wf.m_tot), ell, emm, mf_low, mf_high, mf_rd_22, mf_rd_lm)
+        hi, e2 = frequency_map(prec, hz_to_mf(f_max_22, wf.m_tot), ell, emm, mf_low, mf_high, mf_rd_22, mf_rd_lm)
         skip = vanishing_odd if emm % 2 else jnp.asarray(False)
         lo = mf_to_hz(lo, wf.m_tot)
         hi = mf_to_hz(hi, wf.m_tot)
@@ -1429,6 +1527,7 @@ def angle_interpolants(prec, wf, grid, version, active=True):
     # the angles on the grid (the flag of a Fallback version passed in: the
     # loop's body must not close over batched values)
     fallback = isinstance(version, Fallback)
+    smooth = prec.smooth
 
     def angles(index, args):
         prec, wf, i_start, n, h, msa = args
@@ -1442,7 +1541,7 @@ def angle_interpolants(prec, wf, grid, version, active=True):
             # angles below
             st, rotation, mf_scale, _, context = _st_context(prec, wf)
             st_values = st_angles.spline(st, rotation, mf, mf_scale, context)
-        alpha, beta, err = uniform_angles(prec, wf, mf, version_, st_values)
+        alpha, beta, err = uniform_angles(prec, wf, mf, version_, st_values, smooth)
         return jnp.where(valid, alpha, 0.0), jnp.where(valid, beta, 0.0), jnp.any(err & valid)
 
     alpha, beta, errors = blocked_map(angles, jnp.arange(n_chunks), jnp.ceil(n_eval / chunk),
@@ -1499,7 +1598,9 @@ def spline_angles(splines, f):
 def remap_theta_jsf(prec, wf, beta_ref):
     """``IMRPhenomX_PNR_RemapThetaJSF`` (in place)."""
     skip = prec.j0_norm < 1e-10
-    small = chi_in_plane(prec.chi1, prec.chi2) < 1e-3
+    # (the smooth angles remap for all in-plane spins: the remapped frame
+    # tends to LAL's as they vanish, without LAL's step at 1e-3)
+    small = jnp.asarray(False) if prec.smooth else chi_in_plane(prec.chi1, prec.chi2) < 1e-3
     theta_j_sf = jnp.where(skip | small, prec.theta_j_sf, beta_ref)
     n_sf = line_of_sight(wf)
     tmp = rotate_y(-theta_j_sf, rotate_z(-prec.phi_j_sf, n_sf))

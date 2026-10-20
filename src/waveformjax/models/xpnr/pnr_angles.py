@@ -47,11 +47,13 @@ the inflection points then agree with LAL to ~1e-12 instead of ~1e-8.
 
 from __future__ import annotations
 
+import functools
+
 import jax
 import jax.numpy as jnp
 from jax import lax
 
-from ._math import NAN, PI, Struct, fma, fnms
+from ._math import NAN, PI, Struct, fma, fnms, safe_sqrt
 
 __all__ = [
     "PNR_Q_WINDOW_LOWER", "PNR_CHI_WINDOW_LOWER", "PNR_Q_WINDOW_UPPER", "PNR_CHI_WINDOW_UPPER",
@@ -62,7 +64,7 @@ __all__ = [
     "mr_beta", "mr_dbeta", "mr_ddbeta", "mr_dddbeta",
     "beta_rescaling_1", "beta_rescaling_2", "rescale_beta",
     "st_beta_coeffs_0", "st_beta_coeffs_1", "st_beta_coeffs_2", "st_beta_coeffs_3",
-    "beta_connection", "arctan_window", "attach_mr_beta",
+    "beta_connection", "arctan_window", "attach_mr_beta", "attach_weight",
     "inflection_cubic", "two_inflection_points", "three_inflection_points",
     "single_inflection_point", "beta_connection_frequencies",
     "chi_calc", "pn_waveform_beta",
@@ -94,7 +96,7 @@ _ALPHA_FIELDS = (
 _BETA_FIELDS = (
     "b0", "b1", "b2", "b3", "b4", "b5", "mf_beta_lower", "mf_beta_upper", "beta_lower",
     "beta_upper", "derivative_beta_lower", "derivative_beta_upper", "beta_rescale_1",
-    "beta_rescale_2", "beta_interp",
+    "beta_rescale_2", "beta_interp", "beta_freeze", "attach_weight",
 )
 
 
@@ -129,9 +131,15 @@ def beta_params(**fields):
     derivatives of ``beta`` there, the rescaling ``beta_rescale_1``,
     ``beta_rescale_2`` of the inspiral ``beta`` (Eqs. 53-55) and the cubic
     ``beta_interp`` (a 4-tuple: LAL's ``beta_interp_0`` ... ``_3``)
-    connecting the SpinTaylor and PNR ``beta`` (version 330). Unset fields
-    are zeros as in :func:`alpha_params`."""
-    return _params(_BETA_FIELDS, "beta_interp", fields)
+    connecting the SpinTaylor and PNR ``beta`` (version 330), and
+    ``beta_freeze``, the weight of ``beta`` held at its value at
+    ``mf_beta_upper`` above it (1 as in LAL; between 0 and 1 for the smooth
+    connection, see :func:`beta_connection_frequencies`). Unset fields are
+    zeros as in :func:`alpha_params` (``beta_freeze``: ones)."""
+    out = _params(_BETA_FIELDS, "beta_interp", fields)
+    if "beta_freeze" not in fields:
+        out.beta_freeze = out.beta_freeze + 1.0
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -520,6 +528,31 @@ def attach_mr_beta(p):
     )
 
 
+#: The half-width (rad) of the band across which the smooth connection
+#: blends the upper bound of :func:`attach_mr_beta` on ``beta_upper``, and
+#: that of its sign relative to ``|beta_upper| + |beta_lower|``.
+BETA_SOFT_ANGLE = 0.02
+BETA_SOFT_SIGN = 0.05
+
+
+def attach_weight(p, soft=None):
+    """The weight of the ``beta`` with the MR ``beta`` attached against the
+    one without: :func:`attach_mr_beta` (0 or 1), or with ``soft`` (a
+    half-width in ``Mf``), its tests blended across bands of half-width
+    ``soft`` in ``Mf_beta_lower``, :data:`BETA_SOFT_ANGLE` in the upper
+    bound on ``beta_upper`` and :data:`BETA_SOFT_SIGN` in its sign relative
+    to ``|beta_upper| + |beta_lower|`` (0 where there is no connection)."""
+    attach = attach_mr_beta(p)
+    if soft is None:
+        return jnp.where(attach, 1.0, 0.0)
+    # the sign of beta_upper relative to the size of beta at the connection
+    # (which scales with the spin): a band that does not catch small spins
+    size = jnp.abs(p.beta_upper) + jnp.abs(p.beta_lower)
+    w = _ramp(p.mf_beta_lower - 0.009, soft) * _ramp(_div(p.beta_upper, size, True), BETA_SOFT_SIGN)
+    w = w * _ramp(5.0 * (p.b0 + 0.1) - p.beta_upper, BETA_SOFT_ANGLE)
+    return jnp.where(p.mf_beta_lower == 100.0, 0.0, w)
+
+
 def inflection_cubic(p):
     """The coefficients ``(a, b, c, d)`` of the cubic ``a x^3 + b x^2 + c x +
     d`` whose roots are the inflection points of the MR ``beta`` (Eq. 68 of
@@ -570,7 +603,75 @@ def _three_roots(a, b, c, d, safe):
     return roots
 
 
-def _single_inflection_point(p, safe, branch):
+def _ramp(s, soft):
+    """The weight (0 to 1, C2) of a decision ``s > 0`` blended across ``|s| <
+    soft``."""
+    t = jnp.clip(0.5 + 0.5 * s / soft, 0.0, 1.0)
+    return t * t * t * fma(t, fma(6.0, t, -15.0), 10.0)
+
+
+def _select(branch, condition, s, a, b, soft=None):
+    """``a`` where LAL's ``condition`` (recorded by ``branch``) holds, else
+    ``b``; with ``soft``, blended across ``|s| < soft`` of the continuous
+    ``s`` whose sign is the condition, where both are finite (LAL's choice
+    where one is not: a candidate LAL does not compute there)."""
+    condition = branch(condition)
+    hard = jnp.where(condition, a, b)
+    if soft is None:
+        return hard
+    w = _ramp(s, soft)
+    blend = jnp.where(w >= 1.0, a, jnp.where(w <= 0.0, b, fma(w, a - b, b)))
+    return jnp.where(jnp.isfinite(a) & jnp.isfinite(b), blend, hard)
+
+
+def _bracketed_roots(a, b, c, d, iterations=110):
+    """The three real roots of ``a x^3 + b x^2 + c x + d`` in descending
+    order (the order of :func:`_three_roots`), robust for small ``a``: its
+    stationary points (the roots of ``3 a x^2 + 2 b x + c``, from the stable
+    form of the quadratic formula) separate them; each is found by bisection
+    in its interval (the outer ones bounded by Cauchy's bound), then one
+    Newton step gives the derivatives of the root. NaN where the cubic has
+    no stationary points (one real root)."""
+    sg = lax.stop_gradient
+
+    def cubic(x):
+        return fma(fma(fma(a, x, b), x, c), x, d)
+
+    qa, qb, qc = 3.0 * a, 2.0 * b, c
+    disc = fma(qb, qb, -4.0 * qa * qc)
+    ok = disc > 0.0
+    root_disc = jnp.sqrt(jnp.where(ok, disc, 1.0))
+    q = -0.5 * (qb + jnp.where(qb >= 0.0, root_disc, -root_disc))
+    s1 = q / jnp.where(qa != 0.0, qa, 1.0)
+    s1 = jnp.where(qa != 0.0, s1, jnp.inf * jnp.sign(-q))
+    s2 = qc / jnp.where(q != 0.0, q, 1.0)
+    lo_s, hi_s = jnp.minimum(s1, s2), jnp.maximum(s1, s2)
+    bound = 1.0 + jnp.maximum(jnp.maximum(jnp.abs(b), jnp.abs(c)), jnp.abs(d)) / jnp.maximum(jnp.abs(a), 1e-300)
+    bound = jnp.maximum(bound, jnp.maximum(jnp.abs(jnp.where(jnp.isfinite(lo_s), lo_s, 0.0)),
+                                           jnp.abs(jnp.where(jnp.isfinite(hi_s), hi_s, 0.0))) + 1.0)
+    intervals = [(jnp.where(jnp.isfinite(hi_s), hi_s, -bound), jnp.full_like(a, bound)),
+                 (jnp.where(jnp.isfinite(lo_s), lo_s, -bound), jnp.where(jnp.isfinite(hi_s), hi_s, bound)),
+                 (-jnp.full_like(a, bound), jnp.where(jnp.isfinite(lo_s), lo_s, bound))]
+    out = []
+    for lo, hi in intervals:
+        lo, hi = sg(lo), sg(hi)
+        rising = sg(cubic(hi)) >= sg(cubic(lo))
+
+        def bisect(_, bounds):
+            lo, hi = bounds
+            mid = 0.5 * (lo + hi)
+            below = (sg(cubic(mid)) < 0.0) == rising
+            return jnp.where(below, mid, lo), jnp.where(below, hi, mid)
+
+        lo, hi = lax.fori_loop(0, iterations, bisect, (lo, hi))
+        x = sg(0.5 * (lo + hi))
+        slope = fma(fma(3.0 * a, x, 2.0 * b), x, c)
+        x = x - cubic(x) / jnp.where(slope != 0.0, slope, 1.0)
+        out.append(jnp.where(ok, x, jnp.nan))
+    return out
+
+
+def _single_inflection_point(p, safe, branch, soft=None):
     a, b, c, d = inflection_cubic(p)
     small_a = branch(jnp.abs(a) < 1e-10)
     small_b = branch(jnp.abs(b) < 2e-10)
@@ -590,12 +691,20 @@ def _single_inflection_point(p, safe, branch):
     # three roots: the real one if only one is (a substantial imaginary part,
     # sic: without fabs, marks a complex root), else Eq. 69
     roots = _three_roots(a_three, b, c, d, safe)
+    if soft is not None:
+        # the trigonometric formula loses the roots where a is small next to
+        # the other coefficients (for b / a ~ 1e7 only ~1e-2 of them is
+        # left, and LAL's choice jumps between them): the real roots in its
+        # (descending) order, bracketed by the stationary points
+        stable = _bracketed_roots(a, b, c, d)
+        roots = [(jnp.where(jnp.isfinite(x), x, root[0]), root[1]) for x, root in zip(stable, roots)]
     real = [branch(root[1] < 1e-10) for root in roots]
     count = sum(jnp.where(x, 1, 0) for x in real)
     f_temp = jnp.where(real[2], roots[2][0], jnp.where(real[1], roots[1][0], jnp.where(real[0], roots[0][0], 0.0)))
     a_negative = branch(a < 0.0)
-    eq69 = branch(_div(b, 3.0 * a_three, safe) > p.b5 / 2.0 - (2141.0 / 90988.0))
-    f_three = jnp.where(count == 1, f_temp, jnp.where(a_negative, roots[1][0], jnp.where(eq69, roots[0][0], roots[2][0])))
+    s69 = _div(b, 3.0 * a_three, safe) - (p.b5 / 2.0 - (2141.0 / 90988.0))
+    eq69 = _select(branch, s69 > 0.0, s69, roots[0][0], roots[2][0], soft)
+    f_three = jnp.where(count == 1, f_temp, jnp.where(a_negative, roots[1][0], eq69))
     return jnp.where(small_a, jnp.where(small_b, f_one, f_two), f_three)
 
 
@@ -639,9 +748,9 @@ def single_inflection_point(p):
     return _raw_and_safe(_single_inflection_point, p)
 
 
-def _beta_connection_frequencies(p, safe, branch):
+def _beta_connection_frequencies(p, safe, branch, soft=None):
     b1, b2, b3, b4, b5 = p.b1, p.b2, p.b3, p.b4, p.b5
-    mf_inflection = _single_inflection_point(p, safe, branch)
+    mf_inflection = _single_inflection_point(p, safe, branch, soft)
     dbeta_inflection = mr_dbeta(mf_inflection, p)
 
     # the two extrema of beta
@@ -665,36 +774,74 @@ def _beta_connection_frequencies(p, safe, branch):
     inverse = _div(1.0, dddbeta, safe)
     d1 = inverse * (-ddbeta + root)
     d2 = inverse * (-ddbeta - root)
+    # (LAL's choice also for the smooth connection: the step from the
+    # maximum scales with the size of beta, which leaves no band of fixed
+    # width that separates its choices only where they change)
     d1_positive = branch(d1 > 0.0)
     d2_positive = branch(d2 > 0.0)
     d1_smaller = branch(d1 < d2)
     delta = jnp.where(d1_positive, jnp.where(d2_positive, jnp.where(d1_smaller, d1, d2), d1), d2)
 
     # Eq. 58, and the three shapes of Fig. 10 of arXiv:2107.08876
-    mf_low = jnp.where(branch(mf_inflection >= 0.06), mf_inflection - 0.03, 3.0 * mf_inflection / 5.0)
-    turnover = branch((mf_at_minimum > mf_at_maximum) | (mf_inflection > mf_at_maximum))
-    maximum_above_low = branch(mf_at_maximum >= mf_low)
-    minimum_above = branch(mf_at_minimum > 0.06)
-    mf_im = jnp.where(
-        turnover,
-        jnp.where(maximum_above_low, mf_at_maximum + delta, mf_low),
-        jnp.where(minimum_above, mf_at_minimum - 0.03, 3.0 * mf_at_minimum / 5.0),
-    )
-    mf_mr = jnp.where(branch(mf_at_minimum > mf_inflection), mf_at_minimum, 100.0)
+    mf_low = _select(branch, mf_inflection >= 0.06, mf_inflection - 0.06, mf_inflection - 0.03,
+                     3.0 * mf_inflection / 5.0, soft)
+    s_turnover = jnp.maximum(mf_at_minimum - mf_at_maximum, mf_inflection - mf_at_maximum)
+    s_above_low = mf_at_maximum - mf_low
+    after_maximum = _select(branch, mf_at_maximum >= mf_low, s_above_low, mf_at_maximum + delta, mf_low, soft)
+    before_minimum = _select(branch, mf_at_minimum > 0.06, mf_at_minimum - 0.06, mf_at_minimum - 0.03,
+                             3.0 * mf_at_minimum / 5.0, soft)
+    turnover = (mf_at_minimum > mf_at_maximum) | (mf_inflection > mf_at_maximum)
+    mf_im = _select(branch, turnover, s_turnover, after_maximum, before_minimum, soft)
+    if soft is not None:
+        # where the coefficient of the cubic of the inflection points changes
+        # sign, the maximum of beta leaves to -inf and comes back from +inf:
+        # the shape of beta does not change in any waveform's range, but
+        # LAL's turnover does. Beyond |Mf| = 1 / FAR_MAXIMUM the two are
+        # blended in 1 / Mf of the maximum (continuous through infinity)
+        inverse = _div(1.0, mf_at_maximum, True)
+        far = jnp.abs(inverse) < FAR_MAXIMUM
+        blended = fma(_ramp(-inverse, FAR_MAXIMUM), mf_low - before_minimum, before_minimum)
+        mf_im = jnp.where(far & jnp.isfinite(blended), blended, mf_im)
+    freeze = branch(mf_at_minimum > mf_inflection)
+    if soft is None:
+        mf_mr = jnp.where(freeze, mf_at_minimum, 100.0)
+        weight = jnp.ones_like(mf_mr)
+    else:
+        # beta held from its minimum with a weight, rather than not at all
+        # (mf_beta_upper = 100) below the inflection point
+        finite = jnp.isfinite(mf_at_minimum)
+        mf_mr = jnp.where(finite, mf_at_minimum, 100.0)
+        weight = jnp.where(finite, _ramp(mf_at_minimum - mf_inflection, soft), 0.0)
     # failsafe: no MR beta
     fail = branch((mf_im < 0.0) | jnp.isnan(mf_im))
-    return jnp.where(fail, 100.0, mf_im), jnp.where(fail, 100.0, mf_mr)
+    return jnp.where(fail, 100.0, mf_im), jnp.where(fail, 100.0, mf_mr), weight
 
 
-def beta_connection_frequencies(p):
+#: The half-width (in ``Mf``) of the bands across which the smooth
+#: connection blends LAL's choices.
+BETA_SOFT_WIDTH = 0.002
+#: The smooth connection blends the turnover of ``beta`` where its maximum
+#: lies beyond ``|Mf| = 1 / FAR_MAXIMUM`` (see :func:`_beta_connection_frequencies`).
+FAR_MAXIMUM = 0.1
+
+
+def beta_connection_frequencies(p, soft=None):
     """``IMRPhenomX_PNR_BetaConnectionFrequencies``: ``p`` with the lower
     and upper connection frequencies of ``beta`` (``mf_beta_lower``,
     ``mf_beta_upper``; Sec. 8B of arXiv:2107.08876) from the inflection
     point and the extrema of the MR ``beta``. Both are 100 (no MR ``beta``)
     where the lower one is negative or NaN; the upper one is 100 where the
-    minimum of ``beta`` is below the inflection point."""
-    lower, upper = _raw_and_safe(_beta_connection_frequencies, p)
-    return p.replace(mf_beta_lower=lower, mf_beta_upper=upper)
+    minimum of ``beta`` is below the inflection point.
+
+    With ``soft`` (a half-width in ``Mf``, e.g. :data:`BETA_SOFT_WIDTH`),
+    LAL's choices between candidate frequencies (the rules at ``Mf =
+    0.06``, the turnover of ``beta``, the root of Eq. 69) are blended across bands of that half-width of the quantities
+    they compare, so that the frequencies are continuous; and instead of
+    the upper frequency switching to 100 where the minimum of ``beta``
+    falls below its inflection point, the weight ``beta_freeze`` of
+    ``beta`` held from the minimum goes smoothly from 1 to 0."""
+    lower, upper, freeze = _raw_and_safe(functools.partial(_beta_connection_frequencies, soft=soft), p)
+    return p.replace(mf_beta_lower=lower, mf_beta_upper=upper, beta_freeze=freeze)
 
 
 # ---------------------------------------------------------------------------
@@ -708,7 +855,8 @@ def chi_calc(m1, l, j0, l0, chi_parr, beta):  # noqa: E741
     and ``chi_parr`` (Eqs. 47 and 18 of arXiv:2107.08876)."""
     s_perp = (j0 - (l0 - l)) * jnp.sin(beta)
     chi_p = s_perp / (m1 * m1)
-    return jnp.sqrt(fma(chi_parr, chi_parr, chi_p * chi_p))
+    # (a finite derivative for non-spinning binaries)
+    return safe_sqrt(fma(chi_parr, chi_parr, chi_p * chi_p), 1e-300)
 
 
 def pn_waveform_beta(mf, iota, m1, m2, chi, costheta):
@@ -840,5 +988,6 @@ def alphadot_cosbeta(alphadot, beta):
 
 
 def sqrt_one_minus_square(x):
-    """``sqrt(1 - x^2)`` (e.g. a sine from a cosine)."""
-    return jnp.sqrt(fnms(x, x, 1.0))
+    """``sqrt(1 - x^2)`` (e.g. a sine from a cosine), with a finite
+    derivative at ``|x| = 1`` (aligned spins)."""
+    return safe_sqrt(fnms(x, x, 1.0), 1e-300)

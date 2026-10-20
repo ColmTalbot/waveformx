@@ -40,7 +40,9 @@ def _uniform_function(options):
         binary, delta_f, f_min, f_max = params
         pnr.clear_cache()
         modes = model.coprecessing_modes(options.mode_array)
-        data = model._decide(binary, frequencies, delta_f, f_min, f_max, modes, options.pnr_parity_fix)
+        data = model._decide(binary, frequencies, delta_f, f_min, f_max, modes, options.pnr_parity_fix,
+                             fallback=options.version_fallback,
+                             extended=options.extended_spintaylor)
         hp, hc = model._twist_polarizations(data, modes, frequencies)
         nan = jnp.asarray(jnp.nan + 1j * jnp.nan, jnp.complex128)
         return jnp.where(data.error, nan, hp), jnp.where(data.error, nan, hc)

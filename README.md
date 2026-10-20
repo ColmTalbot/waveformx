@@ -18,6 +18,15 @@ The package has the same interface as the Python bindings of
   releases is available as an option. Its derivatives are computed in
   forward mode, so `jax.jvp` and `jax.jacfwd` work as well as `jax.grad`,
   and `jax.vmap` evaluates a batch of binaries together.
+  - Without version fallbacks (`version_fallback=False`) the model only
+    uses LALSimulation's SpinTaylor precession angles, and gives NaN where
+    LALSimulation would switch to other angles.
+  - An extended variant (`extended_spintaylor=True`), which is not
+    LALSimulation's waveform: it uses the SpinTaylor angles for every
+    binary, including those LALSimulation cannot evaluate with them, and
+    replaces LALSimulation's discrete switches with continuous versions, so
+    that the waveform and its derivatives are continuous in the binary's
+    parameters.
 - **NRSur7dq4** (time domain): numerical-relativity surrogate for precessing
   binaries with higher modes. It gives LALSimulation's polarizations and
   modes, with the same length and start time; its pure function evaluates
