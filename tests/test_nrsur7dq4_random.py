@@ -89,4 +89,5 @@ def test_random_draws(lal):
         f"\nNRSur7dq4: {compared} draws compared, {failed} rejected by LAL and waveformjax; "
         f"worst relative error {worst_error:.2e}, worst mismatch {worst_mismatch:.2e}"
     )
-    assert compared >= 50
+    # most draws are inside the surrogate (about 9 in 10 with these priors)
+    assert compared >= 0.75 * DRAWS
