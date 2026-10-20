@@ -56,9 +56,6 @@ MTSUN_SI = 4.925490947641266978197229498498379006e-6
 C_SI = 299792458.0
 PC_SI = 3.085677581491367278913937957796471611e16
 
-_PIECE_INDEX = {piece: i for i, piece in enumerate(PIECES)}
-
-
 class Labelled(NamedTuple):
     """The binary after ``PrecessingNRSur_switch_labels_if_needed``: black
     hole A is the heavier."""
