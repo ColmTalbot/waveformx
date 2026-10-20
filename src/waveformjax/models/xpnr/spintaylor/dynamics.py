@@ -127,9 +127,32 @@ def coefficients(m1_si, m2_si, f_start, f_end):
     return c
 
 
+def _yzx(a):
+    """The components ``(y, z, x)`` of the 3-vectors ``a`` (last axis)."""
+    return jnp.concatenate([a[..., 1:], a[..., :1]], axis=-1)
+
+
+def _zxy(a):
+    """The components ``(z, x, y)`` of the 3-vectors ``a`` (last axis)."""
+    return jnp.concatenate([a[..., 2:], a[..., :2]], axis=-1)
+
+
+def _cross(a, b):
+    """``a x b`` of 3-vectors (last axis), as LAL writes it componentwise."""
+    return fma(_yzx(a), _zxy(b), -(_zxy(a) * _yzx(b)))
+
+
+def _scalar(x):
+    """A scalar per 3-vector, broadcast against the vectors' last axis."""
+    return x[..., None]
+
+
 def _spin_derivatives(c, v, lnh, e1, s1, s2, lnh_dot_s1, lnh_dot_s2):
     """``XLALSimInspiralSpinDerivativesAvg``: the derivatives of LNhat, S1,
-    S2 and E1 (all PN orders up to spinO = 6, lscorr = 0)."""
+    S2 and E1 (all PN orders up to spinO = 6, lscorr = 0). The vectors are
+    arrays whose last axis holds the three components (each component is
+    computed with LAL's expression; as arrays, XLA computes the shared
+    scalars once rather than once per component)."""
     eta = c.eta
     ln0mag = eta / v
     v2 = v * v
@@ -138,59 +161,51 @@ def _spin_derivatives(c, v, lnh, e1, s1, s2, lnh_dot_s1, lnh_dot_s2):
     omega2 = omega * omega
     v7 = omega2 * v
     v8 = omega2 * v2
+    v5, v7, v8, omega2, lnh_dot_s1, lnh_dot_s2 = map(_scalar, (v5, v7, v8, omega2, lnh_dot_s1, lnh_dot_s2))
 
-    def cross(a, b):
-        return [fma(a[1], b[2], -(a[2] * b[1])), fma(a[2], b[0], -(a[0] * b[2])), fma(a[0], b[1], -(a[1] * b[0]))]
-
-    lnh_x_s1 = cross(lnh, s1)
-    lnh_x_s2 = cross(lnh, s2)
-    s1_x_s2 = cross(s1, s2)
-    ds1 = [c.s1dot3 * v5 * lnh_x_s1[i] for i in range(3)]
-    ds2 = [c.s2dot3 * v5 * lnh_x_s2[i] for i in range(3)]
-    dlnhat = [-(ds1[i] + ds2[i]) for i in range(3)]
+    lnh_x_s1 = _cross(lnh, s1)
+    lnh_x_s2 = _cross(lnh, s2)
+    s1_x_s2 = _cross(s1, s2)
+    ds1 = c.s1dot3 * v5 * lnh_x_s1
+    ds2 = c.s2dot3 * v5 * lnh_x_s2
+    dlnhat = -(ds1 + ds2)
     # 2PN
-    ds1_nl = [omega2 * fma(-c.s1dot4s2_avg, s1_x_s2[i], c.s1dot4s2o_avg * lnh_dot_s2 * lnh_x_s1[i]) for i in range(3)]
-    ds2_nl = [omega2 * fma(c.s1dot4s2_avg, s1_x_s2[i], c.s1dot4s2o_avg * lnh_dot_s1 * lnh_x_s2[i]) for i in range(3)]
-    ds1_nl = [fma(omega2 * c.s1dot4qms1o_avg * lnh_dot_s1, lnh_x_s1[i], ds1_nl[i]) for i in range(3)]
-    ds2_nl = [fma(omega2 * c.s2dot4qms2o_avg * lnh_dot_s2, lnh_x_s2[i], ds2_nl[i]) for i in range(3)]
-    ds1 = [ds1[i] + ds1_nl[i] for i in range(3)]
-    ds2 = [ds2[i] + ds2_nl[i] for i in range(3)]
-    dlnhat = [dlnhat[i] + -(ds1_nl[i] + ds2_nl[i]) for i in range(3)]
+    ds1_nl = omega2 * fma(-c.s1dot4s2_avg, s1_x_s2, c.s1dot4s2o_avg * lnh_dot_s2 * lnh_x_s1)
+    ds2_nl = omega2 * fma(c.s1dot4s2_avg, s1_x_s2, c.s1dot4s2o_avg * lnh_dot_s1 * lnh_x_s2)
+    ds1_nl = fma(omega2 * c.s1dot4qms1o_avg * lnh_dot_s1, lnh_x_s1, ds1_nl)
+    ds2_nl = fma(omega2 * c.s2dot4qms2o_avg * lnh_dot_s2, lnh_x_s2, ds2_nl)
+    ds1 = ds1 + ds1_nl
+    ds2 = ds2 + ds2_nl
+    dlnhat = dlnhat + -(ds1_nl + ds2_nl)
     # 2.5PN
     lnmag = fma(ln0mag * v2, c.l1pn, ln0mag)
-    ds1_nnl = [c.s1dot5 * v7 * lnh_x_s1[i] for i in range(3)]
-    ds2_nnl = [c.s2dot5 * v7 * lnh_x_s2[i] for i in range(3)]
-    ds1 = [ds1[i] + ds1_nnl[i] for i in range(3)]
-    ds2 = [ds2[i] + ds2_nnl[i] for i in range(3)]
-    dlnhat = [dlnhat[i] - (ds1_nnl[i] + ds2_nnl[i]) for i in range(3)]
+    ds1_nnl = c.s1dot5 * v7 * lnh_x_s1
+    ds2_nnl = c.s2dot5 * v7 * lnh_x_s2
+    ds1 = ds1 + ds1_nnl
+    ds2 = ds2 + ds2_nnl
+    dlnhat = dlnhat - (ds1_nnl + ds2_nnl)
     # 3PN
     q1 = fma(c.s1dot6s1o_avg, lnh_dot_s1, c.s1dot6s2o_avg * lnh_dot_s2)
     q2 = fma(c.s2dot6s1o_avg, lnh_dot_s1, c.s2dot6s2o_avg * lnh_dot_s2)
-    ds1_n3l = [v8 * fma(-c.s1dot6s2_avg, s1_x_s2[i], q1 * lnh_x_s1[i]) for i in range(3)]
-    ds2_n3l = [v8 * fma(c.s2dot6s1_avg, s1_x_s2[i], q2 * lnh_x_s2[i]) for i in range(3)]
-    ds1_n3l = [fma(v8, c.s1dot6qms1o_avg * lnh_dot_s1 * lnh_x_s1[i], ds1_n3l[i]) for i in range(3)]
-    ds2_n3l = [fma(v8, c.s2dot6qms2o_avg * lnh_dot_s2 * lnh_x_s2[i], ds2_n3l[i]) for i in range(3)]
-    ds1 = [ds1[i] + ds1_n3l[i] for i in range(3)]
-    ds2 = [ds2[i] + ds2_n3l[i] for i in range(3)]
-    dlnhat = [dlnhat[i] - (ds1_n3l[i] + ds2_n3l[i]) for i in range(3)]
+    ds1_n3l = v8 * fma(-c.s1dot6s2_avg, s1_x_s2, q1 * lnh_x_s1)
+    ds2_n3l = v8 * fma(c.s2dot6s1_avg, s1_x_s2, q2 * lnh_x_s2)
+    ds1_n3l = fma(v8, c.s1dot6qms1o_avg * lnh_dot_s1 * lnh_x_s1, ds1_n3l)
+    ds2_n3l = fma(v8, c.s2dot6qms2o_avg * lnh_dot_s2 * lnh_x_s2, ds2_n3l)
+    ds1 = ds1 + ds1_n3l
+    ds2 = ds2 + ds2_n3l
+    dlnhat = dlnhat - (ds1_n3l + ds2_n3l)
 
-    dlnhat = [d / lnmag for d in dlnhat]
-    om = cross(lnh, dlnhat)
-    dlnh = [
-        fma(-om[2], lnh[1], om[1] * lnh[2]),
-        fma(-om[0], lnh[2], om[2] * lnh[0]),
-        fma(-om[1], lnh[0], om[0] * lnh[1]),
-    ]
-    de1 = [
-        fma(-om[2], e1[1], om[1] * e1[2]),
-        fma(-om[0], e1[2], om[2] * e1[0]),
-        fma(-om[1], e1[0], om[0] * e1[1]),
-    ]
+    dlnhat = dlnhat / _scalar(lnmag)
+    om = _cross(lnh, dlnhat)
+    # [fma(-om_z, l_y, om_y l_z), fma(-om_x, l_z, om_z l_x), fma(-om_y, l_x, om_x l_y)]
+    dlnh = fma(-_zxy(om), _yzx(lnh), _yzx(om) * _zxy(lnh))
+    de1 = fma(-_zxy(om), _yzx(e1), _yzx(om) * _zxy(e1))
     return dlnh, ds1, ds2, de1
 
 
 def _dot(a, b):
-    return fma(a[2], b[2], fma(a[0], b[0], a[1] * b[1]))
+    """``a . b`` of 3-vectors (last axis), in LAL's order."""
+    return fma(a[..., 2], b[..., 2], fma(a[..., 0], b[..., 0], a[..., 1] * b[..., 1]))
 
 
 def derivatives(c, y, safe=True):
@@ -202,10 +217,10 @@ def derivatives(c, y, safe=True):
     omega = y[..., 1]
     ok = omega > 0.0
     omega_eval = jnp.where(ok, omega, jnp.abs(omega) + 1e-300) if safe else omega
-    lnh = [y[..., 2], y[..., 3], y[..., 4]]
-    s1 = [y[..., 5], y[..., 6], y[..., 7]]
-    s2 = [y[..., 8], y[..., 9], y[..., 10]]
-    e1 = [y[..., 11], y[..., 12], y[..., 13]]
+    lnh = y[..., 2:5]
+    s1 = y[..., 5:8]
+    s2 = y[..., 8:11]
+    e1 = y[..., 11:14]
     v = jnp.cbrt(omega_eval)
     v2 = v * v
     v11 = omega_eval * omega_eval * omega_eval * v2
@@ -249,7 +264,7 @@ def derivatives(c, y, safe=True):
     oms1, oms2 = c.omegashift_s1, c.omegashift_s2
     shift = -0.25 * fma(2.0 * oms1 * oms2, a3, fma(oms1 * oms1, a1, oms2 * oms2 * a2))
     dphi = omega_eval * fma(omega_eval * omega_eval, shift, 1.0)
-    dydt = jnp.stack([dphi, domega, *dlnh, *ds1, *ds2, *de1], axis=-1)
+    dydt = jnp.concatenate([jnp.stack([dphi, domega], axis=-1), dlnh, ds1, ds2, de1], axis=-1)
     return dydt, ok
 
 
@@ -258,9 +273,9 @@ def energy_test(c, y):
     (``test < 0``: the energy stopped decreasing)."""
     omega = y[..., 1]
     v = jnp.cbrt(jnp.abs(omega))
-    lnh = [y[..., 2], y[..., 3], y[..., 4]]
-    s1 = [y[..., 5], y[..., 6], y[..., 7]]
-    s2 = [y[..., 8], y[..., 9], y[..., 10]]
+    lnh = y[..., 2:5]
+    s1 = y[..., 5:8]
+    s2 = y[..., 8:11]
     lnh_dot_s1 = _dot(lnh, s1)
     lnh_dot_s2 = _dot(lnh, s2)
     s1sq = _dot(s1, s1)

@@ -7,10 +7,7 @@ after waveformrs's ``imrphenomx/xpnr.rs``.
 IMRPhenomXPNR is IMRPhenomXPHM with the PNR angles, the tuned co-precessing
 (2,2) mode, the antisymmetric (2,|2|) contribution, the 122019 release of
 the higher modes, ``PhenomXPrecVersion`` 330 and ``PhenomXPFinalSpinMod`` 7.
-The precession prescription LAL ends up with depends on the binary; the
-four possibilities are computed by separate functions and chosen with
-``jax.lax.switch`` (:func:`polarizations` maps ``jax.vmap`` to a loop over
-the binaries, so that only the prescription of each is computed):
+The precession prescription LAL ends up with depends on the binary:
 
 * in-plane spins below ``1e-7``: plain IMRPhenomXPHM with the NNLO angles
   (no PNR angles, deviations or antisymmetric modes);
@@ -19,16 +16,23 @@ the binaries, so that only the prescription of each is computed):
   then the MSA angles (223), or the NNLO angles if the MSA system cannot be
   initialised.
 
-The SpinTaylor integration (:mod:`.spintaylor`) happens once, or twice
-where LAL integrates again from the start of the grid of the PNR
+They are three branches of :func:`._transforms.switch` (the PNR machinery
+of versions 102 and 223 is one branch, :class:`.pnr.Fallback`), which under
+``jax.vmap`` computes a branch for the whole batch only if some binary
+takes it. The SpinTaylor integration (:mod:`.spintaylor`) happens once, or
+twice where LAL integrates again from the start of the grid of the PNR
 interpolants (:func:`_spintaylor_setup`). The J-frame modes
 (:func:`jframe_modes`) are LAL's single-mode functions: a set-up for every
 range of modes, mapped with ``jax.lax.map``.
 
-Failures that LAL reports as errors give NaN polarizations.
+The derivatives are forward-mode Jacobians (:mod:`._transforms`):
+``jax.grad``, ``jax.jvp`` and ``jax.jacfwd`` work with respect to the
+binary. Failures that LAL reports as errors give NaN polarizations.
 """
 
 from __future__ import annotations
+
+import functools
 
 import jax
 import jax.numpy as jnp
@@ -36,6 +40,7 @@ import jax.numpy as jnp
 from . import hm, pnr
 from . import pnr_angles as pa
 from ._math import MPC_SI, MSUN_SI, PI, Struct, barrier, hz_to_mf, mf_to_hz, safe_sqrt
+from ._transforms import cond, differentiable, switch
 from .antisymmetric import antisymmetric_waveform
 from .internals import errors as wf_errors
 from .internals import waveform_struct
@@ -255,14 +260,14 @@ def _spintaylor_setup(base, wf0, m1_si, m2_si, modes, needs_st):
     below the solution, LAL integrates again from the start of the grid and
     repeats the first two (keeping the rest of the set-up and the grid).
     Both integrations are one compiled loop body: a ``jax.lax.scan`` of two
-    iterations, each skipped by ``jax.lax.cond`` when not needed.
+    iterations, each skipped by :func:`._transforms.cond` when not needed.
 
     Returns ``(prec, wf, grid, flags)`` with ``flags`` the failure of the
     first integration (``failed``, where LAL falls back to the MSA angles),
     the capacities exceeded (``incomplete``) and the errors of the set-up
     and of a second integration (``error``)."""
 
-    def body(first, previous, run=True):
+    def body(first, previous, run, base, wf0, m1_si, m2_si):
         prev_prec, prev_wf, prev_grid, prev_flags = previous
         flow = jnp.where(first, base.st_flow, prev_flags.f0)
         if prev_wf is None:
@@ -297,24 +302,28 @@ def _spintaylor_setup(base, wf0, m1_si, m2_si, modes, needs_st):
 
     false = jnp.asarray(False)
     start = Struct(f0=jnp.zeros(()), again=false, failed=false, incomplete=false, error=false)
+    inputs = (base, wf0, m1_si, m2_si)
     holder = {}
 
-    def structure():
-        values, holder["meta"] = _partition(body(jnp.asarray(True), (None, None, None, start)))
+    def structure(inputs):
+        values, holder["meta"] = _partition(body(jnp.asarray(True), (None, None, None, start), True, *inputs))
         return values
 
-    shapes = jax.eval_shape(structure)
+    shapes = jax.eval_shape(lambda: structure(inputs))
     meta = holder["meta"]
 
-    def compute(first, carry, run):
-        values, _ = _partition(body(first, _combine(carry, meta), run))
+    def compute(operands):
+        first, carry, run, inputs = operands
+        values, _ = _partition(body(first, _combine(carry, meta), run, *inputs))
         return [jnp.asarray(v).astype(s.dtype) for v, s in zip(values, shapes)]
 
     def step(carry, index):
         first = index == 0
         flags = _combine(carry, meta)[3]
         run = jnp.where(first, needs_st, needs_st & ~flags.failed & flags.again)
-        return jax.lax.cond(run, lambda c: compute(first, c, run), lambda c: c, carry), None
+        # (batched: the integration runs for the whole batch if any binary
+        # needs it, with no steps for the others)
+        return cond(run, compute, lambda operands: operands[1], (first, carry, run, inputs)), None
 
     carry = [jnp.zeros(s.shape, s.dtype) for s in shapes]
     carry, _ = jax.lax.scan(step, carry, jnp.arange(2))
@@ -339,7 +348,7 @@ def _angle_data(prec, wf, splines, modes, frequencies, version, tuned):
     ``frequencies``, the antisymmetric part of the (2,2) mode, the line of
     sight in the J frame, the polarization angle, the waveform struct as the
     set-up left it, and the error flag. The same structure for every
-    prescription, so that ``jax.lax.cond`` can choose among them and the
+    prescription, so that :func:`._transforms.switch` can choose among them and the
     modes are built once."""
     mf = wf.m_sec * frequencies
     mf_cut = wf.f_max_prime * wf.m_sec
@@ -378,13 +387,15 @@ def _coprecessing_modes(wf, modes, frequencies):
     wf = barrier(wf)
     mf = wf.m_sec * frequencies
     phase22 = phase_coefficients(wf)
+    higher = [mode for mode in modes if mode != (2, 2)]
+    coefficients = dict(zip(higher, hm.modes_coefficients(wf, phase22, higher)))
     out = []
     for ell, emm in modes:
         if (ell, emm) == (2, 2):
             xas = xas_setup(wf)
             out.append(h22(mf, wf, xas, phif_ref(wf, xas), mf_cut=jnp.inf))
         else:
-            out.append(hm.mode_h(hm.mode_coefficients(wf, phase22, ell, emm), mf))
+            out.append(hm.mode_h(coefficients[(ell, emm)], mf))
     return out
 
 
@@ -511,26 +522,39 @@ def _decide(binary, frequencies, delta_f, f_min, f_max, modes, parity_fix, mode_
         jnp.where(base.nnlo_from_start | (st_failed & msa_error), 1, jnp.where(st_failed | ~needs_st, 2, 3)),
     )
 
-    # (the flags are true in the branch jax.lax.switch takes; under
-    # jax.vmap every branch is computed, the others with no grid)
-    def run(version, pnr_on, branch):
-        return lambda _: _pipeline(base, wf0, modes, frequencies, version, pnr_on, index == branch)
+    # (the flags are true in the branch taken; under jax.vmap a branch is
+    # computed for the whole batch if any binary takes it, with no grid for
+    # the others). Versions 102 and 223 of the PNR machinery are one branch
+    # (pnr.Fallback).
+    def no_pnr(operands):
+        base, wf0, _, index, frequencies = operands
+        return _pipeline(base, wf0, modes, frequencies, 102, False, index == 0)
 
-    def st_ok(_):
+    def fallback(operands):
+        base, wf0, _, index, frequencies = operands
+        return _pipeline(base, wf0, modes, frequencies, pnr.Fallback(index == 2), True, (index == 1) | (index == 2))
+
+    def st_ok(operands):
+        _, _, setup, index, frequencies = operands
         return _pipeline_330(setup, modes, frequencies, index == 3)
 
-    data = jax.lax.switch(index, [run(102, False, 0), run(102, True, 1), run(223, True, 2), st_ok], None)
+    data = switch(jnp.where(index == 0, 0, jnp.where(index == 3, 2, 1)), [no_pnr, fallback, st_ok],
+                  (base, wf0, setup, index, frequencies))
     data.error = data.error | error
     return data
 
 
 def _polarizations(binary, frequencies, options):
     pnr.clear_cache()
+    frequencies = jnp.asarray(frequencies, dtype=jnp.float64)
     modes = coprecessing_modes(options.mode_array)
     data = _decide(binary, frequencies, 0.0, frequencies[0], frequencies[-1], modes, options.pnr_parity_fix)
     hp, hc = _twist_polarizations(data, modes, frequencies)
     nan = jnp.asarray(jnp.nan + 1j * jnp.nan, jnp.complex128)
     return jnp.where(data.error, nan, hp), jnp.where(data.error, nan, hc)
+
+
+_POLARIZATIONS = {}
 
 
 def polarizations(binary, frequencies, options):
@@ -539,31 +563,13 @@ def polarizations(binary, frequencies, options):
     ``min(f_max, 0.3 / M)`` (``f_max`` the last frequency); NaN where LAL
     fails.
 
-    Under ``jax.vmap`` the binaries are computed one after the other
-    (``jax.custom_batching.sequential_vmap``): the model is made of loops
-    whose numbers of iterations depend on the binary and of choices among
-    prescriptions, which a batched computation would run to the longest
-    and all of. The reverse-mode derivative is that of the single binary
-    (``jax.custom_vjp``, recomputing the polarizations)."""
-    frequencies = jnp.asarray(frequencies, dtype=jnp.float64)
-    sequential = jax.custom_batching.sequential_vmap
-
-    def raw(binary, frequencies):
-        return _polarizations(binary, frequencies, options)
-
-    @jax.custom_vjp
-    def evaluate(binary, frequencies):
-        return sequential(raw)(binary, frequencies)
-
-    def forward(binary, frequencies):
-        return sequential(raw)(binary, frequencies), (binary, frequencies)
-
-    def backward(residuals, cotangents):
-        binary, frequencies = residuals
-        return sequential(lambda b, f, c: jax.vjp(raw, b, f)[1](c))(binary, frequencies, cotangents)
-
-    evaluate.defvjp(forward, backward)
-    return evaluate(binary, frequencies)
+    Under ``jax.vmap`` the binaries are computed one after the other. The
+    derivatives with respect to the binary come from forward-mode Jacobians
+    (:func:`._transforms.differentiable`): ``jax.grad``, ``jax.jvp`` and
+    ``jax.jacfwd`` all work."""
+    if options not in _POLARIZATIONS:
+        _POLARIZATIONS[options] = differentiable(functools.partial(_polarizations, options=options))
+    return _POLARIZATIONS[options](binary, frequencies)
 
 
 def jframe_groups(modes, custom_mode_array):
@@ -580,6 +586,9 @@ def jframe_groups(modes, custom_mode_array):
     return groups
 
 
+_JFRAME_MODES = {}
+
+
 def jframe_modes(binary, frequencies, options, delta_f=0.0, f_min=None, f_max=None):
     """The J-frame modes of ``XLALSimIMRPhenomXPHMFrequencySequenceOneMode``
     (``delta_f = 0``) or ``XLALSimIMRPhenomXPHMOneMode`` with the flags of
@@ -589,7 +598,16 @@ def jframe_modes(binary, frequencies, options, delta_f=0.0, f_min=None, f_max=No
     Without a mode array LAL sets the binary up again for every J-frame
     mode, with a mode range depending on the mode (:func:`jframe_groups`);
     here the set-ups of the groups run in a ``jax.lax.map`` over the mode
-    ranges, so that they are compiled once."""
+    ranges, so that they are compiled once. The derivatives come from
+    forward-mode Jacobians, as for :func:`polarizations`."""
+    key = (options, delta_f, f_min, f_max)
+    if key not in _JFRAME_MODES:
+        _JFRAME_MODES[key] = differentiable(functools.partial(
+            _jframe_modes, options=options, delta_f=delta_f, f_min=f_min, f_max=f_max))
+    return _JFRAME_MODES[key](binary, frequencies)
+
+
+def _jframe_modes(binary, frequencies, options, delta_f, f_min, f_max):
     pnr.clear_cache()
     frequencies = jnp.asarray(frequencies, dtype=jnp.float64)
     modes = coprecessing_modes(options.mode_array)

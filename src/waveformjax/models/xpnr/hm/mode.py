@@ -18,11 +18,11 @@ from .. import phase22 as phase22_module
 from .. import xas
 from .._math import MPC_SI, MSUN_SI, Struct, powers
 from ..internals import waveform_struct
-from .amplitude import amplitude, amplitude_coefficients
+from .amplitude import amplitude, amplitude_coefficients, choose_polynomial, finish_amplitude
 from .phase import phase, phase_coefficients, spheroidal_coefficients, spheroidal_to_spherical
 from .variables import HIGHER_MODES, hm_waveform_struct
 
-__all__ = ["ModeCoefficients", "mode_coefficients", "mode_h", "frequency_sequence_one_mode"]
+__all__ = ["ModeCoefficients", "mode_coefficients", "modes_coefficients", "mode_h", "frequency_sequence_one_mode"]
 
 RELEASE = 122019
 
@@ -66,7 +66,7 @@ def _view(c):
     return Struct(ell=c.ell, emm=c.emm, mode_tag=tag, mixing_on=tag == 32, f_ring=c.f_ring, f_damp=c.f_damp)
 
 
-def mode_coefficients(wf, phase22, ell, emm):
+def mode_coefficients(wf, phase22, ell, emm, defer=False):
     """All frequency-independent quantities of the co-precessing mode
     ``(ell, emm)``, ``emm > 0``, one of (2,1), (3,3), (3,2), (4,4)
     (``IMRPhenomXHM_SetHMWaveformVariables``,
@@ -132,7 +132,7 @@ def mode_coefficients(wf, phase22, ell, emm):
     else:
         mix = None
         rotate = None
-    amp = lax.optimization_barrier(amplitude_coefficients(wf, hm, rotate))
+    amp = lax.optimization_barrier(amplitude_coefficients(wf, hm, rotate, defer=defer))
     if mix is not None:
         mix.rd = amp.rd
     ph = lax.optimization_barrier(phase_coefficients(wf, hm, phase22, mix))
@@ -147,9 +147,29 @@ def mode_coefficients(wf, phase22, ell, emm):
         f_damp=hm.f_damp,
         amp0=sign * wf.amp0,
         amp_zero=hm.amp_zero,
-        error_poly_roots=amp.error_poly_roots & ~hm.amp_zero,
     )
+    if not defer:
+        coefficients.error_poly_roots = amp.error_poly_roots & ~hm.amp_zero
     return lax.optimization_barrier(coefficients)
+
+
+def modes_coefficients(wf, phase22, modes):
+    """:func:`mode_coefficients` of the higher modes ``modes`` (pairs
+    ``(ell, emm)``), with the intermediate polynomials of their amplitudes
+    chosen together (:func:`~.amplitude.choose_polynomial` under
+    ``jax.vmap``: GSL's root finder and the polynomials compiled once)."""
+    partial = [mode_coefficients(wf, phase22, ell, emm, defer=True) for ell, emm in modes]
+    if not partial:
+        return []
+    choices = jax.tree_util.tree_map(lambda *xs: jnp.stack(xs), *[c.amp.choice for c in partial])
+    chosen = jax.vmap(choose_polynomial)(choices)
+    out = []
+    for k, c in enumerate(partial):
+        amp = finish_amplitude(c.amp, jax.tree_util.tree_map(lambda x: x[k], chosen))
+        c = c.replace(amp=amp)
+        c.error_poly_roots = amp.error_poly_roots & ~c.amp_zero
+        out.append(c)
+    return out
 
 
 def mode_h(coefficients, mf):

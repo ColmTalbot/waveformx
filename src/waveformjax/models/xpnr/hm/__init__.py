@@ -37,13 +37,14 @@ from .qnm import (  # noqa: F401
     re_l3m2lp2,
     re_l3m2lp3,
 )
-from .mode import ModeCoefficients, frequency_sequence_one_mode, mode_coefficients, mode_h  # noqa: F401
+from .mode import ModeCoefficients, frequency_sequence_one_mode, mode_coefficients, mode_h, modes_coefficients  # noqa: F401
 from .variables import HIGHER_MODES, hm_waveform_struct, mixing_coefficients, qnm_fits  # noqa: F401
 
 __all__ = [
     "HIGHER_MODES",
     "ModeCoefficients",
     "mode_coefficients",
+    "modes_coefficients",
     "mode_h",
     "frequency_sequence_one_mode",
     "hm_waveform_struct",

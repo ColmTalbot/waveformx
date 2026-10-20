@@ -181,9 +181,13 @@ def antisymmetric_waveform(prec, wf, frequencies, version):
     kappa = jnp.where(below, kappa_at(jnp.cbrt(PI * jnp.where(below, mf, wf.f_ring))), kappa_rd)
     kappa = smooth_amp_ratio(kappa, frequencies)
     co = antisymmetric_coefficients(prec, wf, version)
-    alpha_pnr, errors = pnr.region_alpha_at(prec, wf, mf, co.alpha_params, version)
+    # the PNR alpha enters below mf_t only: computed up to the last
+    # frequency there
+    used = mf < co.mf_t
+    n_used = jnp.max(jnp.where(used, jnp.arange(mf.shape[0]), -1)) + 1
+    alpha_pnr, errors = pnr.region_alpha_many(prec, wf, mf, co.alpha_params, version, n_used)
     mf_cut = wf.f_max_prime * wf.m_sec
-    error = co.error | jnp.any(errors & (mf < co.mf_t) & (mf <= mf_cut))
+    error = co.error | jnp.any(errors & used & (mf <= mf_cut))
     mf = wf.m_sec * frequencies
     p = powers(mf)
     phi = phase_xas(mf, p, co.phase22) * co.inveta

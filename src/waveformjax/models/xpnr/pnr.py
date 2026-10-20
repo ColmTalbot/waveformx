@@ -12,9 +12,11 @@ LAL changes the prescription of the Euler angles with the binary: version
 330 (SpinTaylor angles, the default), 223 (MSA, when the SpinTaylor
 integration fails) or 102 (NNLO, for in-plane spins below ``1e-6`` or when
 the MSA system fails), and below ``1e-7`` it switches the PNR machinery off.
-Here each prescription is a separate function of a *static* ``version``
-(the arguments called ``version`` below are Python ints), and the model
-(:mod:`.model`) chooses among them with ``jax.lax.cond``.
+Here each prescription is a function of a *static* ``version`` (the
+arguments called ``version`` below are Python ints), or of a
+:class:`Fallback` (versions 102 and 223 together, chosen by a traced flag),
+and the model (:mod:`.model`) chooses among them with
+:func:`._transforms.switch`.
 
 The set-up is split into :func:`common_setup` (before the SpinTaylor
 integration, which decides whether version 330 can be used) and
@@ -37,10 +39,11 @@ from ._generated import pnr_fits as _pnr_fits
 from ._generated import qnm as _qnm
 from ._generated import utilities as _utilities
 from ._math import (
-    C_SI, FRAC_PI_2, FRAC_PI_4, G_SI, MTSUN_SI, PI, FencedModule, Struct, barrier, blocked_map, chunked_map, fenced, fma, fnms, hz_to_mf, mf_to_hz, powers,
+    C_SI, FRAC_PI_2, FRAC_PI_4, G_SI, MTSUN_SI, PI, FencedModule, Struct, barrier, blocked_map, blocked_scan, chunked_map, fenced, fma, fnms, hz_to_mf, mf_to_hz, powers,
     rotate_y, rotate_z, safe_div, safe_sqrt,
 )
 from .hm import qnm as _hm_qnm
+from ._transforms import switch
 from .spintaylor import angles as st_angles
 
 __all__ = ["common_setup", "finish_setup"]
@@ -250,9 +253,55 @@ def spintaylor_solution(prec, wf, m1_si, m2_si, flow=None, fcut=None, active=Tru
 # ---------------------------------------------------------------------------
 
 
+class Fallback:
+    """Versions 102 and 223 of the PNR machinery as one: 223 (MSA angles)
+    where the traced ``msa`` is true, 102 (NNLO angles) elsewhere. The
+    functions below take it in place of a static ``version``: they compute
+    what the two versions compute differently both ways and select (the
+    versions LAL falls back to share their code, which halves what is
+    compiled for them). It compares unequal to 330 and refuses the other
+    comparisons, which must go through :func:`_by_version`."""
+
+    def __init__(self, msa):
+        self.msa = msa
+
+    def __eq__(self, other):
+        if other == 330:
+            return False
+        raise TypeError("a Fallback version is compared through _by_version")
+
+    def __ne__(self, other):
+        return not self == other
+
+    __hash__ = object.__hash__
+
+    def __ge__(self, other):
+        raise TypeError("a Fallback version is compared through _by_version")
+
+    __gt__ = __le__ = __lt__ = __floordiv__ = __ge__
+
+
+def _by_version(version, nnlo, msa, other=None):
+    """``nnlo()`` for version 102, ``msa()`` for 223, ``other()`` for 330;
+    for a :class:`Fallback`, both of the first two, selected leaf by leaf."""
+    if isinstance(version, Fallback):
+        a, b = msa(), nnlo()
+        return jax.tree_util.tree_map(lambda x, y: jnp.where(version.msa, x, y), a, b)
+    if version == 102:
+        return nnlo()
+    if version == 223:
+        return msa()
+    return other()
+
+
+def _at_least_200(version):
+    """``version >= 200`` (traced for a :class:`Fallback`)."""
+    return version.msa if isinstance(version, Fallback) else version >= 200
+
+
 def two_spin(prec, version):
     """``IMRPhenomX_PNR_CheckTwoSpin``."""
-    return (prec.chi1_norm != 0.0) & (prec.chi2_norm >= 1.0e-3) & (version >= 200)
+    return (prec.chi1_norm != 0.0) & (prec.chi2_norm >= 1.0e-3) & _at_least_200(version)
 
 
 def set_pnr_variables(prec, wf, version):
@@ -381,16 +430,10 @@ def interpolation_delta_f(prec, wf, f_min, version):
     denominator = fma(13.0, eta_term, 7.0)
     constant = 4.0 * jnp.sqrt(2.0 / 5.0)
     delta_f_alpha = mf_to_hz(constant * jnp.sqrt(jnp.sqrt(numerator / denominator)), wf.m_tot)
+    plain = jnp.maximum(delta_f_alpha, 1e-2)
+
     # two-spin oscillations: sample the period of the spin magnitude
-    if version // 100 == 3:
-        system = _msa.system(msa_inputs(prec, wf, prec.chi1, prec.chi2))
-        l_coeffs = _prec.three_pn(prec.eta, wf.delta, prec.chi1[2], prec.chi2[2])
-    elif version == 223:
-        system = prec.msa
-        l_coeffs = prec.l
-    else:
-        system = None
-    if system is not None:
+    def two_spin_period(system, l_coeffs):
         g0, deltam, psi1, psi2 = _msa.psi_terms(system)
         v0 = jnp.cbrt(PI * mf)
         v02 = v0 * v0
@@ -403,9 +446,13 @@ def interpolation_delta_f(prec, wf, f_min, version):
         dpsi_inv = jnp.where((beta_min < 0.01) & (safe_div(beta_min, beta_max) < 0.55), dpsi_inv / 4.0, dpsi_inv)
         delta_f_twospin = mf_to_hz(dpsi_inv / 4.0, wf.m_tot)
         use_twospin = two_spin(prec, version) & (delta_f_twospin < delta_f_alpha) & ~jnp.isnan(dpsi)
-        result = jnp.where(use_twospin, jnp.maximum(delta_f_twospin, 1e-2), jnp.maximum(delta_f_alpha, 1e-2))
+        return jnp.where(use_twospin, jnp.maximum(delta_f_twospin, 1e-2), plain)
+
+    if not isinstance(version, Fallback) and version // 100 == 3:
+        result = two_spin_period(_msa.system(msa_inputs(prec, wf, prec.chi1, prec.chi2)),
+                                 _prec.three_pn(prec.eta, wf.delta, prec.chi1[2], prec.chi2[2]))
     else:
-        result = jnp.maximum(delta_f_alpha, 1e-2)
+        result = _by_version(version, lambda: plain, lambda: two_spin_period(prec.msa, prec.l))
     aligned = (prec.chi1_perp == 0.0) & (prec.chi2_perp == 0.0)
     return jnp.where(aligned, jnp.where(wf.delta_f != 0.0, wf.delta_f, 0.1), result)
 
@@ -500,7 +547,6 @@ def finish_setup(prec, wf, version, st=None):
     returning new ``(prec, wf)``."""
     prec = _copy(prec)
     wf = _copy(wf)
-    prec.version = version
     prec.st = st
     chi1, chi2 = prec.chi1, prec.chi2
     pnr_on = prec.pnr_on
@@ -520,17 +566,18 @@ def finish_setup(prec, wf, version, st=None):
         prec.mfmin_integration = jnp.zeros(())
     set_pnr_variables(prec, wf, 330 if version == 330 else 223)
     wf = set_coprec_params(prec, wf, pnr_on, version)
-    if version == 223:
+    if isinstance(version, Fallback) or version == 223:
         prec.msa = _msa.system(msa_inputs(prec, wf, chi1, chi2))
     else:
         prec.msa = None
     prec, wf = set_remnant(prec, wf)
     eta, delta = wf.eta, wf.delta
     big_m = prec.m1 + prec.m2
-    if version == 223:
-        prec.l = _prec.three_pn_msa(eta, delta, chi1[2], chi2[2])
-    else:
+    if version == 330:
         prec.l = _prec.three_pn(eta, delta, chi1[2], chi2[2])
+    else:
+        prec.l = _by_version(version, lambda: _prec.three_pn(eta, delta, chi1[2], chi2[2]),
+                             lambda: _prec.three_pn_msa(eta, delta, chi1[2], chi2[2]))
     prec.l_ref = big_m * big_m * _prec.l_ansatz(prec.l, wf.v_ref, wf.eta / wf.v_ref)
     m1_2, m2_2 = prec.m1_2, prec.m2_2
     j0 = [fma(m1_2, chi1[0], m2_2 * chi2[0]), fma(m1_2, chi1[1], m2_2 * chi2[1]), fma(m1_2, chi1[2], m2_2 * chi2[2]) + prec.l_ref]
@@ -546,7 +593,7 @@ def finish_setup(prec, wf, version, st=None):
     j0_dot_n = fma(j0[2], n_sf[2], fma(j0[0], n_sf[0], j0[1] * n_sf[1]))
     prec.theta_jn = acos_safe(j0_dot_n / prec.j0_norm)
     prec.zeta_polarization = polarization_angle(prec, wf, jnp.sin(prec.theta_jn), jnp.cos(prec.theta_jn))
-    if version // 100 == 1:
+    if isinstance(version, Fallback) or version // 100 == 1:
         m1 = prec.m1
         prec.nnlo = _nnlo.coefficients(
             eta, delta, prec.q, wf.chi_eff, prec.chi_p, m1, m1 * m1, m1 ** 3, m1 ** 4, m1 ** 5, m1 ** 6, m1 ** 8
@@ -555,20 +602,22 @@ def finish_setup(prec, wf, version, st=None):
         prec.nnlo = None
     prec.epsilon0 = prec.phi_j_sf - PI
     omega_ref = wf.pi_m * wf.f_ref * 2.0 / 2.0
-    if version == 223:
+
+    def msa_offsets():
         angles = _msa.phi_zeta_costhetal(prec.msa, jnp.cbrt(omega_ref))
-        prec.alpha_offset = angles.phiz - prec.alpha0
-        prec.epsilon_offset = angles.zeta - prec.epsilon0
-    elif version == 102:
+        return angles.phiz - prec.alpha0, angles.zeta - prec.epsilon0
+
+    def nnlo_offsets():
         logomega_ref = jnp.log(omega_ref)
         omega_ref_cbrt = jnp.cbrt(omega_ref)
         alpha, epsilon = _nnlo.evaluate(prec.nnlo, omega_ref, logomega_ref, omega_ref_cbrt, omega_ref_cbrt * omega_ref_cbrt)
-        prec.alpha_offset = alpha - prec.alpha0
-        prec.epsilon_offset = epsilon - prec.epsilon0
-    else:
+        return alpha - prec.alpha0, epsilon - prec.epsilon0
+
+    def st_offsets():
         # version 330 without the NNLO coefficients: alpha = epsilon = 0
-        prec.alpha_offset = -prec.alpha0
-        prec.epsilon_offset = -prec.epsilon0
+        return -prec.alpha0, -prec.epsilon0
+
+    prec.alpha_offset, prec.epsilon_offset = _by_version(version, nnlo_offsets, msa_offsets, st_offsets)
     prec.use_mr_beta = jnp.asarray(False)
     return prec, wf
 
@@ -627,20 +676,23 @@ def _st_context(prec, wf):
     rotation = prec.st_rotation if "st_rotation" in prec else _rotation(prec)
     # the solution's arrays determine the J frame of its splines (set once,
     # by initialize_euler_angles) and the scale
-    anchors = (st.back.y, st.fwd.y, st.fine.y)
+    anchors = (st.back.y, st.fwd.rows, st.fine.rows)
     mf_scale = MTSUN_SI * wf.m_tot / prec.pi_gm
+    if "st_context" in prec:
+        # built once by initialize_euler_angles
+        return st, rotation, mf_scale, anchors, prec.st_context
     context = _cached("st_context", anchors[1:], anchors[0],
                       lambda: barrier(st_angles.spline_context(st, rotation, mf_scale)))
     return st, rotation, mf_scale, anchors, context
 
 
 #: Above this many points, the SpinTaylor splines are evaluated in chunks.
-ST_MANY = 64
+ST_MANY = 1024
 
 
 def _st_anchors(prec):
     st = prec.st
-    return (st.back.y, st.fwd.y, st.fine.y)
+    return (st.back.y, st.fwd.rows, st.fine.rows)
 
 
 def _st_spline(prec, wf, mf):
@@ -702,6 +754,8 @@ def initialize_euler_angles(prec, wf):
     # the knots: Mf of the last one
     mf_scale = MTSUN_SI * wf.m_tot / prec.pi_gm
     context = _st_context(prec, wf)[4]
+    # (kept: the splines are built once)
+    prec.st_context = context
     mfmax_pn = context.last_mf
     mf_first = context.first_mf
     fmax_inspiral = jnp.where(prec.pnr_on, mfmax_pn, mfmax_pn - wf.delta_mf)
@@ -849,15 +903,19 @@ def nnlo_beta(prec, v):
 
 def pn_alpha(prec, wf, mf, version):
     """``IMRPhenomX_PNR_GetPNAlphaAtFreq``, with the error flag."""
-    omega = PI * mf
-    omega_cbrt = jnp.cbrt(omega)
-    if version == 102:
+    no_error = jnp.zeros(jnp.shape(mf), bool)
+
+    def nnlo():
+        omega = PI * mf
+        omega_cbrt = jnp.cbrt(omega)
         alpha, _ = _nnlo.evaluate(prec.nnlo, omega, jnp.log(omega), omega_cbrt, omega_cbrt * omega_cbrt)
-        return alpha - prec.alpha_offset, jnp.zeros(jnp.shape(mf), bool)
-    if version == 223:
-        return _msa_angles(prec.msa, mf).phiz, jnp.zeros(jnp.shape(mf), bool)
-    alpha, error = st_alpha(prec, wf, mf)
-    return alpha, error | ~jnp.isfinite(alpha)
+        return alpha - prec.alpha_offset, no_error
+
+    def st():
+        alpha, error = st_alpha(prec, wf, mf)
+        return alpha, error | ~jnp.isfinite(alpha)
+
+    return _by_version(version, nnlo, lambda: (_msa_angles(prec.msa, mf).phiz, no_error), st)
 
 
 def _single_beta(prec, mf):
@@ -875,35 +933,36 @@ def _single_beta(prec, mf):
 def pn_beta(prec, wf, mf, bp, version, use_mr_beta):
     """``IMRPhenomX_PNR_GetPNBetaAtFreq``: the PN ``beta`` with the two-spin
     oscillations tapered below the lower connection frequency."""
-    omega = PI * mf
-    omega_cbrt = jnp.cbrt(omega)
-    if version == 102:
-        return nnlo_beta(prec, omega_cbrt), jnp.zeros(jnp.shape(mf), bool)
-    if version == 223:
-        beta_full = acos_safe(_msa_angles(prec.msa, mf).cos_theta_l)
-        error = jnp.zeros(jnp.shape(mf), bool)
-    else:
+    no_error = jnp.zeros(jnp.shape(mf), bool)
+
+    def tapered(beta_full, version):
+        if prec.single is None:
+            return beta_full
+        beta_single = _single_beta(prec, mf)
+        oscillations = beta_full - beta_single
+        e = jnp.cos(2.0 * PI * mf / (4.0 * bp.mf_beta_lower))
+        tapered = jnp.where(mf <= bp.mf_beta_lower, fma(oscillations, e * e, beta_single), beta_single)
+        return jnp.where(two_spin(prec, version), tapered, beta_full)
+
+    def st():
         beta_full, error = st_beta(prec, wf, mf, bp, use_mr_beta)
-        error = error | ~jnp.isfinite(beta_full)
-    if prec.single is None:
-        return beta_full, error
-    beta_single = _single_beta(prec, mf)
-    oscillations = beta_full - beta_single
-    e = jnp.cos(2.0 * PI * mf / (4.0 * bp.mf_beta_lower))
-    tapered = jnp.where(mf <= bp.mf_beta_lower, fma(oscillations, e * e, beta_single), beta_single)
-    return jnp.where(two_spin(prec, version), tapered, beta_full), error
+        return tapered(beta_full, 330), error | ~jnp.isfinite(beta_full)
+
+    return _by_version(
+        version, lambda: (nnlo_beta(prec, jnp.cbrt(PI * mf)), no_error),
+        lambda: (tapered(acos_safe(_msa_angles(prec.msa, mf).cos_theta_l), 223), no_error), st)
 
 
 def pn_beta_fulltwospin(prec, wf, mf, bp, version, use_mr_beta):
     """``IMRPhenomX_PNR_GetPNBetaAtFreq_fulltwospin``."""
-    omega = PI * mf
-    omega_cbrt = jnp.cbrt(omega)
-    if version == 102:
-        return nnlo_beta(prec, omega_cbrt), jnp.zeros(jnp.shape(mf), bool)
-    if version == 223:
-        return acos_safe(_msa_angles(prec.msa, mf).cos_theta_l), jnp.zeros(jnp.shape(mf), bool)
-    beta, error = st_beta(prec, wf, mf, bp, use_mr_beta)
-    return beta, error | ~jnp.isfinite(beta)
+    no_error = jnp.zeros(jnp.shape(mf), bool)
+
+    def st():
+        beta, error = st_beta(prec, wf, mf, bp, use_mr_beta)
+        return beta, error | ~jnp.isfinite(beta)
+
+    return _by_version(version, lambda: (nnlo_beta(prec, jnp.cbrt(PI * mf)), no_error),
+                       lambda: (acos_safe(_msa_angles(prec.msa, mf).cos_theta_l), no_error), st)
 
 
 def waveform_beta(prec, wf, mf, pn_beta_value):
@@ -1041,7 +1100,7 @@ def populate_structs(prec, wf, version):
     """``IMRPhenomX_PNR_PopulateStructs``: the single-spin system of the
     two-spin map and the alpha and beta parameters (in place on ``prec``:
     ``single``, ``alpha_params``, ``beta_params``, ``error_structs``)."""
-    if version >= 200:
+    if isinstance(version, Fallback) or version >= 200:
         chi = prec.chi_single_spin
         costheta = prec.costheta_single_spin
         chi1 = [chi * safe_sqrt(1.0 - costheta * costheta, 1e-300), jnp.zeros_like(chi), chi * costheta]
@@ -1109,13 +1168,30 @@ def region_alpha_at(prec, wf, mf, ap, version):
     return value, error
 
 
+def region_alpha_many(prec, wf, mf, ap, version, n):
+    """:func:`region_alpha_at` at the first ``n`` (traced) of many points
+    ``mf`` (a 1-d array), by chunks (:func:`~._math.chunked_map`; zeros
+    beyond the chunks needed)."""
+    if mf.shape[0] <= PNR_GRID_CHUNK:
+        return region_alpha_at(prec, wf, mf, ap, version)
+    fallback = isinstance(version, Fallback)
+
+    def evaluate(x, args):
+        prec, wf, ap, msa = args
+        return region_alpha_at(prec, wf, x, ap, Fallback(msa) if fallback else version)
+
+    return chunked_map(evaluate, mf, n, PNR_GRID_CHUNK, (prec, wf, ap, version.msa if fallback else None))
+
+
 def pnr_beta_at(prec, wf, mf, bp, version, use_mr_beta):
     """``IMRPhenomX_PNR_GeneratePNRBetaAtMf``."""
     beta_pn, error = pn_beta(prec, wf, mf, bp, version, use_mr_beta)
     beta_waveform = waveform_beta(prec, wf, mf, beta_pn)
     low = pa.arctan_window(beta_waveform * pa.rescale_beta(mf, bp))
-    if version == 223:
-        low = jnp.where(bp.beta_lower < 0.01 * bp.beta_upper, pa.arctan_window(pa.mr_beta(bp.mf_beta_lower, bp)), low)
+    if isinstance(version, Fallback) or version == 223:
+        msa = version.msa if isinstance(version, Fallback) else True
+        low = jnp.where(msa & (bp.beta_lower < 0.01 * bp.beta_upper),
+                        pa.arctan_window(pa.mr_beta(bp.mf_beta_lower, bp)), low)
     upper = pa.arctan_window(pa.mr_beta(bp.mf_beta_upper, bp))
     mid = pa.arctan_window(pa.mr_beta(mf, bp))
     below = mf <= bp.mf_beta_lower
@@ -1158,33 +1234,50 @@ def beta_no_mr(prec, wf, mf, bp, version, use_mr_beta):
     return pa.arctan_window(waveform_beta(prec, wf, mf, beta)), error
 
 
-def uniform_angles(prec, wf, mf, version):
+def uniform_angles(prec, wf, mf, version, st_values=None):
     """``IMRPhenomX_PNR_GeneratePNRAngles_UniformFrequencies`` without
     ``gamma``: ``alpha`` and ``beta`` at ``mf`` (an array) and the error
-    flag of each point."""
+    flag of each point. ``st_values`` are the SpinTaylor splines at ``mf``
+    (version 330), if computed already.
+
+    LAL's ``beta`` depends on the region of the binary (calibration,
+    transition, outside) and on whether the MR ``beta`` is attached: only
+    the variant of the binary is computed (:func:`._transforms.switch`;
+    under ``jax.vmap``, those of the batch)."""
     prec, wf = barrier((prec, wf))
     ap, bp = prec.alpha_params, prec.beta_params
     attach = pa.attach_mr_beta(bp)
     cal = _in_calibration(prec, wf)
     tra = _in_transition(prec, wf)
-    false = jnp.asarray(False)
-    # calibration region
+    if st_values is not None:
+        _st_spline_put(prec, wf, mf, st_values)
+    # alpha: the regions share the PN alpha
     a_cal, ea_cal = pnr_alpha_at(prec, wf, mf, ap, version)
-    b_cal_mr, eb_cal_mr = pnr_beta_at(prec, wf, mf, bp, version, attach)
-    b_cal_no, eb_cal_no = beta_no_mr(prec, wf, mf, bp, version, false)
-    b_cal = jnp.where(attach, b_cal_mr, b_cal_no)
-    eb_cal = jnp.where(attach, eb_cal_mr, eb_cal_no)
-    # transition region
     a_tra, ea_tra = merged_alpha_at(prec, wf, mf, ap, version)
-    b_tra_mr, eb_tra_mr = merged_beta_at(prec, wf, mf, bp, version)
-    b_tra = jnp.where(attach, b_tra_mr, b_cal_no)
-    eb_tra = jnp.where(attach, eb_tra_mr, eb_cal_no)
-    # outside
     a_pn, ea_pn = pn_alpha(prec, wf, mf, version)
     alpha = jnp.where(cal, a_cal, jnp.where(tra, a_tra, a_pn))
-    beta = jnp.where(cal, b_cal, jnp.where(tra, b_tra, b_cal_no))
-    error = jnp.where(cal, ea_cal | eb_cal, jnp.where(tra, ea_tra | eb_tra, ea_pn | eb_cal_no))
-    return alpha, beta, error
+    error_alpha = jnp.where(cal, ea_cal, jnp.where(tra, ea_tra, ea_pn))
+
+    # beta: in the calibration region with the MR beta attached, in the
+    # transition region with it attached, else without
+    fallback = isinstance(version, Fallback)
+
+    def variant(beta_of):
+        def run(operands):
+            prec, wf, mf, bp, attach, msa, st_values = operands
+            v = Fallback(msa) if fallback else version
+            if st_values is not None:
+                _st_spline_put(prec, wf, mf, st_values)
+            return beta_of(prec, wf, mf, bp, v, attach)
+        return run
+
+    case = jnp.where(attach & cal, 0, jnp.where(attach & tra, 1, 2))
+    beta, error_beta = switch(case, [
+        variant(lambda prec, wf, mf, bp, v, attach: pnr_beta_at(prec, wf, mf, bp, v, attach)),
+        variant(lambda prec, wf, mf, bp, v, attach: merged_beta_at(prec, wf, mf, bp, v)),
+        variant(lambda prec, wf, mf, bp, v, attach: beta_no_mr(prec, wf, mf, bp, v, jnp.asarray(False))),
+    ], (prec, wf, mf, bp, attach, version.msa if fallback else None, st_values))
+    return alpha, beta, error_alpha | error_beta
 
 
 # ---------------------------------------------------------------------------
@@ -1255,51 +1348,47 @@ def interpolation_grid(prec, wf, modes, version):
 SPLINE_OVERLAP = 32
 
 
-def _halos(y, chunk, width):
-    """``y`` (of a length that ``chunk`` divides) cut into blocks of
-    ``chunk``, with the ``width`` values before and after each block (the
-    first and last values repeated beyond the ends)."""
-    blocks = y.reshape(-1, chunk)
-    before = jnp.concatenate([jnp.broadcast_to(y[:1], (1, width)), blocks[:-1, chunk - width:]])
-    after = jnp.concatenate([blocks[1:, :width], jnp.broadcast_to(y[-1:], (1, width))])
-    return blocks, before, after
-
-
-def _uniform_natural_spline(y, n, h, n_eval=None):
-    """GSL's natural cubic spline through ``y[k]`` at ``k h``, ``k < n``
-    (traced; the rest of the array is ignored): the second derivatives,
-    zero beyond ``n``. The equations are solved chunk by chunk, each chunk
-    with :data:`SPLINE_OVERLAP` points on either side (and LAL's natural
-    end conditions where it reaches the ends of the grid), so that the cost
-    is that of the ``n`` points (:func:`~._math.blocked_map`)."""
+def _natural_spline_chunk(y, start, n, h):
+    """The second derivatives of GSL's natural cubic spline through ``y[k]``
+    at ``k h``, ``k < n``, for the chunk of :data:`PNR_GRID_CHUNK` points
+    from ``start``: the equations of the chunk and of
+    :data:`SPLINE_OVERLAP` points on either side (with LAL's natural end
+    conditions where they reach the ends of the grid) are solved, zero
+    beyond ``n``."""
     cap = y.shape[0]
     chunk = PNR_GRID_CHUNK
     width = chunk + 2 * SPLINE_OVERLAP
-    offsets = np.arange(width) - SPLINE_OVERLAP  # numpy: the blocks must not close over traced values
-    blocks, before, after = _halos(y, chunk, SPLINE_OVERLAP)
-    starts = jnp.arange(cap // chunk) * chunk
+    offsets = np.arange(width) - SPLINE_OVERLAP
+    p = start + offsets
+    window = y[jnp.clip(p, 0, cap - 1)]
+    inside = (p >= 0) & (p < n)
+    # the window's own ends (inside the grid): natural (the error decays
+    # before the chunk)
+    interior = (p >= 1) & (p < n - 1) & (offsets > -SPLINE_OVERLAP) & (offsets < width - 1 - SPLINE_OVERLAP)
+    y_prev = jnp.concatenate([window[:1], window[:-1]])
+    y_next = jnp.concatenate([window[1:], window[-1:]])
+    lower = jnp.where(interior, h, 0.0).at[0].set(0.0)
+    upper = jnp.where(interior, h, 0.0).at[-1].set(0.0)
+    diag = jnp.where(interior, 4.0 * h, 1.0)
+    rhs = jnp.where(interior, 6.0 * ((y_next - window) / h - (window - y_prev) / h), 0.0)
+    m = jax.lax.linalg.tridiagonal_solve(lower, diag, upper, rhs[:, None])[:, 0]
+    m = jnp.where(inside, m, 0.0)
+    return m[SPLINE_OVERLAP:SPLINE_OVERLAP + chunk]
 
-    def local(block, args):
-        middle, head, tail, start = block
-        n, h = args
-        window = jnp.concatenate([head, middle, tail])
-        p = start + offsets
-        inside = (p >= 0) & (p < n)
-        # the window's own ends (inside the grid): natural (the error decays
-        # before the chunk)
-        interior = (p >= 1) & (p < n - 1) & (offsets > -SPLINE_OVERLAP) & (offsets < width - 1 - SPLINE_OVERLAP)
-        y_prev = jnp.concatenate([window[:1], window[:-1]])
-        y_next = jnp.concatenate([window[1:], window[-1:]])
-        lower = jnp.where(interior, h, 0.0).at[0].set(0.0)
-        upper = jnp.where(interior, h, 0.0).at[-1].set(0.0)
-        diag = jnp.where(interior, 4.0 * h, 1.0)
-        rhs = jnp.where(interior, 6.0 * ((y_next - window) / h - (window - y_prev) / h), 0.0)
-        m = jax.lax.linalg.tridiagonal_solve(lower, diag, upper, rhs[:, None])[:, 0]
-        m = jnp.where(inside, m, 0.0)
-        return m[SPLINE_OVERLAP:SPLINE_OVERLAP + chunk]
 
-    n_eval = n if n_eval is None else n_eval
-    return blocked_map(local, (blocks, before, after, starts), jnp.ceil(n_eval / chunk), (n, h)).reshape(cap)
+def _uniform_natural_splines(ys, n, h, n_eval):
+    """:func:`_natural_spline_chunk` of each of the arrays ``ys`` for the
+    chunks needed (:func:`~._math.blocked_map`, the cost that of the ``n``
+    points): the second derivatives, zero beyond ``n``."""
+    cap = ys[0].shape[0]
+    chunk = PNR_GRID_CHUNK
+
+    def local(index, args):
+        ys, n, h = args
+        return [_natural_spline_chunk(y, index * chunk, n, h) for y in ys]
+
+    out = blocked_map(local, jnp.arange(cap // chunk), jnp.ceil(n_eval / chunk), (list(ys), n, h))
+    return [m.reshape(cap) for m in out]
 
 
 def _spline_at(y, m, n, x0, h, x):
@@ -1321,44 +1410,59 @@ def angle_interpolants(prec, wf, grid, version, active=True):
     from them with Boole's rule. Returns a :class:`~._math.Struct` of the
     three splines and the error flag. Where ``active`` (traced) is false,
     nothing is evaluated (the prescription is not LAL's: under ``jax.vmap``
-    every prescription is computed)."""
+    every prescription is computed).
+
+    The grid has room for :data:`PNR_GRID_CAPACITY` points; everything is
+    computed in chunks of :data:`PNR_GRID_CHUNK` points, for the chunks
+    holding LAL's ``n`` points only."""
     i_start, n, delta_f_int, error = grid
     prec, wf = barrier((prec, wf))
     n_eval = jnp.where(active, n, 0.0)
-    k = jnp.arange(PNR_GRID_CAPACITY, dtype=jnp.float64)
-    valid = k < n
-    freqs = (i_start + jnp.minimum(k, n - 1.0)) * delta_f_int
-    mf = hz_to_mf(freqs, wf.m_tot)
-    if version == 330:
-        # the SpinTaylor splines on the whole grid at once
-        st_values = _st_spline_many(prec, wf, mf, n_eval, PNR_GRID_CHUNK)
-
-        def angles(x, args):
-            prec, wf = args
-            _st_spline_put(prec, wf, x[0], x[1])
-            return uniform_angles(prec, wf, x[0], version)
-
-        alpha, beta, err = chunked_map(angles, (mf, st_values), n_eval, PNR_GRID_CHUNK, (prec, wf))
-    else:
-        alpha, beta, err = chunked_map(lambda x, args: uniform_angles(*args, x, version), mf, n_eval, PNR_GRID_CHUNK,
-                                       (prec, wf))
-    error = error | jnp.any(err & valid)
-    alpha = jnp.where(valid, alpha, 0.0)
-    beta = jnp.where(valid, beta, 0.0)
+    chunk = PNR_GRID_CHUNK
+    n_chunks = PNR_GRID_CAPACITY // chunk
     x0 = i_start * delta_f_int
     h = delta_f_int
-    m_alpha = _uniform_natural_spline(alpha, n, h, n_eval)
-    m_beta = _uniform_natural_spline(beta, n, h, n_eval)
+
+    def frequencies(k, i_start, n, h):
+        return (i_start + jnp.minimum(k, n - 1.0)) * h
+
+    # the angles on the grid (the flag of a Fallback version passed in: the
+    # loop's body must not close over batched values)
+    fallback = isinstance(version, Fallback)
+
+    def angles(index, args):
+        prec, wf, i_start, n, h, msa = args
+        version_ = Fallback(msa) if fallback else version
+        k = index * chunk + jnp.arange(chunk, dtype=jnp.float64)
+        valid = k < n
+        mf = hz_to_mf(frequencies(k, i_start, n, h), wf.m_tot)
+        st_values = None
+        if version == 330:
+            # the SpinTaylor splines at the chunk's points, shared by the
+            # angles below
+            st, rotation, mf_scale, _, context = _st_context(prec, wf)
+            st_values = st_angles.spline(st, rotation, mf, mf_scale, context)
+        alpha, beta, err = uniform_angles(prec, wf, mf, version_, st_values)
+        return jnp.where(valid, alpha, 0.0), jnp.where(valid, beta, 0.0), jnp.any(err & valid)
+
+    alpha, beta, errors = blocked_map(angles, jnp.arange(n_chunks), jnp.ceil(n_eval / chunk),
+                                      (prec, wf, i_start, n, h, version.msa if fallback else None))
+    error = error | jnp.any(errors)
+    alpha, beta = alpha.reshape(-1), beta.reshape(-1)
+    m_alpha, m_beta = _uniform_natural_splines([alpha, beta], n, h, n_eval)
+
     # gamma from the minimal rotation condition with Boole's rule, interval
-    # by interval
-    def boole(block, args):
-        values, following = block
-        n, h, x0, i_start = args
-        # the intervals [k, k + 1] of the block: values at k and k + 1
-        start, now = values[0], [v for v in values[1:]]
-        after = [jnp.concatenate([v[1:], f[None]]) for v, f in zip(now, following)]
-        (t1, y0, m0, yb0, mb0), (t2, y1, m1, yb1, mb1) = now, after
-        i = start + jnp.arange(t1.shape[0])
+    # by interval, summed chunk by chunk
+    def boole(index, total, args):
+        alpha, m_alpha, beta, m_beta, i_start, n, h, x0 = args
+        cap = alpha.shape[0]
+        # the intervals [k, k + 1] of the chunk: values at k and k + 1
+        i = index * chunk + jnp.arange(chunk)
+        here, after = jnp.clip(i, 0, cap - 1), jnp.clip(i + 1, 0, cap - 1)
+        t1 = frequencies(here.astype(jnp.float64), i_start, n, h)
+        t2 = frequencies(after.astype(jnp.float64), i_start, n, h)
+        y0, y1, m0, m1 = alpha[here], alpha[after], m_alpha[here], m_alpha[after]
+        yb0, yb1, mb0, mb1 = beta[here], beta[after], m_beta[here], m_beta[after]
         points = jnp.stack([t2, fma(3.0, t1, t2) / 4.0, (t1 + t2) / 2.0, t1, fma(3.0, t2, t1) / 4.0])
         dx = points - (x0 + i * h)
         b = (y1 - y0) / h - h * (m1 + 2.0 * m0) / 6.0
@@ -1366,19 +1470,17 @@ def angle_interpolants(prec, wf, grid, version, active=True):
         bb = (yb1 - yb0) / h - h * (mb1 + 2.0 * mb0) / 6.0
         beta_x = yb0 + dx * (bb + dx * (mb0 / 2.0 + dx * (mb1 - mb0) / (6.0 * h)))
         f = pa.alphadot_cosbeta(dalpha, beta_x)
-        total = fma(7.0, f[0], fma(32.0, f[1], fma(12.0, f[2], fma(7.0, f[3], 32.0 * f[4]))))
-        return jnp.where(i + 1 < n, 1.0 / 90.0 * (t2 - t1) * total, 0.0)
+        total_f = fma(7.0, f[0], fma(32.0, f[1], fma(12.0, f[2], fma(7.0, f[3], 32.0 * f[4]))))
+        increments = jnp.where(i + 1 < n, 1.0 / 90.0 * (t2 - t1) * total_f, 0.0)
+        # gamma at the chunk's points: the integral up to each
+        sums = jnp.cumsum(increments)
+        gamma = total + jnp.concatenate([jnp.zeros(1), sums[:-1]])
+        return gamma, total + sums[-1]
 
-    chunk = PNR_GRID_CHUNK
-    n_chunks = PNR_GRID_CAPACITY // chunk
-    columns = [freqs, alpha, m_alpha, beta, m_beta]
-    blocks = [c.reshape(n_chunks, chunk) for c in columns]
-    following = [jnp.concatenate([c[1:, 0], c[-1:, -1]]) for c in blocks]
-    starts = (jnp.arange(n_chunks) * chunk).astype(jnp.float64)
-    increments = blocked_map(boole, ([starts] + blocks, following), jnp.ceil((n_eval - 1.0) / chunk),
-                             (n, h, x0, i_start)).reshape(PNR_GRID_CAPACITY)[:-1]
-    gamma = jnp.concatenate([jnp.zeros(1), jnp.cumsum(increments)])
-    m_gamma = _uniform_natural_spline(gamma, n, h, n_eval)
+    gamma, _ = blocked_scan(boole, jnp.arange(n_chunks), jnp.ceil(n_eval / chunk), jnp.zeros(()),
+                            (alpha, m_alpha, beta, m_beta, i_start, n, h, x0))
+    gamma = gamma.reshape(-1)
+    (m_gamma,) = _uniform_natural_splines([gamma], n, h, n_eval)
     return Struct(alpha=alpha, beta=beta, gamma=gamma, m_alpha=m_alpha, m_beta=m_beta, m_gamma=m_gamma, n=n, x0=x0,
                   h=h, error=error)
 
