@@ -28,12 +28,13 @@ Here (see :mod:`.trajectory` and :mod:`.replica`):
   of samples of the backward run, where LAL stops at a frequency, follows
   from the solution;
 * the splines have as many knots as LAL has samples (millions for light
-  binaries), but a natural cubic spline at ``x`` depends on knots further
-  than ``k`` intervals away only through factors ``~(2 - sqrt(3))^k``. So
-  :func:`spline` evaluates the spline at ``x`` from the
-  ``2 WINDOW + 2`` knots around ``x`` (with LAL's natural end conditions
-  where the window reaches the ends): the same values to ``~1e-15``, with a
-  cost independent of the number of samples.
+  binaries). Up to :data:`GLOBAL_KNOTS` knots, :func:`spline_table` builds
+  them as GSL does, from all knots at once. Beyond, a natural cubic spline
+  at ``x`` depends on knots further than ``k`` intervals away only through
+  factors ``~(2 - sqrt(3))^k``, so :func:`windowed_spline` evaluates it at
+  ``x`` from the ``2 WINDOW + 2`` knots around ``x`` (with LAL's natural end
+  conditions where the window reaches the ends): the same values to
+  ``~1e-15``, with a cost per point independent of the number of samples.
 
 The knot values differ from LAL's by LAL's own integration error (``~1e-9``,
 the tolerances are ``1e-12`` per step); everything else is LAL's
@@ -45,13 +46,18 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 
-from .._math import C_SI, G_SI, MSUN_SI, MTSUN_SI, PI, REAL4_EPS, Struct, fma, safe_div
+from .._math import C_SI, G_SI, MSUN_SI, MTSUN_SI, PI, REAL4_EPS, Struct, chunked_map, fma, safe_div
 from . import dynamics, replica, trajectory
 
-__all__ = ["pn_solution", "knot_times", "knot_states", "spline", "WINDOW"]
+__all__ = ["pn_solution", "knot_times", "knot_states", "spline", "spline_table", "windowed_spline", "WINDOW",
+           "GLOBAL_KNOTS"]
 
-#: Knots on each side of an interval used to evaluate the splines.
+#: Knots on each side of an interval used to evaluate the splines in windows.
 WINDOW = 16
+#: The number of knots up to which the splines are built from all knots.
+GLOBAL_KNOTS = 8192
+#: The knots computed together when building the splines from all knots.
+KNOT_CHUNK = 512
 #: Precession angle (rad) per step of the DOP853 integration.
 STEP_ANGLE = 0.1
 #: Capacities (steps) of the backward and forward DOP853 integrations and the
@@ -328,10 +334,109 @@ def _thomas(lower, diag, upper, rhs):
     return x
 
 
-def spline(sol, rotation, mf, mf_scale):
+def spline(sol, rotation, mf, mf_scale, table=None):
     """The natural cubic splines of LAL through its knots of ``alpha``
     (unwrapped) and ``cos(beta)`` against ``Mf`` in the J frame, and their
-    derivatives, at ``mf`` (an array).
+    derivatives, at ``mf`` (an array): from :func:`spline_table` (``table``,
+    computed if not given) up to :data:`GLOBAL_KNOTS` knots, else from
+    :func:`windowed_spline` (both are computed: for a few points). Returns
+    ``(alpha, dalpha, cosbeta, dcosbeta, inside)``."""
+    if table is None:
+        table = spline_table(sol, rotation, mf_scale)
+    whole = table_eval(table, mf)
+    windowed = windowed_spline(sol, rotation, mf, mf_scale)
+    return tuple(jnp.where(table.small, a, b) for a, b in zip(whole, windowed))
+
+
+def spline_many(sol, rotation, mf, n, chunk, mf_scale, table=None):
+    """:func:`spline` at many points ``mf`` (an array of static length, the
+    first ``n`` needed): the windows (in chunks of ``chunk``, see
+    :func:`~.._math.chunked_map`) only where the knots are too many for
+    :func:`spline_table`."""
+    if table is None:
+        table = spline_table(sol, rotation, mf_scale)
+    whole = table_eval(table, mf)
+    windowed = chunked_map(lambda x: windowed_spline(sol, rotation, x, mf_scale), mf,
+                           jnp.where(table.small, 0.0, n), chunk)
+    return tuple(jnp.where(table.small, a, b) for a, b in zip(whole, windowed))
+
+
+def spline_table(sol, rotation, mf_scale):
+    """GSL's natural cubic splines (``gsl_interp_cspline``) through all of
+    LAL's knots of ``alpha`` (unwrapped by ``XLALSimIMRPhenomXUnwrapArray``)
+    and ``cos(beta)`` against ``Mf``, when there are at most
+    :data:`GLOBAL_KNOTS` knots (``small``; otherwise a placeholder). Returns a
+    :class:`~.._math.Struct` of the knots ``x``, the values and the second
+    derivatives."""
+    small = sol.len_pn <= GLOBAL_KNOTS
+    n = jnp.where(small, sol.len_pn, 0.0)
+    k = jnp.arange(GLOBAL_KNOTS, dtype=jnp.float64)
+    valid = k < n
+    index = jnp.minimum(k, jnp.maximum(n - 1.0, 0.0))
+    state = chunked_map(lambda i: knot_states(sol, i), index, n, KNOT_CHUNK)
+    om = jnp.where(valid, state[:, 0], 1.0)
+    lx, ly, lz = _rotate(state[:, 1], state[:, 2], state[:, 3], *rotation)
+    lx = jnp.where(valid, lx, 1.0)
+    ly = jnp.where(valid, ly, 0.0)
+    cosb = jnp.where(valid, lz, 0.0)
+    knot_mf = jnp.cbrt(om) ** 3 * mf_scale
+    raw = jnp.arctan2(ly, lx)
+    d = jnp.diff(raw)
+    d = jnp.where(d > PI, d - 2 * PI, jnp.where(d < -PI, d + 2 * PI, d))
+    d = jnp.where(valid[1:], d, 0.0)
+    alpha = raw[0] + jnp.concatenate([jnp.zeros(1), jnp.cumsum(d)])
+    # beyond the knots: increasing abscissae and decoupled rows
+    last = jnp.maximum(n - 1.0, 0.0).astype(jnp.int64)
+    x = jnp.where(valid, knot_mf, jnp.where(small, knot_mf[last], 0.0) + (k - n + 1.0))
+    alpha = jnp.where(valid, alpha, 0.0)
+    return Struct(x=x, alpha=alpha, cosb=cosb, m_alpha=_natural_second_derivatives(x, alpha, n),
+                  m_cosb=_natural_second_derivatives(x, cosb, n), n=jnp.where(small, n, float(GLOBAL_KNOTS)),
+                  small=small, first_mf=_first_mf(sol, mf_scale), last_mf=_last_mf(sol, mf_scale))
+
+
+def _natural_second_derivatives(x, y, n):
+    """The second derivatives of the natural cubic spline through the first
+    ``n`` points ``(x, y)`` (zero beyond)."""
+    k = jnp.arange(x.shape[0])
+    interior = (k >= 1) & (k < n - 1)
+    h = jnp.diff(x)
+    h_prev = jnp.concatenate([h[:1], h])
+    h_next = jnp.concatenate([h, h[-1:]])
+    dy = jnp.diff(y)
+    s_prev = jnp.concatenate([dy[:1], dy]) / h_prev
+    s_next = jnp.concatenate([dy, dy[-1:]]) / h_next
+    lower = jnp.where(interior, h_prev, 0.0)
+    upper = jnp.where(interior, h_next, 0.0)
+    diag = jnp.where(interior, 2.0 * (h_prev + h_next), 1.0)
+    rhs = jnp.where(interior, 6.0 * (s_next - s_prev), 0.0)
+    return jax.lax.linalg.tridiagonal_solve(lower, diag, upper, rhs[:, None])[:, 0]
+
+
+def table_eval(table, mf):
+    """The splines of :func:`spline_table` and their derivatives at ``mf``
+    (GSL's ``cspline`` evaluation), and whether ``mf`` lies within the
+    knots."""
+    i = jnp.clip(jnp.searchsorted(table.x, mf, side="right") - 1, 0, (table.n - 2.0).astype(jnp.int64))
+    x0, x1 = table.x[i], table.x[i + 1]
+    hk = x1 - x0
+    dx = mf - x0
+    out = []
+    for y, m in ((table.alpha, table.m_alpha), (table.cosb, table.m_cosb)):
+        y0, y1 = y[i], y[i + 1]
+        m0, m1 = m[i], m[i + 1]
+        b = (y1 - y0) / hk - hk * (m1 + 2.0 * m0) / 6.0
+        c = m0 / 2.0
+        d = (m1 - m0) / (6.0 * hk)
+        out += [y0 + dx * (b + dx * (c + dx * d)), b + dx * (2.0 * c + 3.0 * dx * d)]
+    inside = (mf >= table.first_mf) & (mf <= table.last_mf)
+    return out[0], out[1], out[2], out[3], inside
+
+
+def windowed_spline(sol, rotation, mf, mf_scale):
+    """The natural cubic splines of LAL through its knots of ``alpha``
+    (unwrapped) and ``cos(beta)`` against ``Mf`` in the J frame, and their
+    derivatives, at ``mf`` (an array), each point from the ``2 WINDOW + 2``
+    knots around it.
 
     ``rotation`` is ``(phiJ_Sf, thetaJ_Sf, kappa)``: LNhat is rotated by
     ``-phiJ_Sf`` about ``z``, ``-thetaJ_Sf`` about ``y`` and ``-kappa``
