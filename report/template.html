@@ -66,6 +66,7 @@
   <ul>
     <li><strong>Implementation.</strong> {{n_files}} Python modules ({{n_lines}} lines, of which {{n_lines_generated}} are parameter-space fits generated from waveformrs's Rust by a translator) cover the two models, their checks and the conversions (<a href="#design">sections {{sec:design}}</a>–<a href="#conversions">{{sec:conversions}}</a>).</li>
     <li><strong>Accuracy.</strong> NRSur7dq4 agrees with LAL at rounding level. IMRPhenomXPNR's (2,2) mode agrees to ~1e-9. Its higher modes agree to ~1e-5, because LAL takes derivatives by finite differences whose rounding noise JAX's different, but valid, arithmetic changes (<a href="#accuracy">section {{sec:accuracy}}</a>).</li>
+    <li><strong>Single precision.</strong> NRSur7dq4 runs in float32 when the binary's parameters are float32, and returns the strain times 10<sup>21</sup> by default. In float32, an inner product between two different waveforms changes by {{f32_eps_median}} of the product of their norms (median; at most {{f32_eps_max}}). Derivatives agree with float64 to {{f32_grad_median}} (<a href="#nrsur">section {{sec:nrsur}}</a>).</li>
     <li><strong>Derivatives.</strong> IMRPhenomXPNR is differentiated in forward mode, and its reverse-mode gradient is the transpose of that forward-mode Jacobian. NRSur7dq4 is differentiated directly in either mode. NRSur7dq4's derivatives agree with finite differences to ~1e-8. For IMRPhenomXPNR, finite differences of the full waveform disagree with the derivatives by up to {{xpnr_gradient_worst}}, most in the in-plane spins; the transform tests, which use the (2,2) mode, agree to ~1e-7. This is still being investigated (<a href="#gradients">section {{sec:gradients}}</a>).</li>
     <li><strong>Cost.</strong> A compiled IMRPhenomXPNR waveform costs about as much as LALSimulation's, and a few times as much as waveformrs's. <code>jax.vmap</code> over many binaries is how JAX code would use it. Compilation takes tens of seconds for the model and minutes for its gradient (<a href="#performance">section {{sec:performance}}</a>).</li>
   </ul>
@@ -76,7 +77,7 @@
 
 <section id="design">
   <h2>Models as pure JAX functions</h2>
-  <p class="lede">The package has the interface of waveformrs's Python bindings, with the same function names, keyword arguments, options, result classes and exceptions. Underneath, every model is a pure function of a <code>Binary</code>: a <code>NamedTuple</code> of float64 arrays, and so a JAX pytree.</p>
+  <p class="lede">The package has the interface of waveformrs's Python bindings, with the same function names, keyword arguments, options, result classes and exceptions. Underneath, every model is a pure function of a <code>Binary</code>: a <code>NamedTuple</code> of float64 arrays (or float32 arrays, for NRSur7dq4), and so a JAX pytree.</p>
 <pre class="code"><code>import jax, jax.numpy as jnp, numpy as np
 import waveformjax as wf
 
@@ -92,7 +93,12 @@ loss = lambda b: jnp.sum(jnp.abs(model(b, frequencies)[0]) ** 2)
 jax.grad(loss)(binary)                                      # a Binary of derivatives
 jax.vmap(model, in_axes=(0, None))(binaries, frequencies)    # many binaries at once
 
+# NRSur7dq4 gives the strain times 1e21 (scaled_strain=False: the strain itself)
 h = wf.td_polarizations("NRSur7dq4", 1 / 4096, 20.0, mass_1=40.0, mass_2=20.0)
+surrogate = wf.td_polarizations_function("NRSur7dq4")       # f(binary, times)
+single = wf.Binary(mass_1=jnp.float32(40.0), mass_2=jnp.float32(20.0), spin_1=jnp.zeros(3, jnp.float32),
+                   spin_2=jnp.zeros(3, jnp.float32), f_ref=20.0)
+hp, hc = surrogate(single, h.times)                         # in float32
 h = wf.simulate_td("IMRPhenomXPNR", 1 / 4096, 20.0, mass_1=36.0, mass_2=29.0)</code></pre>
   <p>A call goes through four stages:</p>
   <ol class="pipeline">
@@ -101,7 +107,7 @@ h = wf.simulate_td("IMRPhenomXPNR", 1 / 4096, 20.0, mass_1=36.0, mass_2=29.0)</c
     <li><span class="step-title">Traced arithmetic</span><span class="step-body">Inside, nothing branches in Python on the binary. Each of LAL's <code>if</code>s becomes a <code>jnp.where</code> between branches that are both evaluated, with safe arguments, so that the branch not taken cannot put NaN into the value or the gradient. Loops of fixed length are <code>lax.scan</code>; loops whose length depends on the binary are <code>lax.while_loop</code>. The precession prescriptions are branches of a switch.</span></li>
     <li><span class="step-title">Failures as NaN</span><span class="step-body">Failures that LAL can only detect while computing, such as a SpinTaylor integration that cannot reach the reference frequency, make the output NaN. The batch functions report those binaries as <code>ModelError</code> in <code>errors</code> and set their rows to zero.</span></li>
   </ol>
-  <p>Importing the package enables 64-bit floats (<code>jax_enable_x64</code>), which the models need. The thousands of fitted coefficients of IMRPhenomX are not copied by hand. <code>scripts/rust_to_python.py</code> parses the straight-line Rust of waveformrs (its <code>let</code> bindings, arithmetic, <code>fma</code> calls and <code>f64</code> methods) and emits the same expressions on JAX arrays. <code>scripts/generate_fits.py</code> then writes them into <code>models/xpnr/_generated/</code>. The control flow is written by hand, file by file after LAL's, and each module's docstring names the LAL function it follows.</p>
+  <p>Importing the package enables 64-bit floats (<code>jax_enable_x64</code>), which IMRPhenomXPNR needs; NRSur7dq4 also runs in float32 (<a href="#nrsur">section {{sec:nrsur}}</a>). The thousands of fitted coefficients of IMRPhenomX are not copied by hand. <code>scripts/rust_to_python.py</code> parses the straight-line Rust of waveformrs (its <code>let</code> bindings, arithmetic, <code>fma</code> calls and <code>f64</code> methods) and emits the same expressions on JAX arrays. <code>scripts/generate_fits.py</code> then writes them into <code>models/xpnr/_generated/</code>. The control flow is written by hand, file by file after LAL's, and each module's docstring names the LAL function it follows.</p>
   <p>Each model package defines a <code>MODEL</code> with a fixed contract. A frequency-domain model has <code>validate</code>, <code>polarizations</code>, <code>modes</code> and <code>choose_fd_modes</code>. A time-domain model has <code>validate</code>, <code>td_polarizations</code>, <code>td_modes</code> and <code>polarizations_at</code>, the last of which evaluates the waveform at any given times. The public functions, the batches and the conversions are written once, against that contract.</p>
 </section>
 
@@ -144,6 +150,25 @@ h = wf.simulate_td("IMRPhenomXPNR", 1 / 4096, 20.0, mass_1=36.0, mass_2=29.0)</c
     <li><strong>Output grid.</strong> The number of samples depends on when the orbital frequency reaches π f<sub>min</sub>, so it is found on the host. A compiled pass evaluates the frequency fits, and numpy repeats LAL's search operation by operation. The waveform is then computed on a power-of-two buffer of at least 256 samples, which waveforms of similar length share, and trimmed to the binary's length.</li>
   </ul>
   <p><code>polarizations_at(binary, times)</code> evaluates the waveform at any times relative to the peak. It is pure and differentiable with respect to every parameter, including <code>f_ref</code>, which moves the reference time and so the frame. It is what <code>jax.vmap</code>, <code>jax.grad</code> and the conversions use.</p>
+  <h3>Single precision and the scale of the output</h3>
+  <p>NRSur7dq4 is evaluated in the precision of the binary's parameters. A <code>Binary</code> of float32 arrays is evaluated in float32 throughout, with a float32 copy of the data cast from the float64 arrays (the spline factorisations included). A test checks that no operation of the traced waveform, or of its gradient, is in float64. The public functions take Python numbers, so they stay in float64. Two changes make float32 usable:</p>
+  <ul>
+    <li><strong>The output is the strain times 10<sup>21</sup>.</strong> This applies to every NRSur7dq4 function, the public functions and the conversions included, unless <code>scaled_strain=False</code>. The strain itself fits in float32, but its square (~10<sup>−42</sup>) and a detector's power spectral density (~10<sup>−47</sup>) do not. The comparisons with LAL in this report use <code>scaled_strain=False</code>.</li>
+    <li><strong>Nothing passes through SI units.</strong> LAL converts the masses to kilograms and back (<code>m * MSUN_SI / MSUN_SI</code>) and works with the distance in metres. In float32, XLA folded the square of the solar mass in kilograms (~4×10<sup>60</sup>, beyond float32's range) into the derivative of the mass ratio, so the compiled gradient was NaN. The derivative with respect to a distance of ~10<sup>25</sup> m underflowed to zero. The masses now stay in solar masses, and the amplitude is one constant times the total mass over the distance in Mpc. In float64 this changes the waveform by rounding only.</li>
+  </ul>
+  <p>What float32 costs in accuracy was measured on {{f32_pairs}} pairs of binaries, drawn as for the accuracy comparison (<code>report/float32_nrsur7dq4.py</code>). {{f32_pairs_each}} pairs are two independent binaries, whose overlaps are near zero. The other {{f32_pairs_each}} are a binary and a small perturbation of its masses, spins and angles, with a median overlap of {{f32_nearby_overlap}}. Both binaries of a pair are evaluated on one time grid, in float64 and in float32, projected on a detector and tapered at the start. Inner products use the aLIGO design sensitivity from 20 Hz, without maximisation, and are computed in float64 unless stated otherwise.</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Change from float64 to float32</th><th class="num">Median</th><th class="num">90th percentile</th><th class="num">Largest</th></tr></thead>
+      <tbody>
+{{float32_rows}}
+      </tbody>
+      <caption>NRSur7dq4 in float32 against float64. The overlaps and inner products are between the two binaries of a pair. "With the inner products in float32 too" also does the whitened Fourier transforms and sums in float32. "With the dynamics in float64" integrates the ODE in float64 and computes the rest in float32. The log-likelihood is ⟨d, h⟩ − ⟨h, h⟩/2, with noise-free data d from the other binary; its derivatives exclude f<sub>ref</sub>, which is zero for half the pairs. Data: <code>report/data/float32_nrsur7dq4.json</code>.</caption>
+    </table>
+  </div>
+  <p>An inner product between two different waveforms changes by {{f32_eps_median}} of the product of their norms (median), and by at most {{f32_eps_max}}. Doing the inner products themselves in float32 adds at most {{f32_inner_only_max}} to the overlap. The error of a single waveform, {{f32_dh_median}} (median, noise-weighted), is mostly rounding noise from the final resampling onto the float32 time grid: with everything up to the polarizations on the surrogate's own times in float64, it is still {{f32_dh_coorb_median}}. That noise is almost uncorrelated with another waveform, so it barely moves their inner product. The ODE integrated in float32 is what does. With the dynamics in float64 and the rest in float32, the change of the overlap falls from {{f32_do_median}} to {{f32_dyn_median}} (median), and from {{f32_do_p90}} to {{f32_dyn_p90}} at the 90th percentile.</p>
+  <p>Between nearby binaries the log-likelihood changes by {{f32_lnl_median}} ρ² (median; {{f32_lnl_p90}} ρ² at the 90th percentile), where ρ is the signal-to-noise ratio. That is {{f32_lnl_20}} at ρ = 20 and {{f32_lnl_100}} at ρ = 100 ({{f32_lnl_100_p90}} at the 90th percentile). With noise in the data, a further ⟨n, δh⟩ of about ρ ‖δh‖ / ‖h‖ is added. The float32 derivatives agree with the float64 ones to {{f32_grad_median}} (median relative error), or {{f32_grad_p90}} at the 90th percentile. The largest relative errors are in components whose derivative almost vanishes; measured against the typical size of each component, no error exceeds {{f32_grad_typical_max}}.</p>
+  <p>On this CPU, float32 is {{f32_speed_single}} as fast for one waveform ({{f32_single}} against {{f64_single}} on 8192 samples). It is {{f32_speed_batch}} as fast for a batch of 64 under <code>jax.vmap</code> ({{f32_batch}} against {{f64_batch}}), and {{f32_speed_grad}} for a gradient. The dynamics, a sequence of 230 small steps, take {{f32_dyn_share}} of a float64 batch. Keeping them in float64 would make the inner products about ten times more accurate, at the cost of part of the speed-up on the CPU; the package does not do this. float32 matters most on accelerators, where float64 is much slower, and there it has not been measured.</p>
 </section>
 
 <section id="conversions">
@@ -263,6 +288,7 @@ h = wf.simulate_td("IMRPhenomXPNR", 1 / 4096, 20.0, mass_1=36.0, mass_2=29.0)</c
     <li><strong>Values where LAL divides by zero.</strong> At isolated points of the parameter space, LAL's MSA formulas divide by an exact zero and produce inf or NaN. Here the values there are finite, and so are the gradients nearby, for example at equal masses or for a single spin.</li>
     <li><strong>No multibanding.</strong> LAL's <code>SimInspiralChooseFDWaveform</code> uses multibanding by default for IMRPhenomXPNR; waveformjax, like waveformrs, evaluates every frequency. <code>SimInspiralChooseFDWaveformSequence</code> has multibanding off, and the conversions are compared with it off.</li>
     <li><strong>No data race.</strong> LAL's MSA and PNR angles race under OpenMP. waveformjax agrees with single-threaded LAL.</li>
+    <li><strong>The scale of NRSur7dq4's output.</strong> NRSur7dq4 returns the strain times 10<sup>21</sup>, and computes the masses and the amplitude without SI intermediates, which changes its float64 values by rounding. <code>scaled_strain=False</code>, which <code>WaveformOptions.lalsimulation_defaults()</code> also sets, gives LAL's scale.</li>
     <li><strong>Two options that are not LAL's defaults.</strong> With <code>version_fallback=False</code> the compiled model contains only the SpinTaylor prescription and is NaN where LAL would switch to the MSA or NNLO angles. With <code>extended_spintaylor=True</code> it is a different model: the SpinTaylor angles for every binary, with LAL's discrete switches made continuous. A separate report, <code>report/extended</code>, maps where the SpinTaylor angles fail and describes and validates the extended model.</li>
   </ul>
 </section>
@@ -272,7 +298,7 @@ h = wf.simulate_td("IMRPhenomXPNR", 1 / 4096, 20.0, mass_1=36.0, mass_2=29.0)</c
   <ul>
     <li><strong>Two approximants.</strong> Only IMRPhenomXPNR and NRSur7dq4 are public. IMRPhenomXAS and the 122019 higher modes exist as parts of IMRPhenomXPNR, but IMRPhenomXHM, XP and XPHM with their own flags, TaylorF2 and IMRPhenomD are not exposed.</li>
     <li><strong>Compilation time.</strong> IMRPhenomXPNR takes tens of seconds to compile, its gradient minutes, and every array shape and batch size compiles separately. JAX's persistent compilation cache (<code>jax_compilation_cache_dir</code>) would make the cost one-off per machine; it is not set up by the package.</li>
-    <li><strong>Accelerators untested.</strong> Everything here ran on the CPU. The code uses only float64 JAX operations and should run on a GPU, where float64 is slow on consumer hardware, but neither its accuracy nor its speed has been measured there.</li>
+    <li><strong>Accelerators untested.</strong> Everything here ran on the CPU. IMRPhenomXPNR uses float64 JAX operations, which are slow on consumer GPUs. NRSur7dq4 also runs in float32, but only through its pure functions, since the public functions and the conversions are float64. Neither model's accuracy or speed has been measured on a GPU.</li>
     <li><strong>Forward-mode derivatives of IMRPhenomXPNR.</strong> A gradient costs one Jacobian column per parameter with a non-zero tangent, evaluated together. That is affordable for the twelve parameters of a binary (<a href="#gradients">section {{sec:gradients}}</a>), but it does not scale to derivatives with respect to the frequencies or to many other inputs. A reverse-mode path would need the loops with traced lengths rewritten with fixed bounds.</li>
     <li><strong>Discontinuities.</strong> The waveform inherits LAL's discrete choices. Gradient-based samplers near a regime boundary, such as in-plane spins near 1e-6, or a SpinTaylor integration that just fails, see the derivative of one side only.</li>
     <li><strong>Long waveforms.</strong> For light binaries from low frequencies the SpinTaylor splines have millions of knots and the conversions' Fourier transforms millions of samples. These are fixed-shape arrays held in memory, and both cost and compilation grow with them.</li>
@@ -302,6 +328,7 @@ bash report/measure_all.sh
 # or one at a time
 python report/validate_xpnr.py --n-draws 200
 python report/validate_nrsur7dq4.py --n-draws 200
+python report/float32_nrsur7dq4.py
 python report/validate_conversions.py
 python report/gradients.py
 python report/benchmark.py

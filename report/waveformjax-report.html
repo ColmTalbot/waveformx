@@ -231,10 +231,10 @@ ol.pipeline .step-body { font-size: 0.97rem; }
   <h1>IMRPhenomXPNR and NRSur7dq4 in JAX, checked against LALSimulation</h1>
   <p class="dek">How two precessing waveform models, and LALSimulation's conversions between the time and frequency domains, were written as pure JAX functions that compile, vectorise and differentiate. The report covers how they compare with LALSimulation 6.2.0 and with waveformrs, how their derivatives compare with finite differences, and what they cost.</p>
   <dl class="meta">
-    <div><dt>Repository</dt><dd><code>waveformjax</code>, branch <code>main</code> at <code>c9148cd</code> (39 commits)</dd></div>
+    <div><dt>Repository</dt><dd><code>waveformjax</code>, branch <code>main</code> at <code>c31b9c3</code> (41 commits)</dd></div>
     <div><dt>Reference</dt><dd>lalsimulation 6.2.0, lal 7.7.0 (conda-forge, osx-arm64), and waveformrs's Python bindings</dd></div>
     <div><dt>Platform</dt><dd>Apple M2 Ultra, 24 cores; JAX 0.11.2 on the CPU; Python 3.12.15</dd></div>
-    <div><dt>Generated</dt><dd>20 October 2026</dd></div>
+    <div><dt>Generated</dt><dd>23 October 2026</dd></div>
   </dl>
   <p class="links"><a href="waveformjax-report.pdf">PDF copy</a><a href="#summary">Summary</a><a href="#design">Design</a><a href="#xpnr">IMRPhenomXPNR</a><a href="#nrsur">NRSur7dq4</a><a href="#accuracy">Accuracy</a><a href="#gradients">Derivatives</a><a href="#performance">Performance</a></p>
 </header>
@@ -263,10 +263,10 @@ ol.pipeline .step-body { font-size: 0.97rem; }
 <section id="summary">
   <h2>Summary</h2>
   <p class="lede">waveformjax implements the frequency-domain model IMRPhenomXPNR and the time-domain surrogate NRSur7dq4 in JAX, with the interface of waveformrs's Python bindings and LALSimulation's conventions. Every model is a pure function of a <code>Binary</code> pytree, so it can be compiled with <code>jax.jit</code>, evaluated for many binaries at once with <code>jax.vmap</code>, and differentiated with respect to all twelve parameters of the binary with <code>jax.grad</code>, <code>jax.jvp</code> and <code>jax.jacfwd</code>. LALSimulation's <code>SimInspiralTD</code> and <code>SimInspiralFD</code> are reproduced as well, with LAL's lengths and start times, and are differentiable too. The models follow LAL's code branch for branch, with each branch written as traced arithmetic. They agree with LALSimulation 6.2.0 to rounding for NRSur7dq4, and for IMRPhenomXPNR to the level at which different builds of LAL agree with each other.</p>
-  <div class="callout"><p><strong>Open items.</strong> The tests, the accuracy comparisons, the derivative checks and the timings below are complete. Still open:</p><ul><li>why finite differences of the full IMRPhenomXPNR waveform disagree with its derivatives in the in-plane spins (<a href="#gradients">the derivatives section</a>)</li><li>JAX on one core: setting XLA's thread flags (<code>--xla_cpu_multi_thread_eigen=false intra_op_parallelism_threads=1</code>) did not change the ~3 cores it keeps busy, so the per-core comparison with LAL and waveformrs is still to be made</li></ul></div>
+  <div class="callout"><p><strong>Open items.</strong> The tests, the accuracy comparisons, the derivative checks and the timings below are complete. Still open:</p><ul><li>why finite differences of the full IMRPhenomXPNR waveform disagree with its derivatives in the in-plane spins (<a href="#gradients">the derivatives section</a>)</li><li>JAX on one core: setting XLA's thread flags (<code>--xla_cpu_multi_thread_eigen=false intra_op_parallelism_threads=1</code>) did not change the ~3 cores it keeps busy, so the per-core comparison with LAL and waveformrs is still to be made</li><li>NRSur7dq4's float32 timings on an idle machine: they were measured while other jobs ran (<code>report/float32_nrsur7dq4.py --only-timings</code>; <a href="#nrsur">the NRSur7dq4 section</a>)</li></ul></div>
   <div class="cards">
     <div class="card"><span class="label">IMRPhenomXPNR against LAL 6.2.0</span><span class="value">≤ 6.6×10<sup>-5</sup></span><span class="note">Largest relative error, |h − h<sub>LAL</sub>| / max |h<sub>LAL</sub>|, over 200 random binaries (median 5.0×10<sup>-7</sup>); largest mismatch 4.9×10<sup>-9</sup>. With the parity fix, against LAL patched with it: ≤ 2.7×10<sup>-5</sup>.</span></div>
-    <div class="card"><span class="label">NRSur7dq4 against LAL 6.2.0</span><span class="value">≤ 2.9×10<sup>-12</sup></span><span class="note">Over 200 random binaries, with LAL's length and epoch in 200 of them; largest mismatch 3.3×10<sup>-16</sup>.</span></div>
+    <div class="card"><span class="label">NRSur7dq4 against LAL 6.2.0</span><span class="value">≤ 2.8×10<sup>-12</sup></span><span class="note">Over 200 random binaries, with LAL's length and epoch in 200 of them; largest mismatch 3.3×10<sup>-16</sup>.</span></div>
     <div class="card"><span class="label">NRSur7dq4 derivatives</span><span class="value">≤ 2.9×10<sup>-8</sup></span><span class="note">Largest disagreement of any column of the Jacobian with finite differences, over four binaries, wherever the waveform is differentiable. For IMRPhenomXPNR the finite differences disagree by up to 1.5×10<sup>-1</sup>, which is still being investigated (<a href="#gradients">section 8</a>).</span></div>
     <div class="card"><span class="label">One IMRPhenomXPNR waveform</span><span class="value">16.18 ms</span><span class="note">Compiled, on 8033 frequencies, against 13.54 ms for LALSimulation and 3.10 ms for waveformrs. The first call compiles for 37.6 s.</span></div>
     <div class="card"><span class="label">Batches with <code>jax.vmap</code></span><span class="value">102 / s</span><span class="note">IMRPhenomXPNR waveforms per second at best over batch sizes, against 4,293 / s for waveformrs on all threads and 72 / s for LALSimulation on one.</span></div>
@@ -279,16 +279,17 @@ ol.pipeline .step-body { font-size: 0.97rem; }
 <tr><td>IMRPhenomXPNR without the parity fix, against LALSimulation 6.2.0</td><td class="num">200/200</td><td class="num">6.6×10<sup>-5</sup></td><td class="num">5.0×10<sup>-7</sup></td><td class="num">4.9×10<sup>-9</sup></td><td class="num">5.2×10<sup>-12</sup></td></tr>
 <tr><td>IMRPhenomXPNR with the parity fix, against 6.2.0 + lalsuite !2593</td><td class="num">200/200</td><td class="num">2.7×10<sup>-5</sup></td><td class="num">5.9×10<sup>-7</sup></td><td class="num">2.8×10<sup>-9</sup></td><td class="num">6.7×10<sup>-12</sup></td></tr>
 <tr><td>IMRPhenomXPNR without the fix, against waveformrs</td><td class="num">200/200</td><td class="num">6.6×10<sup>-5</sup></td><td class="num">5.0×10<sup>-7</sup></td><td class="num">4.9×10<sup>-9</sup></td><td class="num">5.2×10<sup>-12</sup></td></tr>
-<tr><td>NRSur7dq4, against LALSimulation 6.2.0</td><td class="num">200/200</td><td class="num">2.9×10<sup>-12</sup></td><td class="num">2.8×10<sup>-13</sup></td><td class="num">3.3×10<sup>-16</sup></td><td class="num">0</td></tr>
-<tr><td>NRSur7dq4, against waveformrs</td><td class="num">200/200</td><td class="num">2.9×10<sup>-12</sup></td><td class="num">2.8×10<sup>-13</sup></td><td class="num">3.3×10<sup>-16</sup></td><td class="num">0</td></tr>
+<tr><td>NRSur7dq4, against LALSimulation 6.2.0</td><td class="num">200/200</td><td class="num">2.8×10<sup>-12</sup></td><td class="num">2.6×10<sup>-13</sup></td><td class="num">3.3×10<sup>-16</sup></td><td class="num">0</td></tr>
+<tr><td>NRSur7dq4, against waveformrs</td><td class="num">200/200</td><td class="num">2.8×10<sup>-12</sup></td><td class="num">2.6×10<sup>-13</sup></td><td class="num">3.3×10<sup>-16</sup></td><td class="num">0</td></tr>
       </tbody>
       <caption>Random binaries drawn as in waveformrs's report (<a href="#accuracy">section 7</a>). IMRPhenomXPNR is evaluated on 4,096 uniformly spaced frequencies per draw. "Draws" counts the draws compared. Mismatches use the aLIGO design sensitivity without maximisation.</caption>
     </table>
   </div>
   <p>In short:</p>
   <ul>
-    <li><strong>Implementation.</strong> 67 Python modules (19,621 lines, of which 4,381 are parameter-space fits generated from waveformrs's Rust by a translator) cover the two models, their checks and the conversions (<a href="#design">sections 2</a>–<a href="#conversions">5</a>).</li>
+    <li><strong>Implementation.</strong> 67 Python modules (19,736 lines, of which 4,381 are parameter-space fits generated from waveformrs's Rust by a translator) cover the two models, their checks and the conversions (<a href="#design">sections 2</a>–<a href="#conversions">5</a>).</li>
     <li><strong>Accuracy.</strong> NRSur7dq4 agrees with LAL at rounding level. IMRPhenomXPNR's (2,2) mode agrees to ~1e-9. Its higher modes agree to ~1e-5, because LAL takes derivatives by finite differences whose rounding noise JAX's different, but valid, arithmetic changes (<a href="#accuracy">section 7</a>).</li>
+    <li><strong>Single precision.</strong> NRSur7dq4 runs in float32 when the binary's parameters are float32, and returns the strain times 10<sup>21</sup> by default. In float32, an inner product between two different waveforms changes by 2.4×10<sup>-6</sup> of the product of their norms (median; at most 1.0×10<sup>-4</sup>). Derivatives agree with float64 to 5.6×10<sup>-5</sup> (<a href="#nrsur">section 4</a>).</li>
     <li><strong>Derivatives.</strong> IMRPhenomXPNR is differentiated in forward mode, and its reverse-mode gradient is the transpose of that forward-mode Jacobian. NRSur7dq4 is differentiated directly in either mode. NRSur7dq4's derivatives agree with finite differences to ~1e-8. For IMRPhenomXPNR, finite differences of the full waveform disagree with the derivatives by up to 1.5×10<sup>-1</sup>, most in the in-plane spins; the transform tests, which use the (2,2) mode, agree to ~1e-7. This is still being investigated (<a href="#gradients">section 8</a>).</li>
     <li><strong>Cost.</strong> A compiled IMRPhenomXPNR waveform costs about as much as LALSimulation's, and a few times as much as waveformrs's. <code>jax.vmap</code> over many binaries is how JAX code would use it. Compilation takes tens of seconds for the model and minutes for its gradient (<a href="#performance">section 9</a>).</li>
   </ul>
@@ -299,7 +300,7 @@ ol.pipeline .step-body { font-size: 0.97rem; }
 
 <section id="design">
   <h2>Models as pure JAX functions</h2>
-  <p class="lede">The package has the interface of waveformrs's Python bindings, with the same function names, keyword arguments, options, result classes and exceptions. Underneath, every model is a pure function of a <code>Binary</code>: a <code>NamedTuple</code> of float64 arrays, and so a JAX pytree.</p>
+  <p class="lede">The package has the interface of waveformrs's Python bindings, with the same function names, keyword arguments, options, result classes and exceptions. Underneath, every model is a pure function of a <code>Binary</code>: a <code>NamedTuple</code> of float64 arrays (or float32 arrays, for NRSur7dq4), and so a JAX pytree.</p>
 <pre class="code"><code>import jax, jax.numpy as jnp, numpy as np
 import waveformjax as wf
 
@@ -315,7 +316,12 @@ loss = lambda b: jnp.sum(jnp.abs(model(b, frequencies)[0]) ** 2)
 jax.grad(loss)(binary)                                      # a Binary of derivatives
 jax.vmap(model, in_axes=(0, None))(binaries, frequencies)    # many binaries at once
 
+# NRSur7dq4 gives the strain times 1e21 (scaled_strain=False: the strain itself)
 h = wf.td_polarizations("NRSur7dq4", 1 / 4096, 20.0, mass_1=40.0, mass_2=20.0)
+surrogate = wf.td_polarizations_function("NRSur7dq4")       # f(binary, times)
+single = wf.Binary(mass_1=jnp.float32(40.0), mass_2=jnp.float32(20.0), spin_1=jnp.zeros(3, jnp.float32),
+                   spin_2=jnp.zeros(3, jnp.float32), f_ref=20.0)
+hp, hc = surrogate(single, h.times)                         # in float32
 h = wf.simulate_td("IMRPhenomXPNR", 1 / 4096, 20.0, mass_1=36.0, mass_2=29.0)</code></pre>
   <p>A call goes through four stages:</p>
   <ol class="pipeline">
@@ -324,7 +330,7 @@ h = wf.simulate_td("IMRPhenomXPNR", 1 / 4096, 20.0, mass_1=36.0, mass_2=29.0)</c
     <li><span class="step-title">Traced arithmetic</span><span class="step-body">Inside, nothing branches in Python on the binary. Each of LAL's <code>if</code>s becomes a <code>jnp.where</code> between branches that are both evaluated, with safe arguments, so that the branch not taken cannot put NaN into the value or the gradient. Loops of fixed length are <code>lax.scan</code>; loops whose length depends on the binary are <code>lax.while_loop</code>. The precession prescriptions are branches of a switch.</span></li>
     <li><span class="step-title">Failures as NaN</span><span class="step-body">Failures that LAL can only detect while computing, such as a SpinTaylor integration that cannot reach the reference frequency, make the output NaN. The batch functions report those binaries as <code>ModelError</code> in <code>errors</code> and set their rows to zero.</span></li>
   </ol>
-  <p>Importing the package enables 64-bit floats (<code>jax_enable_x64</code>), which the models need. The thousands of fitted coefficients of IMRPhenomX are not copied by hand. <code>scripts/rust_to_python.py</code> parses the straight-line Rust of waveformrs (its <code>let</code> bindings, arithmetic, <code>fma</code> calls and <code>f64</code> methods) and emits the same expressions on JAX arrays. <code>scripts/generate_fits.py</code> then writes them into <code>models/xpnr/_generated/</code>. The control flow is written by hand, file by file after LAL's, and each module's docstring names the LAL function it follows.</p>
+  <p>Importing the package enables 64-bit floats (<code>jax_enable_x64</code>), which IMRPhenomXPNR needs; NRSur7dq4 also runs in float32 (<a href="#nrsur">section 4</a>). The thousands of fitted coefficients of IMRPhenomX are not copied by hand. <code>scripts/rust_to_python.py</code> parses the straight-line Rust of waveformrs (its <code>let</code> bindings, arithmetic, <code>fma</code> calls and <code>f64</code> methods) and emits the same expressions on JAX arrays. <code>scripts/generate_fits.py</code> then writes them into <code>models/xpnr/_generated/</code>. The control flow is written by hand, file by file after LAL's, and each module's docstring names the LAL function it follows.</p>
   <p>Each model package defines a <code>MODEL</code> with a fixed contract. A frequency-domain model has <code>validate</code>, <code>polarizations</code>, <code>modes</code> and <code>choose_fd_modes</code>. A time-domain model has <code>validate</code>, <code>td_polarizations</code>, <code>td_modes</code> and <code>polarizations_at</code>, the last of which evaluates the waveform at any given times. The public functions, the batches and the conversions are written once, against that contract.</p>
 </section>
 
@@ -367,6 +373,34 @@ h = wf.simulate_td("IMRPhenomXPNR", 1 / 4096, 20.0, mass_1=36.0, mass_2=29.0)</c
     <li><strong>Output grid.</strong> The number of samples depends on when the orbital frequency reaches π f<sub>min</sub>, so it is found on the host. A compiled pass evaluates the frequency fits, and numpy repeats LAL's search operation by operation. The waveform is then computed on a power-of-two buffer of at least 256 samples, which waveforms of similar length share, and trimmed to the binary's length.</li>
   </ul>
   <p><code>polarizations_at(binary, times)</code> evaluates the waveform at any times relative to the peak. It is pure and differentiable with respect to every parameter, including <code>f_ref</code>, which moves the reference time and so the frame. It is what <code>jax.vmap</code>, <code>jax.grad</code> and the conversions use.</p>
+  <h3>Single precision and the scale of the output</h3>
+  <p>NRSur7dq4 is evaluated in the precision of the binary's parameters. A <code>Binary</code> of float32 arrays is evaluated in float32 throughout, with a float32 copy of the data cast from the float64 arrays (the spline factorisations included). A test checks that no operation of the traced waveform, or of its gradient, is in float64. The public functions take Python numbers, so they stay in float64. Two changes make float32 usable:</p>
+  <ul>
+    <li><strong>The output is the strain times 10<sup>21</sup>.</strong> This applies to every NRSur7dq4 function, the public functions and the conversions included, unless <code>scaled_strain=False</code>. The strain itself fits in float32, but its square (~10<sup>−42</sup>) and a detector's power spectral density (~10<sup>−47</sup>) do not. The comparisons with LAL in this report use <code>scaled_strain=False</code>.</li>
+    <li><strong>Nothing passes through SI units.</strong> LAL converts the masses to kilograms and back (<code>m * MSUN_SI / MSUN_SI</code>) and works with the distance in metres. In float32, XLA folded the square of the solar mass in kilograms (~4×10<sup>60</sup>, beyond float32's range) into the derivative of the mass ratio, so the compiled gradient was NaN. The derivative with respect to a distance of ~10<sup>25</sup> m underflowed to zero. The masses now stay in solar masses, and the amplitude is one constant times the total mass over the distance in Mpc. In float64 this changes the waveform by rounding only.</li>
+  </ul>
+  <p>What float32 costs in accuracy was measured on 300 pairs of binaries, drawn as for the accuracy comparison (<code>report/float32_nrsur7dq4.py</code>). 150 pairs are two independent binaries, whose overlaps are near zero. The other 150 are a binary and a small perturbation of its masses, spins and angles, with a median overlap of 0.95. Both binaries of a pair are evaluated on one time grid, in float64 and in float32, projected on a detector and tapered at the start. Inner products use the aLIGO design sensitivity from 20 Hz, without maximisation, and are computed in float64 unless stated otherwise.</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Change from float64 to float32</th><th class="num">Median</th><th class="num">90th percentile</th><th class="num">Largest</th></tr></thead>
+      <tbody>
+<tr><td>Inner product of the two waveforms, change over the product of their norms</td><td class="num">2.4×10<sup>-6</sup></td><td class="num">2.0×10<sup>-5</sup></td><td class="num">1.0×10<sup>-4</sup></td></tr>
+<tr><td>Normalised overlap, independent binaries</td><td class="num">9.9×10<sup>-7</sup></td><td class="num">8.0×10<sup>-6</sup></td><td class="num">3.9×10<sup>-5</sup></td></tr>
+<tr><td>Normalised overlap, nearby binaries</td><td class="num">4.1×10<sup>-6</sup></td><td class="num">3.0×10<sup>-5</sup></td><td class="num">1.0×10<sup>-4</sup></td></tr>
+<tr><td>Normalised overlap, with the inner products in float32 too</td><td class="num">2.1×10<sup>-6</sup></td><td class="num">1.9×10<sup>-5</sup></td><td class="num">1.0×10<sup>-4</sup></td></tr>
+<tr><td>Normalised overlap, with the dynamics in float64</td><td class="num">2.8×10<sup>-7</sup></td><td class="num">1.7×10<sup>-6</sup></td><td class="num">4.6×10<sup>-6</sup></td></tr>
+<tr><td>One waveform, noise-weighted relative error ‖δh‖ / ‖h‖</td><td class="num">3.8×10<sup>-5</sup></td><td class="num">8.3×10<sup>-5</sup></td><td class="num">2.5×10<sup>-4</sup></td></tr>
+<tr><td>One waveform, largest relative error max |δh| / max |h|</td><td class="num">5.1×10<sup>-5</sup></td><td class="num">1.3×10<sup>-4</sup></td><td class="num">7.5×10<sup>-4</sup></td></tr>
+<tr><td>One waveform, relative error of ⟨h, h⟩</td><td class="num">6.4×10<sup>-7</sup></td><td class="num">3.1×10<sup>-6</sup></td><td class="num">2.9×10<sup>-5</sup></td></tr>
+<tr><td>Derivatives of a log-likelihood, relative error (40 nearby pairs)</td><td class="num">5.6×10<sup>-5</sup></td><td class="num">6.0×10<sup>-4</sup></td><td class="num">4.5×10<sup>-1</sup></td></tr>
+<tr><td>Derivatives of a log-likelihood, error over the typical size of the component</td><td class="num">6.5×10<sup>-7</sup></td><td class="num">3.1×10<sup>-5</sup></td><td class="num">2.0×10<sup>-3</sup></td></tr>
+      </tbody>
+      <caption>NRSur7dq4 in float32 against float64. The overlaps and inner products are between the two binaries of a pair. "With the inner products in float32 too" also does the whitened Fourier transforms and sums in float32. "With the dynamics in float64" integrates the ODE in float64 and computes the rest in float32. The log-likelihood is ⟨d, h⟩ − ⟨h, h⟩/2, with noise-free data d from the other binary; its derivatives exclude f<sub>ref</sub>, which is zero for half the pairs. Data: <code>report/data/float32_nrsur7dq4.json</code>.</caption>
+    </table>
+  </div>
+  <p>An inner product between two different waveforms changes by 2.4×10<sup>-6</sup> of the product of their norms (median), and by at most 1.0×10<sup>-4</sup>. Doing the inner products themselves in float32 adds at most 1.7×10<sup>-7</sup> to the overlap. The error of a single waveform, 3.8×10<sup>-5</sup> (median, noise-weighted), is mostly rounding noise from the final resampling onto the float32 time grid: with everything up to the polarizations on the surrogate's own times in float64, it is still 2.5×10<sup>-5</sup>. That noise is almost uncorrelated with another waveform, so it barely moves their inner product. The ODE integrated in float32 is what does. With the dynamics in float64 and the rest in float32, the change of the overlap falls from 2.1×10<sup>-6</sup> to 2.8×10<sup>-7</sup> (median), and from 1.9×10<sup>-5</sup> to 1.7×10<sup>-6</sup> at the 90th percentile.</p>
+  <p>Between nearby binaries the log-likelihood changes by 4.2×10<sup>-6</sup> ρ² (median; 2.8×10<sup>-5</sup> ρ² at the 90th percentile), where ρ is the signal-to-noise ratio. That is 1.7×10<sup>-3</sup> at ρ = 20 and 4.2×10<sup>-2</sup> at ρ = 100 (2.8×10<sup>-1</sup> at the 90th percentile). With noise in the data, a further ⟨n, δh⟩ of about ρ ‖δh‖ / ‖h‖ is added. The float32 derivatives agree with the float64 ones to 5.6×10<sup>-5</sup> (median relative error), or 6.0×10<sup>-4</sup> at the 90th percentile. The largest relative errors are in components whose derivative almost vanishes; measured against the typical size of each component, no error exceeds 2.0×10<sup>-3</sup>.</p>
+  <p>On this CPU, float32 is 1.1× as fast for one waveform (2.74 ms against 3.05 ms on 8192 samples). It is 1.7× as fast for a batch of 64 under <code>jax.vmap</code> (56.61 ms against 94.01 ms), and 1.4× for a gradient. The dynamics, a sequence of 230 small steps, take 48% of a float64 batch. Keeping them in float64 would make the inner products about ten times more accurate, at the cost of part of the speed-up on the CPU; the package does not do this. float32 matters most on accelerators, where float64 is much slower, and there it has not been measured.</p>
 </section>
 
 <section id="conversions">
@@ -1351,180 +1385,180 @@ z
     </defs>
     <g clip-path="url(#p11883e115d)">
      <use xlink:href="#m6f4f49230c" x="552.043672" y="136.571896" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="448.078171" y="148.852231" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="493.166456" y="145.619908" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="448.078171" y="148.848831" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="493.166456" y="146.034648" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="519.645892" y="140.733902" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="536.949628" y="146.753604" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="357.414338" y="147.918527" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="357.414338" y="147.987168" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="352.698649" y="152.648303" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="466.574803" y="138.573934" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="466.574803" y="138.573626" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="575.408949" y="145.942405" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="457.556667" y="140.774539" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="457.556667" y="140.774443" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="381.903457" y="141.674499" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="499.948238" y="145.070914" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="401.035279" y="142.830004" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="537.060746" y="158.674608" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="401.035279" y="142.8299" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="537.060746" y="158.675533" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="352.106885" y="142.24655" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="553.733135" y="139.780958" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="553.733135" y="139.610927" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="511.124191" y="144.725797" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="389.045672" y="139.96007" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="352.887548" y="142.662737" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="389.045672" y="141.17877" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="352.887548" y="142.66222" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="537.087669" y="149.511696" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="471.035167" y="136.384136" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="363.362633" y="147.468611" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="471.035167" y="136.270381" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="363.362633" y="147.465892" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="468.6392" y="141.20256" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="517.220709" y="150.526743" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="574.865159" y="143.330801" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="517.220709" y="150.790436" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="574.865159" y="142.438886" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="354.841554" y="150.419389" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="517.672287" y="151.06752" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="381.115328" y="152.362402" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="517.672287" y="159.197322" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="381.115328" y="148.227989" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="577.086567" y="142.04462" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="552.229514" y="146.541057" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="451.000749" y="149.42113" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="341.097031" y="143.41436" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="451.000749" y="150.394752" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="341.097031" y="143.415636" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="375.070913" y="145.51899" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="481.936974" y="137.123674" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="393.066564" y="131.556159" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="385.41348" y="141.07413" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="468.015915" y="146.163958" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="353.70715" y="136.356325" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="526.811207" y="143.658545" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="416.215072" y="149.316751" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="546.268451" y="136.282416" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="496.09523" y="147.532847" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="491.865271" y="147.792736" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="385.41348" y="141.077964" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="468.015915" y="146.164536" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="353.70715" y="136.355994" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="526.811207" y="143.658273" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="416.215072" y="149.384611" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="546.268451" y="136.282268" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="496.09523" y="149.454435" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="491.865271" y="148.758951" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="514.144698" y="145.253575" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="461.738098" y="148.711894" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="461.738098" y="150.44908" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="424.922177" y="143.361123" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="530.074973" y="140.708555" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="524.630225" y="142.280107" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="493.105388" y="145.703673" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="530.074973" y="141.051583" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="524.630225" y="142.282937" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="493.105388" y="146.532498" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="562.326059" y="150.514283" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="439.776135" y="146.816885" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="530.959985" y="142.334589" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="497.899376" y="144.747103" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="444.192899" y="144.211394" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="530.959985" y="142.063211" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="497.899376" y="144.749618" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="444.192899" y="144.21228" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="475.874783" y="149.139382" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="405.376168" y="145.916579" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="442.38337" y="144.913308" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="452.015245" y="138.384045" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="470.404973" y="141.054935" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="442.38337" y="144.913462" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="452.015245" y="138.383871" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="470.404973" y="141.054718" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="416.283694" y="144.053419" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="413.829834" y="157.72685" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="510.910702" y="149.87333" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="536.600422" y="152.481592" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="374.809146" y="136.153988" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="395.672766" y="135.975705" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="402.095707" y="136.607625" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="413.829834" y="157.73228" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="510.910702" y="149.874331" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="536.600422" y="147.678647" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="374.809146" y="136.349586" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="395.672766" y="135.922003" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="402.095707" y="136.606953" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="493.818489" y="144.088597" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="502.419449" y="136.907981" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="344.3045" y="140.285139" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="516.145235" y="140.981663" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="387.454946" y="142.354225" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="460.98281" y="139.209602" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="363.95008" y="148.404762" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="396.072351" y="152.611734" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="438.690711" y="157.104309" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="550.648333" y="135.504673" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="363.95008" y="148.4048" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="396.072351" y="154.026372" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="438.690711" y="157.105891" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="550.648333" y="135.572733" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="356.678951" y="144.401254" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="376.086847" y="141.896848" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="376.086847" y="151.023962" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="427.077995" y="137.418093" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="391.458686" y="131.336017" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="560.114271" y="145.561121" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="388.026029" y="160.091376" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="388.026029" y="156.467556" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="430.346838" y="136.986197" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="435.336265" y="145.365255" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="454.182978" y="141.446534" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="461.207848" y="140.208861" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="432.236684" y="144.630472" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="476.741946" y="140.21246" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="374.346054" y="143.560617" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="420.580381" y="145.912366" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="461.207848" y="140.208736" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="432.236684" y="149.274506" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="476.741946" y="140.217052" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="374.346054" y="146.393062" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="420.580381" y="145.319203" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="451.774239" y="153.912693" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="394.61589" y="140.540234" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="394.61589" y="140.540197" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="499.601777" y="144.682542" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="354.354569" y="152.778383" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="446.421698" y="156.698232" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="354.354569" y="149.680662" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="446.421698" y="156.72607" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="408.566713" y="152.490053" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="487.051345" y="148.355923" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="436.305452" y="150.039863" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="370.668021" y="141.12991" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="517.384666" y="150.520928" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="487.051345" y="148.359566" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="436.305452" y="149.2692" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="370.668021" y="141.621874" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="517.384666" y="151.939099" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="450.450657" y="138.69912" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="479.658045" y="138.439773" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="551.677981" y="144.31721" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="479.658045" y="138.250971" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="551.677981" y="144.318223" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="459.063573" y="144.198624" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="489.764462" y="159.54894" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="470.23701" y="131.188132" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="489.764462" y="156.909772" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="470.23701" y="131.373941" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="483.731048" y="146.470615" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="493.605539" y="155.2818" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="496.53566" y="139.608282" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="389.880006" y="136.635463" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="493.605539" y="155.29003" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="496.53566" y="139.607926" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="389.880006" y="136.682926" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="387.853293" y="137.611369" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="484.33473" y="150.646809" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="550.913628" y="153.374036" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="554.346606" y="163.409609" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="571.550361" y="139.881178" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="550.913628" y="153.375744" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="554.346606" y="159.819655" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="571.550361" y="139.87208" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="409.430514" y="144.745781" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="552.694365" y="148.266285" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="552.694365" y="148.267402" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="488.466101" y="133.235564" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="502.351484" y="140.17449" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="384.822544" y="139.435099" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="502.351484" y="140.174499" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="384.822544" y="139.447134" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="564.408809" y="151.143159" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="455.32979" y="145.820726" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="378.09363" y="146.71224" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="378.09363" y="145.198788" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="341.053933" y="144.895307" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="460.570444" y="143.308134" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="346.284941" y="153.40804" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="460.570444" y="143.308989" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="346.284941" y="149.984853" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="366.957989" y="138.821628" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="441.050677" y="146.383504" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="441.050677" y="147.200878" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="494.024989" y="155.774711" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="407.922543" y="146.4843" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="407.922543" y="146.553188" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="519.317233" y="138.605413" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="536.912343" y="143.793116" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="444.041907" y="140.900897" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="419.188615" y="136.788466" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="533.256009" y="151.721707" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="425.362744" y="150.957436" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="419.188615" y="137.362191" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="533.256009" y="151.722163" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="425.362744" y="150.9553" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="522.545428" y="148.356482" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="567.948487" y="156.607076" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="399.578781" y="145.545009" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="567.948487" y="156.573245" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="399.578781" y="146.486117" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="393.49178" y="139.163223" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="516.453484" y="147.759333" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="508.105406" y="141.743199" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="516.453484" y="147.757621" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="508.105406" y="142.543736" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="557.519922" y="140.524582" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="391.591533" y="147.882176" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="423.673748" y="139.01343" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="498.588995" y="150.783982" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="391.591533" y="153.49154" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="423.673748" y="139.034976" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="498.588995" y="149.801668" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="355.244488" y="144.167105" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="426.739947" y="132.535633" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="426.223062" y="137.677706" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="422.424726" y="145.96123" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="541.908586" y="138.723606" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="435.449085" y="147.474613" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="437.929343" y="141.947685" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="426.739947" y="132.415476" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="426.223062" y="137.486427" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="422.424726" y="145.961374" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="541.908586" y="138.723765" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="435.449085" y="147.474629" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="437.929343" y="141.943787" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="497.691119" y="138.637693" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="476.028843" y="134.754597" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="486.526557" y="144.758555" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="476.028843" y="134.754773" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="486.526557" y="144.750286" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="383.545706" y="144.705967" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="465.668053" y="151.366592" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="465.668053" y="150.314998" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="402.716418" y="143.190479" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="345.327079" y="143.44857" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="361.985141" y="147.351112" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="436.501837" y="139.997517" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="436.501837" y="140.000973" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="486.689465" y="138.151093" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="574.605668" y="146.077032" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="383.724337" y="136.566247" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="383.724337" y="137.323896" style="fill: #2f9e6e; fill-opacity: 0.75"/>
      <use xlink:href="#m6f4f49230c" x="561.836142" y="141.270853" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="526.103195" y="142.220507" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="366.535227" y="132.510641" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="514.359305" y="135.054102" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="575.201108" y="135.885555" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="473.798512" y="139.058061" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="408.241443" y="148.571228" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="434.102962" y="136.832854" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="507.384096" y="144.018735" style="fill: #2f9e6e; fill-opacity: 0.75"/>
-     <use xlink:href="#m6f4f49230c" x="520.257666" y="155.480578" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="526.103195" y="142.220261" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="366.535227" y="132.431392" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="514.359305" y="135.096376" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="575.201108" y="135.875404" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="473.798512" y="139.057671" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="408.241443" y="149.93369" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="434.102962" y="136.832603" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="507.384096" y="143.544764" style="fill: #2f9e6e; fill-opacity: 0.75"/>
+     <use xlink:href="#m6f4f49230c" x="520.257666" y="153.945982" style="fill: #2f9e6e; fill-opacity: 0.75"/>
     </g>
    </g>
    <g id="PathCollection_6">
@@ -1537,26 +1571,26 @@ z
     </defs>
     <g clip-path="url(#p11883e115d)">
      <use xlink:href="#m9ad90ebe9c" x="574.276712" y="141.597915" style="fill: #9b59c9; fill-opacity: 0.85"/>
-     <use xlink:href="#m9ad90ebe9c" x="446.181015" y="142.899435" style="fill: #9b59c9; fill-opacity: 0.85"/>
-     <use xlink:href="#m9ad90ebe9c" x="468.33475" y="145.331239" style="fill: #9b59c9; fill-opacity: 0.85"/>
+     <use xlink:href="#m9ad90ebe9c" x="446.181015" y="142.899885" style="fill: #9b59c9; fill-opacity: 0.85"/>
+     <use xlink:href="#m9ad90ebe9c" x="468.33475" y="149.866957" style="fill: #9b59c9; fill-opacity: 0.85"/>
      <use xlink:href="#m9ad90ebe9c" x="421.693886" y="140.498922" style="fill: #9b59c9; fill-opacity: 0.85"/>
      <use xlink:href="#m9ad90ebe9c" x="528.703312" y="152.529165" style="fill: #9b59c9; fill-opacity: 0.85"/>
      <use xlink:href="#m9ad90ebe9c" x="574.649445" y="152.099918" style="fill: #9b59c9; fill-opacity: 0.85"/>
-     <use xlink:href="#m9ad90ebe9c" x="574.187682" y="146.557659" style="fill: #9b59c9; fill-opacity: 0.85"/>
+     <use xlink:href="#m9ad90ebe9c" x="574.187682" y="146.557299" style="fill: #9b59c9; fill-opacity: 0.85"/>
      <use xlink:href="#m9ad90ebe9c" x="418.550952" y="138.443402" style="fill: #9b59c9; fill-opacity: 0.85"/>
-     <use xlink:href="#m9ad90ebe9c" x="431.922211" y="144.654968" style="fill: #9b59c9; fill-opacity: 0.85"/>
-     <use xlink:href="#m9ad90ebe9c" x="362.690413" y="141.903408" style="fill: #9b59c9; fill-opacity: 0.85"/>
-     <use xlink:href="#m9ad90ebe9c" x="352.987369" y="149.546433" style="fill: #9b59c9; fill-opacity: 0.85"/>
-     <use xlink:href="#m9ad90ebe9c" x="345.211538" y="150.310727" style="fill: #9b59c9; fill-opacity: 0.85"/>
-     <use xlink:href="#m9ad90ebe9c" x="540.221688" y="159.434463" style="fill: #9b59c9; fill-opacity: 0.85"/>
-     <use xlink:href="#m9ad90ebe9c" x="556.973543" y="147.958538" style="fill: #9b59c9; fill-opacity: 0.85"/>
+     <use xlink:href="#m9ad90ebe9c" x="431.922211" y="144.654675" style="fill: #9b59c9; fill-opacity: 0.85"/>
+     <use xlink:href="#m9ad90ebe9c" x="362.690413" y="141.90063" style="fill: #9b59c9; fill-opacity: 0.85"/>
+     <use xlink:href="#m9ad90ebe9c" x="352.987369" y="149.54889" style="fill: #9b59c9; fill-opacity: 0.85"/>
+     <use xlink:href="#m9ad90ebe9c" x="345.211538" y="156.391225" style="fill: #9b59c9; fill-opacity: 0.85"/>
+     <use xlink:href="#m9ad90ebe9c" x="540.221688" y="159.403562" style="fill: #9b59c9; fill-opacity: 0.85"/>
+     <use xlink:href="#m9ad90ebe9c" x="556.973543" y="147.957888" style="fill: #9b59c9; fill-opacity: 0.85"/>
      <use xlink:href="#m9ad90ebe9c" x="580.559866" y="149.977007" style="fill: #9b59c9; fill-opacity: 0.85"/>
-     <use xlink:href="#m9ad90ebe9c" x="579.181112" y="143.215613" style="fill: #9b59c9; fill-opacity: 0.85"/>
+     <use xlink:href="#m9ad90ebe9c" x="579.181112" y="143.215982" style="fill: #9b59c9; fill-opacity: 0.85"/>
      <use xlink:href="#m9ad90ebe9c" x="344.658185" y="131.661376" style="fill: #9b59c9; fill-opacity: 0.85"/>
      <use xlink:href="#m9ad90ebe9c" x="480.293606" y="146.643472" style="fill: #9b59c9; fill-opacity: 0.85"/>
-     <use xlink:href="#m9ad90ebe9c" x="509.003901" y="150.03844" style="fill: #9b59c9; fill-opacity: 0.85"/>
+     <use xlink:href="#m9ad90ebe9c" x="509.003901" y="150.037942" style="fill: #9b59c9; fill-opacity: 0.85"/>
      <use xlink:href="#m9ad90ebe9c" x="438.1965" y="142.048799" style="fill: #9b59c9; fill-opacity: 0.85"/>
-     <use xlink:href="#m9ad90ebe9c" x="351.478742" y="140.674526" style="fill: #9b59c9; fill-opacity: 0.85"/>
+     <use xlink:href="#m9ad90ebe9c" x="351.478742" y="140.674572" style="fill: #9b59c9; fill-opacity: 0.85"/>
      <use xlink:href="#m9ad90ebe9c" x="382.497459" y="153.67407" style="fill: #9b59c9; fill-opacity: 0.85"/>
      <use xlink:href="#m9ad90ebe9c" x="453.546134" y="152.282824" style="fill: #9b59c9; fill-opacity: 0.85"/>
      <use xlink:href="#m9ad90ebe9c" x="559.148783" y="154.791593" style="fill: #9b59c9; fill-opacity: 0.85"/>
@@ -1855,7 +1889,7 @@ z
 </div>
     <figcaption>Largest relative error of each draw against total mass. Left: IMRPhenomXPNR on 4,096 uniformly spaced frequencies from f<sub>min</sub> to min(0.3/M, 2048 Hz), without the parity fix against LALSimulation 6.2.0, and with it against 6.2.0 patched with lalsuite !2593. Right: NRSur7dq4 against <code>SimInspiralChooseTDWaveform</code>. Data: <code>report/data/validation_*.json</code>.</figcaption>
   </figure>
-  <p><strong>NRSur7dq4</strong> agrees with LAL to 2.9×10<sup>-12</sup> at most (median 2.8×10<sup>-13</sup>), with LAL's length and epoch in every compared draw (200/200). LAL evaluates all 200 draws, and so does waveformjax. The residual comes from summing the fits in a different order and from XLA's own <code>exp</code>, <code>sin</code> and <code>cos</code>. The rotation to the inertial frame and the splines are linear, so the errors stay at rounding level. waveformrs, which agrees with LAL bit for bit, gives the same comparison (2.9×10<sup>-12</sup>).</p>
+  <p><strong>NRSur7dq4</strong> agrees with LAL to 2.8×10<sup>-12</sup> at most (median 2.6×10<sup>-13</sup>), with LAL's length and epoch in every compared draw (200/200). LAL evaluates all 200 draws, and so does waveformjax. The residual comes from summing the fits in a different order and from XLA's own <code>exp</code>, <code>sin</code> and <code>cos</code>. The rotation to the inertial frame and the splines are linear, so the errors stay at rounding level. waveformrs, which agrees with LAL bit for bit, gives the same comparison (2.8×10<sup>-12</sup>).</p>
   <p><strong>IMRPhenomXPNR</strong> agrees with LAL 6.2.0 to 6.6×10<sup>-5</sup> at most, with median 5.0×10<sup>-7</sup>, a 90th percentile of 3.2×10<sup>-6</sup> and mismatches below 4.9×10<sup>-9</sup>. The tests show where the difference comes from. The (2,2) mode alone, with its PNR angles and antisymmetric part, agrees to ~1e-9. The higher modes agree to ~1e-5, as different builds of LAL agree with each other. LAL fixes the intermediate amplitude of each higher mode with a fourth-order finite difference of the inspiral amplitude, with a step of 1e-9, which turns rounding of 1e-16 into ~1e-7 in the derivative. It fixes the intermediate phase of the (3,2) mode with a second derivative of a phase of up to 1e4 rad, by central differences with a step of 1e-7, amplifying rounding by ~1e14. Without fused multiply-adds, which JAX does not expose portably, the JAX arithmetic rounds differently from LAL's arm64 build, and these finite differences turn that into a visible difference. Neither value is more accurate than the other. The errors grow with the total mass, where the merger and ringdown, and so the higher modes, carry more of the band: the median is 2.9×10<sup>-7</sup> below 20 M<sub>☉</sub> and 1.5×10<sup>-6</sup> above 150 M<sub>☉</sub>. The largest errors, a few 1e-5, are for heavy binaries with in-plane spins near 0.9. 2% of the draws exceed 1e-5.</p>
   <p>With the parity fix, the model agrees with LAL 6.2.0 patched with lalsuite !2593 to 2.7×10<sup>-5</sup> (median 5.9×10<sup>-7</sup>, mismatch ≤ 2.8×10<sup>-9</sup>, over 200 draws). On the same draws waveformrs agrees with that patched library to 3.4×10<sup>-15</sup>. LAL evaluates all 200 draws, and so does waveformjax.</p>
   <h3>Conversions</h3>
@@ -3939,6 +3973,7 @@ L 480.508828 165.109844
     <li><strong>Values where LAL divides by zero.</strong> At isolated points of the parameter space, LAL's MSA formulas divide by an exact zero and produce inf or NaN. Here the values there are finite, and so are the gradients nearby, for example at equal masses or for a single spin.</li>
     <li><strong>No multibanding.</strong> LAL's <code>SimInspiralChooseFDWaveform</code> uses multibanding by default for IMRPhenomXPNR; waveformjax, like waveformrs, evaluates every frequency. <code>SimInspiralChooseFDWaveformSequence</code> has multibanding off, and the conversions are compared with it off.</li>
     <li><strong>No data race.</strong> LAL's MSA and PNR angles race under OpenMP. waveformjax agrees with single-threaded LAL.</li>
+    <li><strong>The scale of NRSur7dq4's output.</strong> NRSur7dq4 returns the strain times 10<sup>21</sup>, and computes the masses and the amplitude without SI intermediates, which changes its float64 values by rounding. <code>scaled_strain=False</code>, which <code>WaveformOptions.lalsimulation_defaults()</code> also sets, gives LAL's scale.</li>
     <li><strong>Two options that are not LAL's defaults.</strong> With <code>version_fallback=False</code> the compiled model contains only the SpinTaylor prescription and is NaN where LAL would switch to the MSA or NNLO angles. With <code>extended_spintaylor=True</code> it is a different model: the SpinTaylor angles for every binary, with LAL's discrete switches made continuous. A separate report, <code>report/extended</code>, maps where the SpinTaylor angles fail and describes and validates the extended model.</li>
   </ul>
 </section>
@@ -3948,7 +3983,7 @@ L 480.508828 165.109844
   <ul>
     <li><strong>Two approximants.</strong> Only IMRPhenomXPNR and NRSur7dq4 are public. IMRPhenomXAS and the 122019 higher modes exist as parts of IMRPhenomXPNR, but IMRPhenomXHM, XP and XPHM with their own flags, TaylorF2 and IMRPhenomD are not exposed.</li>
     <li><strong>Compilation time.</strong> IMRPhenomXPNR takes tens of seconds to compile, its gradient minutes, and every array shape and batch size compiles separately. JAX's persistent compilation cache (<code>jax_compilation_cache_dir</code>) would make the cost one-off per machine; it is not set up by the package.</li>
-    <li><strong>Accelerators untested.</strong> Everything here ran on the CPU. The code uses only float64 JAX operations and should run on a GPU, where float64 is slow on consumer hardware, but neither its accuracy nor its speed has been measured there.</li>
+    <li><strong>Accelerators untested.</strong> Everything here ran on the CPU. IMRPhenomXPNR uses float64 JAX operations, which are slow on consumer GPUs. NRSur7dq4 also runs in float32, but only through its pure functions, since the public functions and the conversions are float64. Neither model's accuracy or speed has been measured on a GPU.</li>
     <li><strong>Forward-mode derivatives of IMRPhenomXPNR.</strong> A gradient costs one Jacobian column per parameter with a non-zero tangent, evaluated together. That is affordable for the twelve parameters of a binary (<a href="#gradients">section 8</a>), but it does not scale to derivatives with respect to the frequencies or to many other inputs. A reverse-mode path would need the loops with traced lengths rewritten with fixed bounds.</li>
     <li><strong>Discontinuities.</strong> The waveform inherits LAL's discrete choices. Gradient-based samplers near a regime boundary, such as in-plane spins near 1e-6, or a SpinTaylor integration that just fails, see the derivative of one side only.</li>
     <li><strong>Long waveforms.</strong> For light binaries from low frequencies the SpinTaylor splines have millions of knots and the conversions' Fourier transforms millions of samples. These are fixed-shape arrays held in memory, and both cost and compilation grow with them.</li>
@@ -3978,6 +4013,7 @@ bash report/measure_all.sh
 # or one at a time
 python report/validate_xpnr.py --n-draws 200
 python report/validate_nrsur7dq4.py --n-draws 200
+python report/float32_nrsur7dq4.py
 python report/validate_conversions.py
 python report/gradients.py
 python report/benchmark.py
@@ -4030,6 +4066,8 @@ python report/build_report.py</code></pre>
 <tr><td class="mono">4476314</td><td></td><td>Merge the IMRPhenomXPNR compile, batching and forward-mode speed-ups</td></tr>
 <tr><td class="mono">deeffce</td><td><span class="chip bad">FIX</span></td><td>the conversions of IMRPhenomXPNR differentiate the model in forward mode</td></tr>
 <tr><td class="mono">0a93b55</td><td><span class="chip bad">FIX</span></td><td>NRSur7dq4 data read inside jax.jit are concrete arrays</td></tr>
+<tr><td class="mono">027e282</td><td><span class="chip info">FEAT</span></td><td>IMRPhenomXPNR without fallbacks, and extended, continuous SpinTaylor angles</td></tr>
+<tr><td class="mono">c31b9c3</td><td><span class="chip info">FEAT</span></td><td>NRSur7dq4 in float32, with the strain times 1e21 by default</td></tr>
       </tbody>
     </table>
   </div>

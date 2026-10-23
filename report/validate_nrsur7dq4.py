@@ -109,7 +109,7 @@ def lal_waveform(case):
 
 
 def jax_waveform(case):
-    out = wf.td_polarizations("NRSur7dq4", case["delta_t"], case["f_min"], **keywords_of(case))
+    out = wf.td_polarizations("NRSur7dq4", case["delta_t"], case["f_min"], scaled_strain=False, **keywords_of(case))
     return float(out.epoch), np.asarray(out.hplus), np.asarray(out.hcross)
 
 

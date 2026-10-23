@@ -53,6 +53,7 @@ TEST_FILES = {
     "test_nrsur7dq4.py": "NRSur7dq4 polarizations, modes, dynamics, errors, data file, batches",
     "test_nrsur7dq4_random.py": "NRSur7dq4, 64 random binaries against LAL (slow)",
     "test_transforms_nrsur7dq4.py": "NRSur7dq4 under <code>jit</code>, <code>vmap</code> and <code>grad</code>, removable singularities",
+    "test_nrsur7dq4_float32.py": "NRSur7dq4 in float32 (no float64 operation, accuracy, <code>jit</code>, <code>vmap</code>, <code>grad</code>) and the scale of its output",
     "test_conversions.py": "<code>simulate_td</code> and <code>simulate_fd</code>: lengths, epochs, filters, tapers against LAL",
     "test_transforms_conversions.py": "The conversions as pure functions under <code>jit</code>, <code>vmap</code> and <code>grad</code>",
 }
@@ -157,6 +158,54 @@ def failure_text(data, how):
             f"({agree}/{n} agree).")
 
 
+def float32_values(values):
+    """The float32 study of NRSur7dq4 (``float32_nrsur7dq4.json``)."""
+    data = load("float32_nrsur7dq4.json")
+    s = data["summary"]
+    values["f32_pairs"] = str(s["all"]["n"])
+    values["f32_pairs_each"] = str(s["random"]["n"])
+    values["f32_nearby_overlap"] = f"{s['nearby']['overlap_median']:.2f}"
+    gradients = s["gradients"]["grad_log_likelihood"]
+    rows = [
+        ("Inner product of the two waveforms, change over the product of their norms", s["all"]["epsilon_single"]),
+        ("Normalised overlap, independent binaries", s["random"]["d_overlap_single"]),
+        ("Normalised overlap, nearby binaries", s["nearby"]["d_overlap_single"]),
+        ("Normalised overlap, with the inner products in float32 too", s["all"]["d_overlap_single_inner32"]),
+        ("Normalised overlap, with the dynamics in float64", s["all"]["d_overlap_dynamics64"]),
+        ("One waveform, noise-weighted relative error ‖δh‖ / ‖h‖", s["waveforms"]["noise_weighted_single"]),
+        ("One waveform, largest relative error max |δh| / max |h|", s["waveforms"]["max_relative"]),
+        ("One waveform, relative error of ⟨h, h⟩", s["waveforms"]["norm_error"]),
+        (f"Derivatives of a log-likelihood, relative error ({gradients['n']} nearby pairs)", gradients["relative"]),
+        ("Derivatives of a log-likelihood, error over the typical size of the component", gradients["over_typical"]),
+    ]
+    values["float32_rows"] = "\n".join(
+        f"<tr><td>{label}</td><td class=\"num\">{sci(e['median'])}</td><td class=\"num\">{sci(e['p90'])}</td>"
+        f"<td class=\"num\">{sci(e['max'])}</td></tr>" for label, e in rows)
+    eps, overlap = s["all"]["epsilon_single"], s["all"]["d_overlap_single"]
+    values["f32_eps_median"], values["f32_eps_max"] = sci(eps["median"]), sci(eps["max"])
+    values["f32_do_median"], values["f32_do_p90"] = sci(overlap["median"]), sci(overlap["p90"])
+    dynamics = s["all"]["d_overlap_dynamics64"]
+    values["f32_dyn_median"], values["f32_dyn_p90"] = sci(dynamics["median"]), sci(dynamics["p90"])
+    values["f32_inner_only_max"] = sci(s["all"]["d_overlap_inner32_only"]["max"])
+    values["f32_dh_median"] = sci(s["waveforms"]["noise_weighted_single"]["median"])
+    values["f32_dh_coorb_median"] = sci(s["waveforms"]["noise_weighted_coorbital64"]["median"])
+    lnl = s["log_likelihood_over_snr2"]
+    values["f32_lnl_median"], values["f32_lnl_p90"] = sci(lnl["median"]), sci(lnl["p90"])
+    values["f32_lnl_20"] = sci(lnl["median"] * 20 ** 2)
+    values["f32_lnl_100"] = sci(lnl["median"] * 100 ** 2)
+    values["f32_lnl_100_p90"] = sci(lnl["p90"] * 100 ** 2)
+    values["f32_grad_median"], values["f32_grad_p90"] = sci(gradients["relative"]["median"]), sci(
+        gradients["relative"]["p90"])
+    values["f32_grad_typical_max"] = sci(gradients["over_typical"]["max"])
+    t = data["timings"]
+    values["f32_single"], values["f64_single"] = duration(t["single"]["single"]), duration(t["double"]["single"])
+    values["f32_batch"], values["f64_batch"] = duration(t["single"]["batch64"]), duration(t["double"]["batch64"])
+    values["f32_speed_single"] = factor(t["double"]["single"] / t["single"]["single"])
+    values["f32_speed_batch"] = factor(t["double"]["batch64"] / t["single"]["batch64"])
+    values["f32_speed_grad"] = factor(t["double"]["grad"] / t["single"]["grad"])
+    values["f32_dyn_share"] = f"{t['double']['batch64_dynamics'] / t['double']['batch64']:.0%}"
+
+
 def build(args):
     make_figures.main()
     values = {}
@@ -225,6 +274,7 @@ def build(args):
     values["nrsur_failure_text"] = failure_text(nrsur, "raises")
     rs_nrsur = nrsur["summary"].get("jax_vs_rs")
     values["nrsur_rs_max_rel"] = sci(rs_nrsur["max_relative_error"]) if rs_nrsur else "–"
+    float32_values(values)
 
     rows = []
     for label, data, key in (
@@ -490,7 +540,11 @@ def build(args):
     pending.append("JAX on one core: setting XLA's thread flags (<code>--xla_cpu_multi_thread_eigen=false "
                    "intra_op_parallelism_threads=1</code>) did not change the ~3 cores it keeps busy, so the "
                    "per-core comparison with LAL and waveformrs is still to be made")
-    items = "".join(f"<li>{item}</li>" for item in pending)
+    if "timings_environment" not in load("float32_nrsur7dq4.json"):
+        pending.append("NRSur7dq4's float32 timings on an idle machine: they were measured while other jobs ran "
+                       '(<code>report/float32_nrsur7dq4.py --only-timings</code>; <a href="#nrsur">the NRSur7dq4 '
+                       "section</a>)")
+    items ="".join(f"<li>{item}</li>" for item in pending)
     values["preliminary_note"] = (
         '<div class="callout"><p><strong>Open items.</strong> The tests, the accuracy comparisons, the derivative '
         "checks and the timings below are complete. Still open:</p><ul>" + items + "</ul></div>")

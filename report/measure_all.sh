@@ -18,6 +18,7 @@ PY="${PYTHON:-python}"
 WAVEFORMJAX_SLOW=1 "$PY" -m pytest -q -p no:cacheprovider --junitxml=report/data/pytest.xml
 "$PY" report/validate_xpnr.py --n-draws 200
 "$PY" report/validate_nrsur7dq4.py --n-draws 200
+"$PY" report/float32_nrsur7dq4.py
 "$PY" report/validate_conversions.py
 "$PY" report/gradients.py
 "$PY" report/benchmark.py
