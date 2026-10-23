@@ -29,6 +29,7 @@
     <li><a href="#extension">Extending the SpinTaylor angles</a></li>
     <li><a href="#switches">The discontinuities of LAL's model</a></li>
     <li><a href="#continuous">A continuous model</a></li>
+    <li><a href="#smoothness">Smoothness in the parameters</a></li>
     <li><a href="#accuracy">Agreement with LAL</a></li>
     <li><a href="#derivatives">Derivatives</a></li>
     <li><a href="#cost">Cost</a></li>
@@ -190,6 +191,41 @@
     <div class="plot">{{noise_svg}}</div>
     <figcaption>Relative change of h<sub>+</sub> (aLIGO weights) for a change of m<sub>1</sub> in its last bit at six masses of a 36+29 M<sub>☉</sub> binary; points at the left edge are exact zeros. Data: <code>report/extended/data/noise.json</code>.</figcaption>
   </figure>
+</section>
+
+<section id="smoothness">
+  <h2>Smoothness in the parameters</h2>
+  <p class="lede">A direct test of smoothness: around a random binary, the overlap between the waveform there and the waveforms at nearby points along each parameter should be a smooth function of the offset. For LAL's model it is not: along every intrinsic parameter it departs from a smooth curve by up to {{sm_lal_resid}} of its range. The extended model departs by at most {{sm_ext_resid}}, the level of its numerical noise, after three further changes described below (before them, {{sm_before_resid}}).</p>
+  <p>The binary is the first random draw, {{sm_first}}. The frequencies are 20–1024 Hz in steps of 1/8 Hz, with aLIGO design weights. The overlap is ⟨h<sub>0</sub>, h⟩ / (|h<sub>0</sub>| |h|), with h<sub>+</sub> and h<sub>×</sub> together and no maximisation. Along each parameter, the scan (401 points) spans the offsets over which 1 − O reaches 10<sup>−2</sup>: from the curvature at the binary, inside |χ| &lt; 0.999 for the spins, and upwards from f<sub>ref</sub> = f<sub>min</sub>. The departure from smoothness is the residual of a Chebyshev fit of degree 20, relative to the largest 1 − O. Along the inclination and the reference phase, where nothing discrete happens, the residual is {{sm_ext_resid_extrinsic}}: the rounding of the overlap.</p>
+  <figure class="wide">
+    <div class="plot">{{smoothness_scans_svg}}</div>
+    <figcaption>Left and centre: the departure of 1 − O from a smooth curve along the heavier mass and along χ<sub>2y</sub> around the first random binary, for LAL's model (blue), the extended model before the changes of this section (purple) and after them (orange). LAL's waveform jumps every time its fine SpinTaylor run gains or loses a sample (and, along χ<sub>2y</sub>, where its grid of PNR interpolants is refined). Right: the largest departure along each parameter. Data: <code>report/extended/data/smoothness.json</code>, <code>smoothness_before.json</code>.</figcaption>
+  </figure>
+  <p><strong>A survey.</strong> The same scans (101 points each) around {{sm_n}} more random binaries of the same distribution, starting at 20 Hz, look for every point where the waveform is not smooth. Fifth differences of 1 − O pick them out: a jump of the waveform gives fifth differences ~10 times its size, a smooth function the step to the fifth power times its fifth derivative. Points that stand out of the noise by more than eight robust standard deviations are flagged; those beyond twenty are located by bisection to adjacent floating-point numbers. What changes across each is recorded: the discrete quantities of the SpinTaylor solution and of the PNR grid, the discrete choices of the higher-mode amplitudes, the angles and the co-precessing modes. In LAL's model, {{sm_lal_flagged}} of the {{sm_scans}} scans have flagged points ({{sm_lal_flags}} in all). In the extended model, {{sm_ext_flagged}} do ({{sm_ext_flags}}).</p>
+  <div class="table-wrap wide">
+    <table>
+      <thead><tr><th rowspan="2">What changes across the point</th>{{sm_table_head}}</tr><tr>{{sm_table_sub}}</tr></thead>
+      <tbody>
+{{sm_table}}
+      </tbody>
+    </table>
+  </div>
+  <figure>
+    <div class="plot">{{smoothness_survey_svg}}</div>
+    <figcaption>The relative jump of the polarizations (aLIGO weights) across each located point of the extended model, before the changes of this section (purple) and after them (orange), by what changes across it.</figcaption>
+  </figure>
+  <h3>Three numerical artefacts removed</h3>
+  <p>The survey of the extended model before these changes found three mechanisms besides the higher modes, with jumps up to {{sm_before_max}} (mismatch {{sm_before_mm}}). All three are in LAL's model too. None of them is part of the model's design; each comes from how its angles are sampled.</p>
+  <ul>
+    <li><strong>Where the inspiral α ends.</strong> LAL continues the SpinTaylor α into the merger-ringdown with a fit matched to its spline in value and slope at 0.97 of the end of the inspiral and in value at 0.99, but switches from the spline to the fit at 0.98, where the two differ (by ~10<sup>−5</sup> rad). So α has a step in frequency. The grid of the PNR interpolants samples it, and the waveform jumps each time a node of the grid crosses the step as the parameters change: often, by ~5 × 10<sup>−8</sup>. The extended model switches at 0.97, where α is continuous with its derivative. This changes α by at most the size of the step, between 0.97 and 0.98 of the end of the inspiral.</li>
+    <li><strong>The refinement of the PNR grid.</strong> Where L comes close to J (β<sub>min</sub> &lt; 0.01 and β<sub>min</sub>/β<sub>max</sub> &lt; 0.55 for the two-spin oscillation), LAL samples the PNR angles four times more finely. The interpolation error, and with it the waveform, jumps where the refinement starts: by up to ~5 × 10<sup>−4</sup> in the binaries surveyed. The extended model refines by a factor that goes from 1 to 4 with a C² ramp across ±0.002 in β<sub>min</sub> and ±0.05 in the ratio around LAL's thresholds, so the spacing of the grid, and the waveform, change continuously. Away from the bands, the grid is LAL's.</li>
+    <li><strong>The branch of α at the pole.</strong> When the two in-plane spins are comparable, their nutation brings L close to J once per cycle. Near such a passage, α, the azimuth of L around J, swings by nearly π within a fraction of a hertz, faster than the SpinTaylor knots or the PNR grid sample it. LAL splines the unwrapped α through the swing and integrates γ from the spline of α and β. Which way the unwrapping takes the swing flips with the parameters (it should flip only when L passes exactly through J, where it does not matter). The waveform then jumps: by up to ~3 × 10<sup>−4</sup> in the binaries surveyed, even though γ largely compensates the jump of α. The extended model represents the rotation in a form without a branch. It splines the J-frame components of L at the SpinTaylor knots and takes α = atan2(l<sub>y</sub>, l<sub>x</sub>) of the splines, on the branch of LAL's spline. On the PNR grid it splines the unit vector (sin β cos α, sin β sin α, cos β) and Γ = ∫ α′(1 − cos β) df = ∫ (u v′ − v u′)/(r (r + w)) df, which is smooth through the pole, and takes α = atan2(v, u), β = atan2(√(u² + v²), w) and γ = Γ − α. This γ is LAL's γ = −∫ α′ cos β df up to a constant, which the offset at the reference frequency removes. α and γ enter the waveform only through integer multiples, so their branches do not matter.</li>
+  </ul>
+  <h3>What remains</h3>
+  <ul>
+    <li><strong>The discrete choices of the higher modes (flagged for discussion).</strong> {{sm_hm_n}} of the located points are discrete choices that IMRPhenomXHM makes in its amplitudes: the intermediate polynomial lowered from fifth to fourth order where it would cross zero, LAL's veto of the intermediate collocation points of the (3,2) and (2,1) modes when the ringdown amplitude falls below a threshold, and the vetoes and order changes of the (2,1). The largest changes the waveform by {{sm_hm_max}} (a mismatch of {{sm_hm_mm}}), from the (3,2) mode alone of a 238 M<sub>☉</sub> binary. These choices are part of how the model was calibrated, not numerical artefacts. Making them continuous (blending the reconstructions across bands, as for the PNR β) would change the higher modes from the calibrated model near each threshold, and is left for discussion.</li>
+    <li><strong>Everything else</strong> is at most {{sm_other_max}} (mismatch {{sm_other_mm}}). This includes the start of the reintegrated SpinTaylor solution and the ends of the PNR grid, whose sizes change with the parameters (the splines' end conditions move by a node), and the numerical noise floor, mostly from the (3,2) mode, whose intermediate amplitude polynomial is ill-conditioned (its coefficients lose ~10<sup>−9</sup> to rounding).</li>
+  </ul>
 </section>
 
 <section id="accuracy">

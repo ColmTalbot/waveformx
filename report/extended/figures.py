@@ -31,6 +31,7 @@ DATA = HERE / "data"
 FIGURES = HERE / "figures"
 LAL = dict(color=BLUE, marker="o", label="LAL (with its fallbacks)")
 EXTENDED = dict(color=ORANGE, marker="s", label="extended")
+BEFORE = dict(color=PURPLE, marker="D", label="extended, before the smoothness fixes")
 
 
 def load(name):
@@ -282,10 +283,87 @@ def validation():
     save(fig, "validation")
 
 
+#: The parameters of the overlap scans, as labelled in the figures.
+SCAN_LABELS = {"mass_1": "$m_1$", "mass_2": "$m_2$", "spin_1x": "$\\chi_{1x}$", "spin_1y": "$\\chi_{1y}$",
+               "spin_1z": "$\\chi_{1z}$", "spin_2x": "$\\chi_{2x}$", "spin_2y": "$\\chi_{2y}$",
+               "spin_2z": "$\\chi_{2z}$", "inclination": "$\\iota$", "phi_ref": "$\\phi_\\mathrm{ref}$",
+               "f_ref": "$f_\\mathrm{ref}$"}
+#: The causes of the located jumps, in the order of the figure.
+CAUSES = ["higher-mode choice", "alpha branch at the pole", "PNR grid", "SpinTaylor knots", "integration steps",
+          "none (numerical noise)"]
+
+
+def smooth_residual(scan, degree=20):
+    """``1 - O`` along a scan, and its residual from a Chebyshev fit of
+    ``degree`` relative to the largest ``1 - O``."""
+    eps = np.linspace(scan["lo"], scan["hi"], len(scan["overlap"]))
+    y = 1 - np.asarray(scan["overlap"])
+    fit = np.polynomial.chebyshev.Chebyshev.fit(eps, y, degree)
+    return eps, y, (y - fit(eps)) / np.max(y)
+
+
+def smoothness():
+    data = load("smoothness.json")
+    if data is None:
+        return
+    before = load("smoothness_before.json")
+    scans = dict(data["scans"])
+    series = [("lal", LAL), ("extended", EXTENDED)]
+    if before is not None:
+        scans["before"] = before["scans"]["extended"]
+        series.insert(1, ("before", BEFORE))
+    fig, axes = plt.subplots(1, 3, figsize=(10.2, 3.1), gridspec_kw=dict(width_ratios=[1, 1, 1.25]))
+    for ax, name in zip(axes[:2], ("mass_1", "spin_2y")):
+        for variant, style in series:
+            eps, y, r = smooth_residual(scans[variant][name])
+            ax.plot(eps, np.abs(r), color=style["color"], linewidth=1.0, label=style["label"])
+        ax.set_yscale("log")
+        ax.set_ylim(1e-13, 1e-1)
+        ax.set_xlabel(f"offset in {SCAN_LABELS[name]}")
+    axes[0].set_ylabel("|1 − O − smooth fit| / max(1 − O)")
+    axes[0].legend(loc="upper left")
+    ax = axes[2]
+    names = [n for n in SCAN_LABELS if n in scans["lal"]]
+    offsets = np.linspace(-0.2, 0.2, len(series))
+    for offset, (variant, style) in zip(offsets, series):
+        values = [np.max(np.abs(smooth_residual(scans[variant][n])[2])) for n in names]
+        ax.scatter(np.arange(len(names)) + offset, values, s=16, color=style["color"], marker=style["marker"],
+                   linewidths=0)
+    ax.set_xticks(range(len(names)), [SCAN_LABELS[n] for n in names])
+    ax.set_yscale("log")
+    ax.set_ylim(1e-13, 1e-1)
+    ax.set_ylabel("largest residual along the scan")
+    save(fig, "smoothness_scans")
+
+    def events_of(source):
+        return [e for r in source["survey"] if r["variant"] == "extended" for s in r["scans"].values()
+                for e in s.get("events", [])]
+
+    groups = [(events_of(data), EXTENDED, 0.15)]
+    if before is not None:
+        groups.insert(0, (events_of(before), BEFORE, -0.15))
+    fig, ax = plt.subplots(figsize=(7.6, 3.2))
+    causes = [c for c in CAUSES if any(e["cause"] == c for events, _, _ in groups for e in events)]
+    for events, style, offset in groups:
+        for i, cause in enumerate(causes):
+            values = [max(e["jump"], 1e-16) for e in events if e["cause"] == cause]
+            jitter = np.random.default_rng(i).uniform(-0.08, 0.08, len(values))
+            ax.scatter(i + offset + jitter, values, s=14, color=style["color"], marker=style["marker"], alpha=0.8,
+                       linewidths=0, label=style["label"] if i == 0 else None)
+    labels = {"higher-mode choice": "higher-mode\nchoice", "alpha branch at the pole": "α branch\nat the pole",
+              "PNR grid": "PNR grid", "SpinTaylor knots": "SpinTaylor\nknots", "integration steps": "integration\nsteps",
+              "none (numerical noise)": "nothing\n(noise)"}
+    ax.set_xticks(range(len(causes)), [labels[c] for c in causes])
+    ax.set_yscale("log")
+    ax.set_ylabel("|Δh| / |h| across the point")
+    ax.legend(loc="upper right")
+    save(fig, "smoothness_survey")
+
+
 def main():
     base.style()
     for figure in (failure_map, failure_fraction, jumps, switches, two_spin_and_beta, q12, steps, noise, validation,
-                   convergence):
+                   convergence, smoothness):
         figure()
 
 

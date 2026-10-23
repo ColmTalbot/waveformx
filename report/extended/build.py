@@ -303,6 +303,65 @@ def timing_values(values):
     values["lalsim_version"] = env["lalsimulation"]
 
 
+def smoothness_values(values):
+    data = load("smoothness.json")
+    before = load("smoothness_before.json") if (DATA / "smoothness_before.json").exists() else None
+    d = data["first"]
+    values["sm_first"] = (f"{d['m1']:.1f} + {d['m2']:.1f} M<sub>☉</sub>, χ<sub>1</sub> = ("
+                          + ", ".join(f"{s:.2f}" for s in d["s1"]) + "), χ<sub>2</sub> = ("
+                          + ", ".join(f"{s:.2f}" for s in d["s2"]) + f"), f<sub>ref</sub> = {d['fref']:.0f} Hz")
+    names = [n for n in figures.SCAN_LABELS if n in data["scans"]["lal"]]
+    intrinsic = [n for n in names if n not in ("inclination", "phi_ref")]
+    for key, variant, source in (("lal", "lal", data), ("ext", "extended", data), ("before", "extended", before)):
+        if source is None:
+            continue
+        residual = {n: float(np.max(np.abs(figures.smooth_residual(source["scans"][variant][n])[2]))) for n in names}
+        values[f"sm_{key}_resid"] = sci(max(residual[n] for n in intrinsic))
+        values[f"sm_{key}_resid_min"] = sci(min(residual[n] for n in intrinsic))
+        values[f"sm_{key}_resid_extrinsic"] = sci(max(residual[n] for n in names if n not in intrinsic))
+
+    def survey(source, variant):
+        records = [r for r in source["survey"] if r["variant"] == variant]
+        scans = [s for r in records for s in r["scans"].values() if "flags" in s]
+        events = [e for s in scans for e in s.get("events", [])]
+        return records, scans, events
+
+    records, scans, events = survey(data, "extended")
+    _, lal_scans, _ = survey(data, "lal")
+    values["sm_n"] = str(len(records))
+    values["sm_scans"] = str(len(scans))
+    values["sm_lal_flagged"] = str(sum(1 for s in lal_scans if s["flags"]))
+    values["sm_lal_flags"] = str(sum(len(s["flags"]) for s in lal_scans))
+    values["sm_ext_flagged"] = str(sum(1 for s in scans if s["flags"]))
+    values["sm_ext_flags"] = str(sum(len(s["flags"]) for s in scans))
+    values["sm_ext_located"] = str(len(events))
+    rows = []
+    sources = [("before", before), ("after", data)] if before is not None else [("after", data)]
+    by_source = {name: survey(source, "extended")[2] for name, source in sources if source is not None}
+    for cause in figures.CAUSES:
+        cells = []
+        for name, _ in sources:
+            group = [e for e in by_source[name] if e["cause"] == cause]
+            cells.append(f"<td>{len(group)}</td><td>{sci(max(e['jump'] for e in group)) if group else '—'}</td>"
+                         f"<td>{mm(max(e['mismatch'] for e in group)) if group else '—'}</td>")
+        rows.append(f"<tr><td>{html.escape(cause)}</td>{''.join(cells)}</tr>")
+    values["sm_table"] = "\n".join(rows)
+    values["sm_table_head"] = "".join(f'<th colspan="3">{name}</th>' for name, _ in sources)
+    values["sm_table_sub"] = "".join("<th>located</th><th>largest |Δh|/|h|</th><th>largest mismatch</th>"
+                                     for _ in sources)
+    hm_events = [e for e in events if e["cause"] == "higher-mode choice"]
+    values["sm_hm_n"] = str(len(hm_events))
+    values["sm_hm_max"] = sci(max([e["jump"] for e in hm_events] or [0.0]))
+    values["sm_hm_mm"] = mm(max([e["mismatch"] for e in hm_events] or [0.0]))
+    other = [e for e in events if e["cause"] != "higher-mode choice"]
+    values["sm_other_max"] = sci(max([e["jump"] for e in other] or [0.0]))
+    values["sm_other_mm"] = mm(max([e["mismatch"] for e in other] or [0.0]))
+    if before is not None:
+        old = [e for e in by_source["before"] if e["cause"] != "higher-mode choice"]
+        values["sm_before_max"] = sci(max([e["jump"] for e in old] or [0.0]))
+        values["sm_before_mm"] = mm(max([e["mismatch"] for e in old] or [0.0]))
+
+
 def test_values(values):
     path = HERE / "data" / "pytest.xml"
     if not path.exists():
@@ -325,7 +384,7 @@ def build(args):
     values = {"css": (HERE.parent / "report.css").read_text(), "date": datetime.date.today().strftime("%-d %B %Y"),
               "commit": git("rev-parse", "--short", "HEAD").strip(), "branch": git("branch", "--show-current").strip()}
     for fill in (failure_values, switch_values, jump_values, noise_values, validation_values, gradient_values,
-                 convergence_values, timing_values, test_values):
+                 convergence_values, timing_values, smoothness_values, test_values):
         fill(values)
     labels = {
         "failure_map_svg": ("failure_map", "Total mass against M f_ref for binaries where LAL keeps or leaves the "
@@ -340,6 +399,10 @@ def build(args):
         "noise_svg": ("noise", "Change of the waveform for a change of the mass in its last bit"),
         "validation_svg": ("validation", "Distribution of the mismatch against LAL"),
         "convergence_svg": ("convergence", "Error of finite differences against the step, LAL and extended"),
+        "smoothness_scans_svg": ("smoothness_scans", "Departure of the overlap from a smooth curve along each "
+                                 "parameter around a random binary, LAL against extended"),
+        "smoothness_survey_svg": ("smoothness_survey", "Jumps at the non-smooth points of the extended model in "
+                                  "random binaries, by cause"),
     }
     for key, (name, label) in labels.items():
         values[key] = svg(name, label)
