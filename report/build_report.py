@@ -515,9 +515,14 @@ def build(args):
     files, total_seconds = test_results()
     rows = []
     totals = dict(n=0, passed=0, failed=0, skipped=0)
+    not_run = []
     for name, label in TEST_FILES.items():
         entry = files.get(name)
         if entry is None:
+            # a file added since the last full run
+            not_run.append(f"<code>{name}</code>")
+            rows.append(f"<tr><td><code>{name}</code><br>{label}</td><td class=\"num\">–</td>"
+                        f'<td><span class="chip warn">not in the last run</span></td><td class="num">–</td></tr>')
             continue
         for key in totals:
             totals[key] += entry[key]
@@ -533,6 +538,9 @@ def build(args):
     values["n_failed"] = str(totals["failed"])
     values["n_skipped"] = str(totals["skipped"])
     values["test_minutes"] = f"{total_seconds / 60:.0f}"
+    if not_run:
+        pending.append(f"a full test run with {', '.join(not_run)}, added since the last one "
+                       '(<a href="#testing">the tests section</a>)')
 
     # open questions that the measurements do not settle yet
     pending.append("why finite differences of the full IMRPhenomXPNR waveform disagree with its derivatives in the "
