@@ -41,6 +41,9 @@ The package has the same interface as the Python bindings of
     itself, as LALSimulation does.
   - Its pure function runs in single precision (float32) when the binary's
     parameters are float32, including its derivatives.
+  - Its pure function is also available in [MLX](https://github.com/ml-explore/mlx)
+    (single precision, on Apple GPUs; optional dependency `mlx`), for one
+    binary or a batch, with derivatives.
 
 ## Features
 
