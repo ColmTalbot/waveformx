@@ -23,10 +23,13 @@ The package has the same interface as the Python bindings of
     LALSimulation would switch to other angles.
   - An extended variant (`extended_spintaylor=True`), which is not
     LALSimulation's waveform: it uses the SpinTaylor angles for every
-    binary, including those LALSimulation cannot evaluate with them, and
-    replaces LALSimulation's discrete switches with continuous versions, so
-    that the waveform and its derivatives are continuous in the binary's
-    parameters.
+    binary, including those LALSimulation cannot evaluate with them,
+    replaces LALSimulation's discrete switches in the precession angles
+    with continuous versions, and interpolates the angles in a form that
+    stays smooth where the orbital angular momentum passes close to the
+    total one, so that the waveform and its derivatives are continuous in
+    the binary's parameters. The discrete choices that the higher modes
+    make in their amplitudes are kept as in LALSimulation.
 - **NRSur7dq4** (time domain): numerical-relativity surrogate for precessing
   binaries with higher modes. It gives LALSimulation's polarizations and
   modes, with the same length and start time; its pure function evaluates

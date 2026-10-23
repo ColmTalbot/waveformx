@@ -443,20 +443,28 @@ def index_at_time(sol, t):
     return jnp.clip(i, 0.0, sol.len_pn - 2.0)
 
 
-def spline_context(sol, rotation, mf_scale):
+def spline_context(sol, rotation, mf_scale, geometric=False):
     """What the splines of a solution need besides the evaluation points:
     the splines through all knots (:func:`spline_table`), the continuous
     ``alpha`` at the integration nodes and the branch of the first knot
-    (for :func:`windowed_spline`) and the range of the knots."""
+    (for :func:`windowed_spline`) and the range of the knots.
+
+    With ``geometric`` (static), ``alpha`` is taken from splines of the
+    components of LNhat in the J frame (:func:`_geometric_alpha`) rather
+    than from LAL's spline of ``alpha``."""
     phi_j, theta_j, kappa = rotation
     tables = _alpha_tables(sol, rotation)
     state0 = knot_states(sol, jnp.zeros(()))
     lx0, ly0, _ = _rotate(state0[1], state0[2], state0[3], phi_j, theta_j, kappa)
     raw0 = _atan2(ly0, lx0)
     alpha_first = _continuous_alpha(sol, tables, knot_times(sol, jnp.zeros(())), raw0)
-    table = spline_table(sol, rotation, mf_scale)
-    return Struct(table=table, tables=tables, shift=jnp.round((raw0 - alpha_first) / (2 * PI)) * 2 * PI,
-                  first_mf=table.first_mf, last_mf=table.last_mf, small=table.small)
+    table = spline_table(sol, rotation, mf_scale, geometric)
+    context = Struct(table=table, tables=tables, shift=jnp.round((raw0 - alpha_first) / (2 * PI)) * 2 * PI,
+                     first_mf=table.first_mf, last_mf=table.last_mf, small=table.small)
+    if geometric:
+        # (a marker: the presence of the field is the static flag)
+        context.geometric = jnp.zeros(())
+    return context
 
 
 def spline(sol, rotation, mf, mf_scale, context=None):
@@ -498,13 +506,14 @@ def _spline_either(mf, args):
     return cond(args[3].small, from_table, from_windows, (mf, args))
 
 
-def spline_table(sol, rotation, mf_scale):
+def spline_table(sol, rotation, mf_scale, geometric=False):
     """GSL's natural cubic splines (``gsl_interp_cspline``) through all of
     LAL's knots of ``alpha`` (unwrapped by ``XLALSimIMRPhenomXUnwrapArray``)
     and ``cos(beta)`` against ``Mf``, when there are at most
     :data:`GLOBAL_KNOTS` knots (``small``; otherwise a placeholder). Returns a
     :class:`~.._math.Struct` of the knots ``x``, the values and the second
-    derivatives."""
+    derivatives; with ``geometric`` (static), also those of the J-frame
+    components ``lx``, ``ly`` of LNhat."""
     small = sol.len_pn <= GLOBAL_KNOTS
     n = jnp.where(small, sol.len_pn, 0.0)
     k = jnp.arange(GLOBAL_KNOTS, dtype=jnp.float64)
@@ -526,9 +535,14 @@ def spline_table(sol, rotation, mf_scale):
     last = jnp.maximum(n - 1.0, 0.0).astype(jnp.int64)
     x = jnp.where(valid, knot_mf, jnp.where(small, knot_mf[last], 0.0) + (k - n + 1.0))
     alpha = jnp.where(valid, alpha, 0.0)
-    return Struct(x=x, alpha=alpha, cosb=cosb, m_alpha=_natural_second_derivatives(x, alpha, n),
-                  m_cosb=_natural_second_derivatives(x, cosb, n), n=jnp.where(small, n, float(GLOBAL_KNOTS)),
-                  small=small, first_mf=_first_mf(sol, mf_scale), last_mf=_last_mf(sol, mf_scale))
+    table = Struct(x=x, alpha=alpha, cosb=cosb, m_alpha=_natural_second_derivatives(x, alpha, n),
+                   m_cosb=_natural_second_derivatives(x, cosb, n), n=jnp.where(small, n, float(GLOBAL_KNOTS)),
+                   small=small, first_mf=_first_mf(sol, mf_scale), last_mf=_last_mf(sol, mf_scale))
+    if geometric:
+        table.lx, table.ly = lx, ly
+        table.m_lx = _natural_second_derivatives(x, lx, n)
+        table.m_ly = _natural_second_derivatives(x, ly, n)
+    return table
 
 
 def _natural_second_derivatives(x, y, n):
@@ -558,7 +572,10 @@ def table_eval(table, mf):
     hk = x1 - x0
     dx = mf - x0
     out = []
-    for y, m in ((table.alpha, table.m_alpha), (table.cosb, table.m_cosb)):
+    pairs = [(table.alpha, table.m_alpha), (table.cosb, table.m_cosb)]
+    if "lx" in table:
+        pairs += [(table.lx, table.m_lx), (table.ly, table.m_ly)]
+    for y, m in pairs:
         y0, y1 = y[i], y[i + 1]
         m0, m1 = m[i], m[i + 1]
         b = (y1 - y0) / hk - hk * (m1 + 2.0 * m0) / 6.0
@@ -566,6 +583,8 @@ def table_eval(table, mf):
         d = (m1 - m0) / (6.0 * hk)
         out += [y0 + dx * (b + dx * (c + dx * d)), b + dx * (2.0 * c + 3.0 * dx * d)]
     inside = (mf >= table.first_mf) & (mf <= table.last_mf)
+    if "lx" in table:
+        out[0], out[1] = _geometric_alpha(out[0], *out[4:])
     return out[0], out[1], out[2], out[3], inside
 
 
@@ -622,8 +641,26 @@ def windowed_spline(sol, rotation, mf, mf_scale, context):
     true_end = (start + 2 * WINDOW + 1) >= sol.len_pn - 1.0
     a_val, a_der = _natural_spline_eval(knot_mf, alpha, valid, mf, true_start, true_end)
     b_val, b_der = _natural_spline_eval(knot_mf, cosb, valid, mf, true_start, true_end)
+    if "geometric" in context:
+        x_val, x_der = _natural_spline_eval(knot_mf, lx, valid, mf, true_start, true_end)
+        y_val, y_der = _natural_spline_eval(knot_mf, ly, valid, mf, true_start, true_end)
+        a_val, a_der = _geometric_alpha(a_val, x_val, x_der, y_val, y_der)
     inside = (mf >= context.first_mf) & (mf <= context.last_mf)
     return a_val, a_der, b_val, b_der, inside
+
+
+def _geometric_alpha(alpha, lx, dlx, ly, dly):
+    """``alpha`` and its derivative from the splines ``lx``, ``ly`` of the
+    J-frame components of LNhat (and their derivatives), on the branch of
+    LAL's spline ``alpha``. Where LNhat passes close to J, ``alpha`` swings
+    by nearly ``pi`` within a few knots: LAL's spline of the unwrapped
+    ``alpha`` cannot follow the swing, and the branch of the swing that the
+    unwrapping picks flips with the parameters. The components are smooth
+    there, and ``atan2`` of their splines follows the swing."""
+    raw = _atan2(ly, lx)
+    d = raw - alpha
+    value = alpha + d - 2 * PI * jnp.round(d / (2 * PI))
+    return value, safe_div(lx * dly - ly * dlx, lx * lx + ly * ly)
 
 
 def _atan2(y, x):

@@ -26,7 +26,7 @@ import pytest
 
 from waveformjax import Binary, WaveformOptions
 from waveformjax.exceptions import PrecessionVersionUnavailableError
-from waveformjax.models.xpnr import MODEL
+from waveformjax.models.xpnr import MODEL, model, pnr
 from waveformjax.models.xpnr.api import _prescription
 
 LAL = WaveformOptions()
@@ -178,6 +178,90 @@ def test_continuous_across_lal_switches(which):
         x = 1e-3
     assert _jump(LAL, make, x) > 1e-5
     assert _jump(EXTENDED, make, x) < 1e-6
+
+
+def _setup(b, f, smooth):
+    """The set-up of the SpinTaylor angles (``prec, wf, grid, flags``), LAL's
+    or the extended one."""
+    pnr.clear_cache()
+    w, m1, m2, chi1, chi2 = model.setup_waveform(b, 0.0, f[0], f[-1])
+    w.hm_release = 122019
+    base, wf0 = pnr.common_setup(w, m1, m2, chi1, chi2, pnr.mode_range(model.DEFAULT_MODES), True, smooth, smooth)
+    return model._spintaylor_setup(base, wf0, m1, m2, model.DEFAULT_MODES, jnp.asarray(True))
+
+
+@pytest.mark.parametrize("smooth", [False, True])
+def test_alpha_continuous_where_the_inspiral_alpha_ends(smooth):
+    """LAL hands the SpinTaylor ``alpha`` over to its merger-ringdown
+    continuation at 0.98 of the end of the inspiral, where the two differ
+    (the continuation matches the spline at 0.97 and 0.99): ``alpha`` steps
+    in frequency, and the grid of the PNR interpolants samples the step
+    wherever a node crosses it. The extended model hands over at 0.97, where
+    the two agree in value and slope."""
+
+    def step(b, f):
+        prec, w, _, _ = _setup(b, f, smooth)
+        at = prec.st_angles.ftrans_alpha
+        mf = jnp.stack([jnp.nextafter(at, -jnp.inf), jnp.nextafter(at, jnp.inf)])
+        alpha, slope = jax.jvp(lambda m: pnr.st_alpha(prec, w, m)[0], (mf,), (jnp.ones_like(mf),))
+        return alpha[1] - alpha[0], (slope[1] - slope[0]) / slope[0]
+
+    jump, kink = jax.jit(step)(binary(), frequencies(65.0))
+    if smooth:
+        assert abs(float(jump)) < 1e-10 and abs(float(kink)) < 1e-8
+    else:
+        assert abs(float(jump)) > 1e-7
+
+
+def test_continuous_across_the_refinement_of_the_pnr_grid():
+    """LAL samples the PNR angles four times more finely where L comes close
+    to J (``beta_min < 0.01`` and ``beta_min / beta_max < 0.55``), and its
+    waveform jumps where it starts; the extended model refines gradually."""
+    total = 245.0
+
+    def make(s):
+        return binary(mass_1=140.0, mass_2=105.0, spin_1=(-0.18, -0.48, 0.17), spin_2=(0.24, s, 0.66),
+                      f_ref=23.6), frequencies(total)
+
+    spacing = jax.jit(lambda b, f: _setup(b, f, False)[2][2])
+    x = _bisect(lambda s: float(spacing(*make(s))) < 1.0, 0.11, 0.12)
+    assert _jump(LAL, make, x) > 1e-5
+    assert _jump(EXTENDED, make, x) < 1e-7
+
+
+def test_smooth_interpolants_do_not_depend_on_the_branch_of_alpha():
+    """Where L passes close to J, ``alpha`` swings by nearly ``pi`` between
+    points of the PNR grid, and which way the unwrapping takes the swing
+    flips with the parameters (by ``2 pi`` beyond it). The interpolants of
+    the extended model (of the unit vector of ``alpha`` and ``beta``, and of
+    ``alpha' (1 - cos(beta))``) give the same rotation either way."""
+    from waveformjax.models.xpnr.pnr import PNR_GRID_CAPACITY
+
+    n, h, i_start = 400, 0.25, 40
+    f = (i_start + np.arange(PNR_GRID_CAPACITY)) * h
+    # the in-plane part of L in the J frame circles past the pole at a
+    # distance of 5e-4, near f = 60 Hz
+    phase = 2 * np.pi * (f - 60.0) / 40.0
+    lx, ly = 0.0205 - 0.02 * np.cos(phase), 0.02 * np.sin(phase)
+    alpha = np.unwrap(np.arctan2(ly, lx))
+    beta = np.arcsin(np.hypot(lx, ly))
+    other = alpha + 2 * np.pi * (f > 60.0)
+    valid = np.arange(PNR_GRID_CAPACITY) < n
+    out = []
+    for a in (alpha, other):
+        s = pnr._geometric_interpolants(jnp.asarray(np.where(valid, a, 0.0)), jnp.asarray(np.where(valid, beta, 0.0)),
+                                        jnp.float64(i_start), jnp.float64(n), jnp.float64(h), jnp.float64(n),
+                                        jnp.asarray(False))
+        q = jnp.linspace(20.0, 100.0, 1001)
+        out.append(pnr.spline_angles(s, q))
+    for k in (0, 2):
+        np.testing.assert_allclose(np.exp(1j * np.asarray(out[0][k])), np.exp(1j * np.asarray(out[1][k])), atol=1e-12)
+    np.testing.assert_allclose(np.asarray(out[0][1]), np.asarray(out[1][1]), atol=1e-12)
+    # and they follow the swing, which is narrower than the grid's spacing
+    q = np.linspace(20.0, 100.0, 1001)
+    phase = 2 * np.pi * (q - 60.0) / 40.0
+    exact = np.arctan2(0.02 * np.sin(phase), 0.0205 - 0.02 * np.cos(phase))
+    np.testing.assert_allclose(np.exp(1j * np.asarray(out[0][0])), np.exp(1j * exact), atol=1e-6)
 
 
 # ---------------------------------------------------------------------------

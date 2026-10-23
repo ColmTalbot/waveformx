@@ -461,6 +461,13 @@ def set_remnant(prec, wf):
     return prec, wf
 
 
+#: Half-widths of the bands in ``beta_min`` and ``beta_min / beta_max``
+#: across which the smooth angles refine the grid of the PNR interpolants
+#: (:func:`interpolation_delta_f`).
+GRID_SOFT_BETA = 0.002
+GRID_SOFT_RATIO = 0.05
+
+
 @fenced
 def interpolation_delta_f(prec, wf, f_min, version):
     """``IMRPhenomX_PNR_HMInterpolationDeltaF``: the spacing (Hz) of the
@@ -485,7 +492,16 @@ def interpolation_delta_f(prec, wf, f_min, version):
         l_fmin = wf.m_tot * wf.m_tot * _prec.l_ansatz(l_coeffs, v0, wf.eta / v0)
         beta_min = jnp.arctan2(jnp.abs(prec.s1_perp - prec.s2_perp), l_fmin + prec.sl)
         beta_max = jnp.arctan2(prec.s1_perp + prec.s2_perp, l_fmin + prec.sl)
-        dpsi_inv = jnp.where((beta_min < 0.01) & (safe_div(beta_min, beta_max) < 0.55), dpsi_inv / 4.0, dpsi_inv)
+        ratio = safe_div(beta_min, beta_max)
+        if prec.smooth:
+            # LAL samples four times more finely where L comes close to J
+            # (the grid, and the waveform, jump there): the smooth angles
+            # refine by a factor that goes from 1 to 4 across bands around
+            # LAL's thresholds
+            w = pa._ramp(0.01 - beta_min, GRID_SOFT_BETA) * pa._ramp(0.55 - ratio, GRID_SOFT_RATIO)
+            dpsi_inv = dpsi_inv / fma(3.0, w, 1.0)
+        else:
+            dpsi_inv = jnp.where((beta_min < 0.01) & (ratio < 0.55), dpsi_inv / 4.0, dpsi_inv)
         delta_f_twospin = mf_to_hz(dpsi_inv / 4.0, wf.m_tot)
         use_twospin = two_spin(prec, version) & (delta_f_twospin < delta_f_alpha) & ~jnp.isnan(dpsi)
         return jnp.where(use_twospin, jnp.maximum(delta_f_twospin, 1e-2), plain)
@@ -723,8 +739,9 @@ def _st_context(prec, wf):
     if "st_context" in prec:
         # built once by initialize_euler_angles
         return st, rotation, mf_scale, anchors, prec.st_context
+    # (the smooth angles take alpha from the splines of LNhat's components)
     context = _cached("st_context", anchors[1:], anchors[0],
-                      lambda: barrier(st_angles.spline_context(st, rotation, mf_scale)))
+                      lambda: barrier(st_angles.spline_context(st, rotation, mf_scale, prec.smooth)))
     return st, rotation, mf_scale, anchors, context
 
 
@@ -885,8 +902,14 @@ def initialize_euler_angles(prec, wf):
     mf_alpha_ref = jnp.where(wf.mf_ref <= ftrans_mrd, wf.mf_ref, ftrans_mrd)
     error = error | (mf_alpha_ref < mf_first) | (mf_alpha_ref > mfmax_pn)
     error = error | (ftrans_mrd < mf_first) | (ftrans_mrd > mfmax_pn)
-    prec.st_angles = Struct(ftrans_mrd=ftrans_mrd, alpha_mrd=alpha_mrd, beta_mrd=beta_mrd, mf_first=mf_first,
-                            mfmax_pn=mfmax_pn)
+    # LAL leaves the spline of alpha for alphaMRD at ftrans_MRD, where they
+    # differ (alphaMRD matches the spline's value and slope at f1 and its
+    # value at f2): alpha steps there in frequency, and the PNR grid samples
+    # the step wherever a node crosses it. The smooth angles switch at f1,
+    # where alpha is continuous with its derivative.
+    ftrans_alpha = f1 if prec.smooth else ftrans_mrd
+    prec.st_angles = Struct(ftrans_mrd=ftrans_mrd, ftrans_alpha=ftrans_alpha, alpha_mrd=alpha_mrd, beta_mrd=beta_mrd,
+                            mf_first=mf_first, mfmax_pn=mfmax_pn)
     prec.error_euler = error
     return prec
 
@@ -911,7 +934,7 @@ def st_alpha(prec, wf, mf):
     """``alpha_SpinTaylor_IMR`` (version 330), with the error flag."""
     sa = prec.st_angles
     a, _, _, _, inside = _st_spline(prec, wf, mf)
-    inspiral = mf < sa.ftrans_mrd
+    inspiral = mf < sa.ftrans_alpha
     value = jnp.where(inspiral, a, alpha_mrd(sa.alpha_mrd, mf)) + prec.alpha_offset
     error = inspiral & ~inside
     return value, error
@@ -1548,6 +1571,8 @@ def angle_interpolants(prec, wf, grid, version, active=True):
                                       (prec, wf, i_start, n, h, version.msa if fallback else None))
     error = error | jnp.any(errors)
     alpha, beta = alpha.reshape(-1), beta.reshape(-1)
+    if smooth:
+        return _geometric_interpolants(alpha, beta, i_start, n, h, n_eval, error)
     m_alpha, m_beta = _uniform_natural_splines([alpha, beta], n, h, n_eval)
 
     # gamma from the minimal rotation condition with Boole's rule, interval
@@ -1584,13 +1609,84 @@ def angle_interpolants(prec, wf, grid, version, active=True):
                   h=h, error=error)
 
 
+def _geometric_interpolants(alpha, beta, i_start, n, h, n_eval, error):
+    """The interpolants of the smooth angles: instead of LAL's splines of
+    ``alpha``, ``beta`` and ``gamma``, splines of the unit vector ``(u, v,
+    w) = (sin(beta) cos(alpha), sin(beta) sin(alpha), cos(beta))`` and of
+    ``Gamma = int alpha' (1 - cos(beta)) df`` (Boole's rule, as LAL's
+    ``gamma``), from which :func:`spline_angles` takes ``alpha = atan2(v,
+    u)`` and ``gamma = Gamma - alpha`` (``gamma' = -alpha' cos(beta)``:
+    LAL's ``gamma`` up to a constant, which the offset at the reference
+    frequency removes).
+
+    Where L passes close to J, ``alpha`` swings by nearly ``pi`` between
+    the points of the grid, and the integrand of LAL's ``gamma`` peaks
+    there: LAL's splines cannot follow either, and their errors jump when
+    the branch of the swing flips with the parameters. ``u``, ``v``, ``w``
+    and ``alpha' (1 - cos(beta)) = (u v' - v u') / (r (r + w))`` (``r =
+    |(u, v, w)|``) are smooth there, and the angles enter the waveform
+    through multiples of ``alpha`` and ``gamma`` only, so that their
+    branches do not matter."""
+    chunk = PNR_GRID_CHUNK
+    n_chunks = PNR_GRID_CAPACITY // chunk
+    x0 = i_start * h
+    sin_beta = jnp.sin(beta)
+    u, v, w = sin_beta * jnp.cos(alpha), sin_beta * jnp.sin(alpha), jnp.cos(beta)
+    m_u, m_v, m_w = _uniform_natural_splines([u, v, w], n, h, n_eval)
+
+    def frequencies(k, i_start, n, h):
+        return (i_start + jnp.minimum(k, n - 1.0)) * h
+
+    def boole(index, total, args):
+        u, m_u, v, m_v, w, m_w, i_start, n, h, x0 = args
+        cap = u.shape[0]
+        i = index * chunk + jnp.arange(chunk)
+        here, after = jnp.clip(i, 0, cap - 1), jnp.clip(i + 1, 0, cap - 1)
+        t1 = frequencies(here.astype(jnp.float64), i_start, n, h)
+        t2 = frequencies(after.astype(jnp.float64), i_start, n, h)
+        points = jnp.stack([t2, fma(3.0, t1, t2) / 4.0, (t1 + t2) / 2.0, t1, fma(3.0, t2, t1) / 4.0])
+        dx = points - (x0 + i * h)
+
+        def piece(y, m):
+            y0, y1, m0, m1 = y[here], y[after], m[here], m[after]
+            b = (y1 - y0) / h - h * (m1 + 2.0 * m0) / 6.0
+            value = y0 + dx * (b + dx * (m0 / 2.0 + dx * (m1 - m0) / (6.0 * h)))
+            return value, b + dx * (m0 + (m1 - m0) / (2.0 * h) * dx)
+
+        (ux, du), (vx, dv), (wx, _) = piece(u, m_u), piece(v, m_v), piece(w, m_w)
+        r = safe_sqrt(ux * ux + vx * vx + wx * wx, 1e-300)
+        f = safe_div(ux * dv - vx * du, r * (r + wx))
+        total_f = fma(7.0, f[0], fma(32.0, f[1], fma(12.0, f[2], fma(7.0, f[3], 32.0 * f[4]))))
+        increments = jnp.where(i + 1 < n, 1.0 / 90.0 * (t2 - t1) * total_f, 0.0)
+        sums = jnp.cumsum(increments)
+        big_gamma = total + jnp.concatenate([jnp.zeros(1), sums[:-1]])
+        return big_gamma, total + sums[-1]
+
+    big_gamma, _ = blocked_scan(boole, jnp.arange(n_chunks), jnp.ceil(n_eval / chunk), jnp.zeros(()),
+                                (u, m_u, v, m_v, w, m_w, i_start, n, h, x0))
+    big_gamma = big_gamma.reshape(-1)
+    (m_big_gamma,) = _uniform_natural_splines([big_gamma], n, h, n_eval)
+    return Struct(u=u, v=v, w=w, m_u=m_u, m_v=m_v, m_w=m_w, big_gamma=big_gamma, m_big_gamma=m_big_gamma, n=n,
+                  x0=x0, h=h, error=error)
+
+
 def spline_angles(splines, f):
     """The PNR ``alpha``, ``beta`` and ``gamma`` at ``f`` (Hz) and whether
-    ``f`` lies on the grid (GSL fails outside)."""
+    ``f`` lies on the grid (GSL fails outside). For the interpolants of
+    the smooth angles (:func:`_geometric_interpolants`), ``alpha`` and
+    ``gamma`` are known modulo ``2 pi``."""
+    inside = (f >= splines.x0) & (f <= splines.x0 + (splines.n - 1.0) * splines.h)
+    if "u" in splines:
+        u, _ = _spline_at(splines.u, splines.m_u, splines.n, splines.x0, splines.h, f)
+        v, _ = _spline_at(splines.v, splines.m_v, splines.n, splines.x0, splines.h, f)
+        w, _ = _spline_at(splines.w, splines.m_w, splines.n, splines.x0, splines.h, f)
+        big_gamma, _ = _spline_at(splines.big_gamma, splines.m_big_gamma, splines.n, splines.x0, splines.h, f)
+        a = st_angles._atan2(v, u)
+        b = st_angles._atan2(safe_sqrt(u * u + v * v, 1e-300), w)
+        return a, b, big_gamma - a, inside
     a, _ = _spline_at(splines.alpha, splines.m_alpha, splines.n, splines.x0, splines.h, f)
     b, _ = _spline_at(splines.beta, splines.m_beta, splines.n, splines.x0, splines.h, f)
     g, _ = _spline_at(splines.gamma, splines.m_gamma, splines.n, splines.x0, splines.h, f)
-    inside = (f >= splines.x0) & (f <= splines.x0 + (splines.n - 1.0) * splines.h)
     return a, b, g, inside
 
 
