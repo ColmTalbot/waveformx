@@ -497,7 +497,11 @@ def interpolation_delta_f(prec, wf, f_min, version):
             # LAL samples four times more finely where L comes close to J
             # (the grid, and the waveform, jump there): the smooth angles
             # refine by a factor that goes from 1 to 4 across bands around
-            # LAL's thresholds
+            # LAL's thresholds. (For vanishing in-plane spins, the ratio is
+            # its limit, whose derivative does not divide by beta_max^2.)
+            tiny = beta_max < 1e-100
+            limit = safe_div(jnp.abs(prec.s1_perp - prec.s2_perp), prec.s1_perp + prec.s2_perp)
+            ratio = jnp.where(tiny, limit, safe_div(beta_min, jnp.where(tiny, 1.0, beta_max)))
             w = pa._ramp(0.01 - beta_min, GRID_SOFT_BETA) * pa._ramp(0.55 - ratio, GRID_SOFT_RATIO)
             dpsi_inv = dpsi_inv / fma(3.0, w, 1.0)
         else:
@@ -1681,7 +1685,7 @@ def spline_angles(splines, f):
         v, _ = _spline_at(splines.v, splines.m_v, splines.n, splines.x0, splines.h, f)
         w, _ = _spline_at(splines.w, splines.m_w, splines.n, splines.x0, splines.h, f)
         big_gamma, _ = _spline_at(splines.big_gamma, splines.m_big_gamma, splines.n, splines.x0, splines.h, f)
-        a = st_angles._atan2(v, u)
+        a = st_angles.small_atan2(v, u)
         b = st_angles._atan2(safe_sqrt(u * u + v * v, 1e-300), w)
         return a, b, big_gamma - a, inside
     a, _ = _spline_at(splines.alpha, splines.m_alpha, splines.n, splines.x0, splines.h, f)

@@ -657,10 +657,11 @@ def _geometric_alpha(alpha, lx, dlx, ly, dly):
     ``alpha`` cannot follow the swing, and the branch of the swing that the
     unwrapping picks flips with the parameters. The components are smooth
     there, and ``atan2`` of their splines follows the swing."""
-    raw = _atan2(ly, lx)
+    raw = small_atan2(ly, lx)
     d = raw - alpha
     value = alpha + d - 2 * PI * jnp.round(d / (2 * PI))
-    return value, safe_div(lx * dly - ly * dlx, lx * lx + ly * ly)
+    r2 = lx * lx + ly * ly
+    return value, jnp.where(r2 > SMALL_SQUARE, lx * dly - ly * dlx, 0.0) / jnp.where(r2 > SMALL_SQUARE, r2, 1.0)
 
 
 def _atan2(y, x):
@@ -668,6 +669,18 @@ def _atan2(y, x):
     along J: aligned spins), where ``atan2`` has none."""
     both = (x == 0.0) & (y == 0.0)
     return jnp.arctan2(jnp.where(both, 0.0, y), jnp.where(both, 1.0, x))
+
+
+#: Below this ``x^2 + y^2``, the derivative of ``atan2(y, x)`` would divide
+#: by an underflowing square.
+SMALL_SQUARE = 1e-280
+
+
+def small_atan2(y, x):
+    """:func:`_atan2`, also zero (with a zero derivative) where ``x^2 +
+    y^2 < SMALL_SQUARE``."""
+    small = x * x + y * y < SMALL_SQUARE
+    return jnp.arctan2(jnp.where(small, 0.0, y), jnp.where(small, 1.0, x))
 
 
 def _rotate(x, y, z, phi_j, theta_j, kappa):
