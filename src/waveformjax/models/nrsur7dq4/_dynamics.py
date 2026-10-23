@@ -124,7 +124,8 @@ def _assemble(y, fits, sp, cp):
     quaternion derivative ``q Omega / 2``."""
     r = _rotate(fits, _FIT_PARTNER, _FIT_FIRST, _FIT_SECOND, sp, cp, 1.0)
     ye = jnp.concatenate([y, jnp.ones_like(y[:1])])
-    return _A * ye[_IA] * r[..., _RA] + _B * ye[_IB] * r[..., _RB]
+    a, b = jnp.asarray(_A, y.dtype), jnp.asarray(_B, y.dtype)
+    return a * ye[_IA] * r[..., _RA] + b * ye[_IB] * r[..., _RB]
 
 
 def derivatives(data, q, nodes, y):

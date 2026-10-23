@@ -292,7 +292,7 @@ def test_simulate_td_matches_lal(lal, mode_array, delta_t, f_min):
 @pytest.mark.parametrize("delta_f, f_min, f_max", [(0.0, 20.0, 2048.0), (0.25, 19.0, 1000.0)])
 def test_simulate_fd_matches_lal(lal, delta_f, f_min, f_max):
     lal_module, lalsim = lal
-    result = wf.simulate_fd("NRSur7dq4", delta_f, f_min, f_max, **NRSUR)
+    result = wf.simulate_fd("NRSur7dq4", delta_f, f_min, f_max, scaled_strain=False, **NRSUR)
     lp, lc = lalsim.SimInspiralFD(*lal_arguments(lal_module, NRSUR), delta_f, f_min, f_max, NRSUR["f_ref"], None,
                                   lalsim.NRSur7dq4)
     assert len(result.hplus) == lp.data.length
@@ -306,7 +306,7 @@ def test_simulate_fd_matches_lal(lal, delta_f, f_min, f_max):
 @requires_nrsur
 def test_simulate_td_of_nrsur7dq4_matches_lal(lal):
     lal_module, lalsim = lal
-    result = wf.simulate_td("NRSur7dq4", 1 / 4096, 20.0, **NRSUR)
+    result = wf.simulate_td("NRSur7dq4", 1 / 4096, 20.0, scaled_strain=False, **NRSUR)
     lp, lc = lalsim.SimInspiralTD(*lal_arguments(lal_module, NRSUR), 1 / 4096, 20.0, NRSUR["f_ref"], None,
                                   lalsim.NRSur7dq4)
     assert len(result.hplus) == lp.data.length and result.epoch == float(lp.epoch)

@@ -130,7 +130,7 @@ def check_polarizations(result, hp, hc):
 @pytest.mark.parametrize("name, binary, delta_t, f_min, mode_array", CASES, ids=[case[0] for case in CASES])
 def test_td_polarizations(lal, name, binary, delta_t, f_min, mode_array):
     lal_module, lalsim = lal
-    result = wf.td_polarizations("NRSur7dq4", delta_t, f_min, mode_array=mode_array, **binary)
+    result = wf.td_polarizations("NRSur7dq4", delta_t, f_min, mode_array=mode_array, scaled_strain=False, **binary)
     hp, hc = lal_polarizations(lal_module, lalsim, binary, delta_t, f_min, mode_array)
     check_polarizations(result, hp, hc)
 
@@ -147,7 +147,7 @@ def test_rk4_start_nodes(lal):
     for node, fraction in ((0, 0.3), (1, 0.4), (1, 0.6), (2, 0.5), (3, 0.5)):
         omega = omegas[node] + fraction * (omegas[node + 1] - omegas[node])
         case = dict(BINARY, f_ref=omega / (np.pi * m_tot_sec))
-        result = wf.td_polarizations("NRSur7dq4", 1 / 4096, 0.0, **case)
+        result = wf.td_polarizations("NRSur7dq4", 1 / 4096, 0.0, scaled_strain=False, **case)
         check_polarizations(result, *lal_polarizations(lal_module, lalsim, case, 1 / 4096, 0.0))
 
 
@@ -162,7 +162,7 @@ def test_rk4_start_nodes(lal):
 )
 def test_td_modes(lal, binary, delta_t, f_min, mode_array):
     lal_module, lalsim = lal
-    result = wf.td_modes("NRSur7dq4", delta_t, f_min, mode_array=mode_array, **binary)
+    result = wf.td_modes("NRSur7dq4", delta_t, f_min, mode_array=mode_array, scaled_strain=False, **binary)
     modes, epoch = lal_modes(lal_module, lalsim, binary, delta_t, f_min, mode_array)
     assert sorted(result.modes) == sorted(modes)
     assert result.epoch == epoch
@@ -246,7 +246,7 @@ def test_data():
     assert data.dynamics.shape[:2] == (233, 9)
     assert data.ei_bounds[-1] == data.ei_basis.shape[0] == data.ei_time.shape[0]
     assert len(data.ei_bounds) == len(_data.PIECES) + 1
-    assert data.t_ds.dtype == jnp.float64
+    assert data.t_ds.dtype == jnp.float64 and data.dtype == jnp.float64
 
 
 def test_data_file_errors(tmp_path):

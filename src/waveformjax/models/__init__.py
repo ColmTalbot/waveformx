@@ -46,7 +46,8 @@ Time-domain models (``MODEL.domain == "time"``):
 
 ``polarizations_at(binary, times, options) -> (hplus, hcross)``
     The polarizations at ``times`` (s, relative to the peak as in LAL's
-    output), pure and differentiable as above.
+    output), pure and differentiable as above. NRSur7dq4 evaluates them in
+    the precision of the binary's parameters (float32 or float64).
 """
 
 from __future__ import annotations

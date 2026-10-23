@@ -16,7 +16,9 @@ nodes of the waveform are stored by the order of the mass-ratio parameter
 and the spin monomial, so that the mass ratio, which is the same at every
 node, is folded into the coefficients once. The data are
 returned as :class:`NRSurData`, a pytree of float64 (and integer) JAX
-arrays, read once per file and cached.
+arrays, read once per file and cached; a float32 copy (cast from the
+float64 arrays, including the factorised spline systems) is cached too
+when it is first asked for.
 """
 
 from __future__ import annotations
@@ -35,6 +37,7 @@ from ._spline import Knots, factorize
 
 __all__ = [
     "NRSurData",
+    "precision",
     "LMAX",
     "MODES",
     "N_FITS",
@@ -143,6 +146,17 @@ class NRSurData:
     def n_coorb(self) -> int:
         """Number of coorbital times."""
         return int(self.t_coorb.shape[0])
+
+    @property
+    def dtype(self):
+        """The floating-point type of the arrays (float64 or float32)."""
+        return self.dynamics.dtype
+
+    def astype(self, dtype) -> "NRSurData":
+        """The data with the floating-point arrays converted to ``dtype``."""
+        return jax.tree_util.tree_map(
+            lambda x: x.astype(dtype) if jnp.issubdtype(x.dtype, jnp.floating) else x, self
+        )
 
 
 def data_file() -> Optional[str]:
@@ -310,13 +324,33 @@ def _load_cached(path: str) -> NRSurData:
         )
 
 
-def load(path=None) -> NRSurData:
+def precision(dtype=None) -> np.dtype:
+    """The floating-point type of an evaluation for ``dtype``: float32 if it
+    is float32, else (also for ``None``) float64, which is float32 where
+    JAX's 64-bit floats are disabled."""
+    dtype = np.dtype(dtype) if dtype is not None else None
+    return jax.dtypes.canonicalize_dtype(np.float32 if dtype == np.float32 else np.float64)
+
+
+@functools.lru_cache(maxsize=4)
+def _load_as(path: str, dtype: str) -> NRSurData:
+    data = _load_cached(path)
+    if data.dtype == dtype:
+        return data
+    with jax.ensure_compile_time_eval():
+        return data.astype(dtype)
+
+
+def load(path=None, dtype=None) -> NRSurData:
     """The surrogate data of the file ``path`` (default: :func:`data_file`),
-    read once per file.
+    read once per file, with floating-point arrays of ``dtype`` (float64 by
+    default, or float32).
 
     Raises :class:`~waveformjax.DataFileNotFoundError` if there is no file
     and :class:`~waveformjax.DataFileError` if it cannot be read.
     """
+    if dtype is not None and np.dtype(dtype) not in (np.float32, np.float64):
+        raise TypeError(f"the NRSur7dq4 data are float32 or float64, not {np.dtype(dtype)}")
     if path is None:
         path = data_file()
         if path is None:
@@ -327,9 +361,10 @@ def load(path=None) -> NRSurData:
     path = Path(path)
     if not path.is_file():
         raise DataFileNotFoundError(f"the NRSur7dq4 data file {path} does not exist")
-    return _load_cached(str(path.resolve()))
+    return _load_as(str(path.resolve()), str(precision(dtype)))
 
 
-def default_data() -> NRSurData:
-    """The data of the file found by :func:`data_file`."""
-    return load(None)
+def default_data(dtype=None) -> NRSurData:
+    """The data of the file found by :func:`data_file` (float64, or
+    ``dtype``)."""
+    return load(None, dtype)

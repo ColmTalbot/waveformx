@@ -63,6 +63,7 @@ def test_data_first_read_under_jit(function):
     so later calls (outside that trace) can use them."""
     from waveformjax.models.nrsur7dq4 import _data
 
+    _data._load_as.cache_clear()
     _data._load_cached.cache_clear()
     compiled = jax.jit(function)(as_floats(PRECESSING), TIMES)
     plain = function(as_floats(PRECESSING), TIMES)

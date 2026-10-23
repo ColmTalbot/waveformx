@@ -41,8 +41,9 @@ def test_options():
     assert wf.WaveformOptions(mode_array=[[2, 2], (3, -3)]).mode_array == ((2, 2), (3, -3))
     assert hash(options) == hash(wf.WaveformOptions())
     assert pickle.loads(pickle.dumps(options)) == options
-    assert options.replace(pnr_parity_fix=False) == wf.WaveformOptions.lalsimulation_defaults().replace(
-        precession_version=320
+    assert options.scaled_strain and not wf.WaveformOptions.lalsimulation_defaults().scaled_strain
+    assert options.replace(pnr_parity_fix=False, scaled_strain=False) == (
+        wf.WaveformOptions.lalsimulation_defaults().replace(precession_version=320)
     )
     assert wf.WaveformOptions(**options.as_dict()) == options
     with pytest.raises(TypeError):

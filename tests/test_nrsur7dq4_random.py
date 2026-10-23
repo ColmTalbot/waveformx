@@ -76,7 +76,7 @@ def test_random_draws(lal):
                 wf.td_polarizations("NRSur7dq4", delta_t, f_min, **binary)
             failed += 1
             continue
-        result = wf.td_polarizations("NRSur7dq4", delta_t, f_min, **binary)
+        result = wf.td_polarizations("NRSur7dq4", delta_t, f_min, scaled_strain=False, **binary)
         assert len(result.hplus) == hp.data.length, binary
         assert result.epoch == float(hp.epoch), binary
         for ours, theirs in ((result.hplus, hp.data.data), (result.hcross, hc.data.data)):

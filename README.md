@@ -33,6 +33,11 @@ The package has the same interface as the Python bindings of
   the waveform at any times and can be differentiated with respect to every
   parameter of the binary. It needs the surrogate data file from LALSuite's
   data repository.
+  - Its output is the strain multiplied by 10^21, so that it can be used in
+    single precision; the option `scaled_strain=False` gives the strain
+    itself, as LALSimulation does.
+  - Its pure function runs in single precision (float32) when the binary's
+    parameters are float32, including its derivatives.
 
 ## Features
 

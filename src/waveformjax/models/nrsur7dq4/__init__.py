@@ -28,7 +28,12 @@ evaluates the waveform at ``times`` (s, relative to the peak), works under
 ``jax.jit``, ``jax.vmap`` and ``jax.grad`` with respect to every parameter
 of the binary, and starts the dynamics at the start of the surrogate where
 ``binary.f_ref = 0`` (``td_polarizations`` replaces ``f_ref = 0`` by
-``f_min``, as LAL).
+``f_min``, as LAL). It is evaluated in float32 if the binary's parameters
+are float32 (with float32 data, :func:`load` with ``dtype``), else in
+float64.
+
+Every output is the strain multiplied by ``1e21`` unless the option
+``scaled_strain`` is false (the strain itself, as LAL).
 """
 
 from __future__ import annotations
@@ -79,16 +84,26 @@ class NRSur7dq4Model:
         the surrogate), pure and differentiable. ``binary.f_ref = 0`` starts
         the dynamics at the start of the surrogate. No checks are made:
         where LAL would fail to find the reference time the result is
-        NaN."""
-        data = default_data() if data is None else data
-        return _waveform.polarizations_at(data, binary, times, options.mode_array)
+        NaN. The precision is that of the binary's parameters (float32 or
+        float64); the times, and ``data`` if given, are converted to it."""
+        data = _data_for(binary, data)
+        return _waveform.polarizations_at(data, binary, times, options.mode_array, _waveform.strain_scale(options))
 
     @staticmethod
     def modes_at(binary, times, options, data: Optional[NRSurData] = None):
         """The inertial modes ``{(l, m): h_lm}`` at ``times``, as
         :meth:`polarizations_at`."""
-        data = default_data() if data is None else data
-        return _waveform.modes_at(data, binary, times, options.mode_array)
+        data = _data_for(binary, data)
+        return _waveform.modes_at(data, binary, times, options.mode_array, _waveform.strain_scale(options))
+
+
+def _data_for(binary, data: Optional[NRSurData]) -> NRSurData:
+    """The data in the precision of ``binary``: the default data, or
+    ``data`` converted."""
+    dtype = _waveform.precision(binary)
+    if data is None:
+        return default_data(dtype)
+    return data if data.dtype == dtype else data.astype(dtype)
 
 
 MODEL = NRSur7dq4Model()

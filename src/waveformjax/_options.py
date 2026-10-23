@@ -87,6 +87,10 @@ class WaveformOptions:
       uses the SpinTaylor angles the two agree closely except near LAL's
       own switches (``report/extended``). ``version_fallback`` is then
       ignored.
+    * ``scaled_strain``: whether NRSur7dq4 returns the strain multiplied by
+      ``1e21`` (default ``True``), which keeps the strain, its square and
+      its derivatives within the range of float32; ``False`` gives the
+      strain itself, as LAL. IMRPhenomXPNR always gives the strain itself.
     """
 
     precession_version: int = 320
@@ -94,6 +98,7 @@ class WaveformOptions:
     version_fallback: bool = True
     pnr_parity_fix: bool = True
     extended_spintaylor: bool = False
+    scaled_strain: bool = True
 
     def __post_init__(self):
         object.__setattr__(self, "precession_version", _precession_version(self.precession_version))
@@ -101,12 +106,14 @@ class WaveformOptions:
         _bool(self.version_fallback, "version_fallback")
         _bool(self.pnr_parity_fix, "pnr_parity_fix")
         _bool(self.extended_spintaylor, "extended_spintaylor")
+        _bool(self.scaled_strain, "scaled_strain")
 
     @staticmethod
     def lalsimulation_defaults() -> "WaveformOptions":
         """LALSimulation 6.2.0's defaults for an empty ``LALDict``: the MSA
-        angles (223), all modes and IMRPhenomXPNR without the parity fix."""
-        return WaveformOptions(precession_version=223, pnr_parity_fix=False)
+        angles (223), all modes, IMRPhenomXPNR without the parity fix and
+        the strain itself (not scaled)."""
+        return WaveformOptions(precession_version=223, pnr_parity_fix=False, scaled_strain=False)
 
     def replace(self, **options: Any) -> "WaveformOptions":
         """A copy with the given options changed."""

@@ -240,22 +240,22 @@ def bucket(n: int) -> int:
 
 
 @functools.partial(jax.jit, static_argnames=("n", "mode_array"))
-def _polarizations_grid(data, binary, t0, dt, n, mode_array):
+def _polarizations_grid(data, binary, t0, dt, scale, n, mode_array):
     tau = t0 + dt * jnp.arange(n)
-    return _waveform.polarizations_at_dimensionless(data, binary, tau, mode_array)
+    return _waveform.polarizations_at_dimensionless(data, binary, tau, mode_array, scale)
 
 
 @functools.partial(jax.jit, static_argnames=("n", "mode_array"))
-def _modes_grid(data, binary, t0, dt, n, mode_array):
+def _modes_grid(data, binary, t0, dt, scale, n, mode_array):
     tau = t0 + dt * jnp.arange(n)
-    return _waveform.modes_at_dimensionless(data, binary, tau, mode_array)
+    return _waveform.modes_at_dimensionless(data, binary, tau, mode_array, scale)
 
 
 @functools.partial(jax.jit, static_argnames=("n", "mode_array"))
-def _batch_polarizations_grid(data, binaries, t0, dt, n, mode_array):
+def _batch_polarizations_grid(data, binaries, t0, dt, scale, n, mode_array):
     def one(binary, t0, dt):
         tau = t0 + dt * jnp.arange(n)
-        return _waveform.polarizations_at_dimensionless(data, binary, tau, mode_array)
+        return _waveform.polarizations_at_dimensionless(data, binary, tau, mode_array, scale)
 
     return jax.vmap(one)(binaries, t0, dt)
 
@@ -270,7 +270,8 @@ def td_polarizations(binary, delta_t: float, f_min: float, options) -> TimeSerie
     """``SimInspiralChooseTDWaveform`` for NRSur7dq4."""
     data = default_data()
     grid = setup(binary, delta_t, f_min, options, data)
-    hp, hc = _polarizations_grid(data, _as_numpy(grid.binary), grid.t0, grid.dt, bucket(grid.n), options.mode_array)
+    hp, hc = _polarizations_grid(data, _as_numpy(grid.binary), grid.t0, grid.dt, _waveform.strain_scale(options),
+                                 bucket(grid.n), options.mode_array)
     return TimeSeriesPolarizations(hp[: grid.n], hc[: grid.n], grid.epoch, float(delta_t))
 
 
@@ -279,7 +280,8 @@ def td_modes(binary, delta_t: float, f_min: float, options) -> TimeSeriesModes:
     modes of every ``ell`` that has a coorbital mode in the mode array."""
     data = default_data()
     grid = setup(binary, delta_t, f_min, options, data)
-    modes = _modes_grid(data, _as_numpy(grid.binary), grid.t0, grid.dt, bucket(grid.n), options.mode_array)
+    modes = _modes_grid(data, _as_numpy(grid.binary), grid.t0, grid.dt, _waveform.strain_scale(options),
+                        bucket(grid.n), options.mode_array)
     return TimeSeriesModes({mode: h[: grid.n] for mode, h in modes.items()}, grid.epoch, float(delta_t))
 
 
@@ -309,7 +311,8 @@ def batch_td_polarizations(
         binaries = binaries_from_table(effective[padded])
         t0 = jnp.asarray([grids[i].t0 for i in padded])
         dt = jnp.asarray([grids[i].dt for i in padded])
-        hp, hc = _batch_polarizations_grid(data, binaries, t0, dt, n, options.mode_array)
+        hp, hc = _batch_polarizations_grid(data, binaries, t0, dt, _waveform.strain_scale(options), n,
+                                           options.mode_array)
         hp, hc = np.asarray(hp), np.asarray(hc)
         for k, index in enumerate(members):
             grid = grids[index]

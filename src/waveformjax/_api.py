@@ -145,7 +145,10 @@ def polarizations_function(approximant: str, options: Optional[WaveformOptions] 
 
 def td_polarizations_function(approximant: str, options: Optional[WaveformOptions] = None, **option_keywords) -> Callable:
     """The pure function ``f(binary, times) -> (hplus, hcross)`` of a
-    time-domain approximant at ``times`` (s, relative to the peak)."""
+    time-domain approximant at ``times`` (s, relative to the peak).
+    NRSur7dq4 evaluates it in the precision of ``binary`` (float32 if its
+    parameters are float32, else float64) and gives the strain times 1e21
+    unless ``scaled_strain=False``."""
     model = _model(approximant, "time")
     return functools.partial(model.polarizations_at, options=parse_options(options, option_keywords))
 

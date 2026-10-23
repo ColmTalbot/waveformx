@@ -121,13 +121,13 @@ class _NRSur7dq4:
         """The polarizations on the grid of :meth:`setup`, in a buffer of
         a bucketed length (zero-padded, so that compilations are shared)
         and their number of samples."""
-        from ..models.nrsur7dq4 import _driver
+        from ..models.nrsur7dq4 import _driver, _waveform
         from ..models.nrsur7dq4._data import default_data
 
         data = default_data()
         n = _driver.bucket(grid.n)
-        hp, hc = _driver._polarizations_grid(data, _driver._as_numpy(grid.binary), grid.t0, grid.dt, n,
-                                             options.mode_array)
+        hp, hc = _driver._polarizations_grid(data, _driver._as_numpy(grid.binary), grid.t0, grid.dt,
+                                             _waveform.strain_scale(options), n, options.mode_array)
         inside = jnp.arange(n) < grid.n
         return jnp.where(inside, hp, 0.0), jnp.where(inside, hc, 0.0)
 

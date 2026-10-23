@@ -32,7 +32,7 @@ def wigner_small_d(ell: int, mp: int, m: int, beta):
 def spin_weighted_spherical_harmonic(theta, phi, ell: int, m: int, s: int = -2):
     """``{}_sY_{lm}(theta, phi)`` as ``XLALSpinWeightedSphericalHarmonic``:
     ``(-1)^s sqrt((2l + 1) / 4 pi) d^l_{m,-s}(theta) e^{i m phi}``."""
-    norm = (-1) ** s * np.sqrt((2 * ell + 1) / (4 * np.pi))
+    norm = (-1) ** s * float(np.sqrt((2 * ell + 1) / (4 * np.pi)))
     return norm * wigner_small_d(ell, m, -s, theta) * jnp.exp(1j * m * phi)
 
 
