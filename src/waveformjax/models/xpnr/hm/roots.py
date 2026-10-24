@@ -289,14 +289,18 @@ def _qr_companion(h, nc):
             hq = hq.at[i - 1, i - 4].set(jnp.where(zero, 0.0, hq[i - 1, i - 4]))
 
         # double QR step (p, q, r of the first step come from the search of m,
-        # the others from the matrix)
-        for k in range(1, nc):
+        # the others from the matrix): a loop over k = 1 .. nc - 1, with the
+        # rows and columns k - 1, k, k + 1 (0-based; k + 1 clipped, and
+        # masked out, at the last k) read and written at a traced k
+        def sweep(k, hq):
             in_sweep = (k >= m) & (k <= n - 1)
-            notlast = (k != n - 1) if k + 2 <= nc else jnp.asarray(False)
+            has_third = k + 2 <= nc
+            notlast = has_third & (k != n - 1)
             first = k == m
-            pk = H(hq, k, k - 1) if k > 1 else 0.0
-            qk = H(hq, k + 1, k - 1) if k > 1 else 0.0
-            rk = jnp.where(notlast, H(hq, k + 2, k - 1), 0.0) if (k > 1 and k + 2 <= nc) else 0.0
+            later = k > 1
+            pk = jnp.where(later, Hd(hq, k, k - 1), 0.0)
+            qk = jnp.where(later, Hd(hq, k + 1, k - 1), 0.0)
+            rk = jnp.where(later & notlast, Hd(hq, k + 2, k - 1), 0.0)
             xk = jnp.abs(pk) + jnp.abs(qk) + jnp.abs(rk)
             xk_safe = jnp.where(xk == 0.0, 1.0, xk)
             p = jnp.where(first, pm, pk / xk_safe)
@@ -305,9 +309,9 @@ def _qr_companion(h, nc):
             do = in_sweep & (first | (xk != 0.0))
             sk = jnp.sqrt(fma(r, r, fma(p, p, q * q)))
             sk = jnp.where(p < 0.0, -sk, sk)
-            if k > 1:
-                sub = jnp.where(first, jnp.where(e != m, -H(hq, k, k - 1), H(hq, k, k - 1)), -sk * xk)
-                hq = hq.at[k - 1, k - 2].set(jnp.where(do, sub, hq[k - 1, k - 2]))
+            sub = jnp.where(first, jnp.where(e != m, -pk, pk), -sk * xk)
+            row, col = jnp.clip(k - 1, 0, nc - 1), jnp.clip(k - 2, 0, nc - 1)
+            hq = hq.at[row, col].set(jnp.where(later & do, sub, hq[row, col]))
             p = p + sk
             sk_safe = jnp.where(sk == 0.0, 1.0, sk)
             p_safe = jnp.where(p == 0.0, 1.0, p)
@@ -316,28 +320,24 @@ def _qr_companion(h, nc):
             zr = r / sk_safe
             q = q / p_safe
             r = r / p_safe
+            k0, k1, k2 = k - 1, k, jnp.minimum(k + 1, nc - 1)
             # row modifications (each column from its own old values: done
             # for the columns j = k .. n at once)
             on = do & (index >= k) & (index <= n)
-            r0, r1 = hq[k - 1], hq[k]
-            pj = fma(q, r1, r0)
-            if k + 2 <= nc:
-                r2 = hq[k + 1]
-                pj = jnp.where(notlast, fma(r, r2, pj), pj)
-                hq = hq.at[k + 1].set(jnp.where(on & notlast, fma(-pj, zr, r2), r2))
-            hq = hq.at[k].set(jnp.where(on, fma(-pj, yr_, r1), r1))
-            hq = hq.at[k - 1].set(jnp.where(on, fma(-pj, xr, r0), r0))
+            r0, r1, r2 = hq[k0], hq[k1], hq[k2]
+            pj = jnp.where(notlast, fma(r, r2, fma(q, r1, r0)), fma(q, r1, r0))
+            hq = hq.at[k2].set(jnp.where(on & notlast, fma(-pj, zr, r2), r2))
+            hq = hq.at[k1].set(jnp.where(on, fma(-pj, yr_, r1), r1))
+            hq = hq.at[k0].set(jnp.where(on, fma(-pj, xr, r0), r0))
             # column modifications (the rows i = e .. min(k + 3, n) at once)
-            jmax = jnp.minimum(k + 3, n)
-            on = do & (index >= e) & (index <= jmax)
-            c0, c1 = hq[:, k - 1], hq[:, k]
-            pi_ = fma(xr, c0, yr_ * c1)
-            if k + 2 <= nc:
-                c2 = hq[:, k + 1]
-                pi_ = jnp.where(notlast, fma(zr, c2, pi_), pi_)
-                hq = hq.at[:, k + 1].set(jnp.where(on & notlast, fma(-pi_, r, c2), c2))
-            hq = hq.at[:, k].set(jnp.where(on, fma(-pi_, q, c1), c1))
-            hq = hq.at[:, k - 1].set(jnp.where(on, c0 - pi_, c0))
+            on = do & (index >= e) & (index <= jnp.minimum(k + 3, n))
+            c0, c1, c2 = hq[:, k0], hq[:, k1], hq[:, k2]
+            pi_ = jnp.where(notlast, fma(zr, c2, fma(xr, c0, yr_ * c1)), fma(xr, c0, yr_ * c1))
+            hq = hq.at[:, k2].set(jnp.where(on & notlast, fma(-pi_, r, c2), c2))
+            hq = hq.at[:, k1].set(jnp.where(on, fma(-pi_, q, c1), c1))
+            return hq.at[:, k0].set(jnp.where(on, c0 - pi_, c0))
+
+        hq = lax.fori_loop(1, nc, sweep, hq)
 
         h = jnp.where(iterate, hq, h)
         t = jnp.where(iterate, t_new, t)
