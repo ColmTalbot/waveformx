@@ -229,39 +229,55 @@ def test_continuous_across_the_refinement_of_the_pnr_grid():
     assert _jump(EXTENDED, make, x) < 1e-7
 
 
-def test_smooth_interpolants_do_not_depend_on_the_branch_of_alpha():
-    """Where L passes close to J, ``alpha`` swings by nearly ``pi`` between
-    points of the PNR grid, and which way the unwrapping takes the swing
-    flips with the parameters (by ``2 pi`` beyond it). The interpolants of
-    the extended model (of the unit vector of ``alpha`` and ``beta``, and of
-    ``alpha' (1 - cos(beta))``) give the same rotation either way."""
+def _trajectory(f, case):
+    """``alpha`` (unwrapped) and ``beta`` along a path of L in the J frame:
+    circling past J (``"north"``) or -J (``"south"``) at a distance of 5e-4
+    near f = 60 Hz, or precessing steadily while ``beta`` goes from 0.5 to
+    2.5 (``"equator"``)."""
+    if case == "equator":
+        return 2 * np.pi * (f - 20.0) / 10.0, 0.5 + 2.0 * (f - 20.0) / 80.0
+    phase = 2 * np.pi * (f - 60.0) / 40.0
+    lx, ly = 0.0205 - 0.02 * np.cos(phase), 0.02 * np.sin(phase)
+    beta = np.arcsin(np.hypot(lx, ly))
+    return np.unwrap(np.arctan2(ly, lx)), (beta if case == "north" else np.pi - beta)
+
+
+@pytest.mark.parametrize("case", ["north", "south", "equator"])
+def test_smooth_interpolants_do_not_depend_on_the_branch_of_alpha(case):
+    """Where L passes close to J (or -J), ``alpha`` swings by nearly ``pi``
+    between points of the PNR grid, and which way the unwrapping takes the
+    swing flips with the parameters (by ``2 pi`` beyond it). The
+    interpolants of the extended model give the same rotation either way,
+    follow the swing, which is narrower than the grid's spacing, and give
+    LAL's ``gamma = -int alpha' cos(beta) df`` (up to a constant) in both
+    hemispheres and across the equator."""
     from waveformjax.models.xpnr.pnr import PNR_GRID_CAPACITY
 
     n, h, i_start = 400, 0.25, 40
     f = (i_start + np.arange(PNR_GRID_CAPACITY)) * h
-    # the in-plane part of L in the J frame circles past the pole at a
-    # distance of 5e-4, near f = 60 Hz
-    phase = 2 * np.pi * (f - 60.0) / 40.0
-    lx, ly = 0.0205 - 0.02 * np.cos(phase), 0.02 * np.sin(phase)
-    alpha = np.unwrap(np.arctan2(ly, lx))
-    beta = np.arcsin(np.hypot(lx, ly))
+    alpha, beta = _trajectory(f, case)
     other = alpha + 2 * np.pi * (f > 60.0)
     valid = np.arange(PNR_GRID_CAPACITY) < n
+    q = np.linspace(20.0, 100.0, 1001)
     out = []
     for a in (alpha, other):
         s = pnr._geometric_interpolants(jnp.asarray(np.where(valid, a, 0.0)), jnp.asarray(np.where(valid, beta, 0.0)),
                                         jnp.float64(i_start), jnp.float64(n), jnp.float64(h), jnp.float64(n),
                                         jnp.asarray(False))
-        q = jnp.linspace(20.0, 100.0, 1001)
-        out.append(pnr.spline_angles(s, q))
+        out.append([np.asarray(x) for x in pnr.spline_angles(s, jnp.asarray(q))])
     for k in (0, 2):
-        np.testing.assert_allclose(np.exp(1j * np.asarray(out[0][k])), np.exp(1j * np.asarray(out[1][k])), atol=1e-12)
-    np.testing.assert_allclose(np.asarray(out[0][1]), np.asarray(out[1][1]), atol=1e-12)
-    # and they follow the swing, which is narrower than the grid's spacing
-    q = np.linspace(20.0, 100.0, 1001)
-    phase = 2 * np.pi * (q - 60.0) / 40.0
-    exact = np.arctan2(0.02 * np.sin(phase), 0.0205 - 0.02 * np.cos(phase))
-    np.testing.assert_allclose(np.exp(1j * np.asarray(out[0][0])), np.exp(1j * exact), atol=1e-6)
+        np.testing.assert_allclose(np.exp(1j * out[0][k]), np.exp(1j * out[1][k]), atol=1e-12)
+    np.testing.assert_allclose(out[0][1], out[1][1], atol=1e-12)
+    # against the path itself, and gamma integrated finely
+    fine = np.linspace(20.0, 100.0, 2_000_001)
+    a_fine, b_fine = _trajectory(fine, case)
+    integrand = -np.gradient(a_fine, fine) * np.cos(b_fine)
+    gamma = np.concatenate([[0.0], np.cumsum(0.5 * (integrand[1:] + integrand[:-1]) * np.diff(fine))])[::2000]
+    a_exact, b_exact = _trajectory(q, case)
+    np.testing.assert_allclose(np.exp(1j * out[0][0]), np.exp(1j * a_exact), atol=1e-6)
+    np.testing.assert_allclose(out[0][1], b_exact, atol=1e-6)
+    drift = out[0][2] - out[0][2][0] - (gamma - gamma[0])
+    np.testing.assert_allclose(np.exp(1j * drift), 1.0, atol=1e-5)
 
 
 # ---------------------------------------------------------------------------

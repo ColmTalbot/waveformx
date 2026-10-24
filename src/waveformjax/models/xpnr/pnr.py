@@ -1613,36 +1613,57 @@ def angle_interpolants(prec, wf, grid, version, active=True):
                   h=h, error=error)
 
 
+#: Half-width in ``cos(beta)`` of the band around ``beta = pi / 2`` across
+#: which the interpolants of the smooth angles go from the form regular at
+#: ``beta = 0`` to the one regular at ``beta = pi``.
+HEMISPHERE_SOFT = 0.3
+
+
+def _wrap(x):
+    """``x`` modulo ``2 pi``, in ``[-pi, pi]``."""
+    return x - 2 * PI * jnp.round(x / (2 * PI))
+
+
 def _geometric_interpolants(alpha, beta, i_start, n, h, n_eval, error):
     """The interpolants of the smooth angles: instead of LAL's splines of
     ``alpha``, ``beta`` and ``gamma``, splines of the unit vector ``(u, v,
     w) = (sin(beta) cos(alpha), sin(beta) sin(alpha), cos(beta))`` and of
-    ``Gamma = int alpha' (1 - cos(beta)) df`` (Boole's rule, as LAL's
-    ``gamma``), from which :func:`spline_angles` takes ``alpha = atan2(v,
-    u)`` and ``gamma = Gamma - alpha`` (``gamma' = -alpha' cos(beta)``:
-    LAL's ``gamma`` up to a constant, which the offset at the reference
-    frequency removes).
+    ``gamma + alpha`` and ``gamma - alpha``, from which
+    :func:`spline_angles` takes ``alpha = atan2(v, u)`` and ``gamma``.
 
-    Where L passes close to J, ``alpha`` swings by nearly ``pi`` between
-    the points of the grid, and the integrand of LAL's ``gamma`` peaks
-    there: LAL's splines cannot follow either, and their errors jump when
-    the branch of the swing flips with the parameters. ``u``, ``v``, ``w``
-    and ``alpha' (1 - cos(beta)) = (u v' - v u') / (r (r + w))`` (``r =
-    |(u, v, w)|``) are smooth there, and the angles enter the waveform
-    through multiples of ``alpha`` and ``gamma`` only, so that their
-    branches do not matter."""
+    Where L passes close to J (or to -J), ``alpha`` swings by nearly ``pi``
+    between the points of the grid, and the integrand of LAL's ``gamma``
+    peaks there: LAL's splines cannot follow either, and their errors jump
+    when the branch of the swing flips with the parameters. ``u``, ``v``,
+    ``w`` are smooth there, and so is ``gamma + alpha`` near ``beta = 0``
+    and ``gamma - alpha`` near ``beta = pi``: across each interval of the
+    grid, ``gamma`` (LAL's ``-int alpha' cos(beta) df``) changes by
+
+    * ``-d alpha + int alpha' (1 - cos(beta))`` for ``beta < pi / 2``, and
+    * ``d alpha - int alpha' (1 + cos(beta))`` for ``beta > pi / 2``,
+
+    where ``d alpha`` is the change of ``alpha`` modulo ``2 pi`` and
+    ``alpha' (1 -+ cos(beta)) = (u v' - v u') / (r (r +- w))`` (``r =
+    |(u, v, w)|``) is regular in its hemisphere (Boole's rule, as LAL's
+    ``gamma``). The two are blended across a band of ``cos(beta)``
+    (:data:`HEMISPHERE_SOFT`), where both are regular and agree. The
+    angles enter the waveform through integer multiples of ``alpha`` and
+    ``gamma`` only, so that their branches do not matter; ``gamma`` is
+    LAL's up to a constant, which the offset at the reference frequency
+    removes."""
     chunk = PNR_GRID_CHUNK
     n_chunks = PNR_GRID_CAPACITY // chunk
     x0 = i_start * h
     sin_beta = jnp.sin(beta)
     u, v, w = sin_beta * jnp.cos(alpha), sin_beta * jnp.sin(alpha), jnp.cos(beta)
     m_u, m_v, m_w = _uniform_natural_splines([u, v, w], n, h, n_eval)
+    raw = st_angles.small_atan2(v, u)
 
     def frequencies(k, i_start, n, h):
         return (i_start + jnp.minimum(k, n - 1.0)) * h
 
-    def boole(index, total, args):
-        u, m_u, v, m_v, w, m_w, i_start, n, h, x0 = args
+    def boole(index, totals, args):
+        u, m_u, v, m_v, w, m_w, raw, i_start, n, h, x0 = args
         cap = u.shape[0]
         i = index * chunk + jnp.arange(chunk)
         here, after = jnp.clip(i, 0, cap - 1), jnp.clip(i + 1, 0, cap - 1)
@@ -1657,21 +1678,33 @@ def _geometric_interpolants(alpha, beta, i_start, n, h, n_eval, error):
             value = y0 + dx * (b + dx * (m0 / 2.0 + dx * (m1 - m0) / (6.0 * h)))
             return value, b + dx * (m0 + (m1 - m0) / (2.0 * h) * dx)
 
+        def boole_sum(f):
+            return 1.0 / 90.0 * (t2 - t1) * fma(7.0, f[0], fma(32.0, f[1], fma(12.0, f[2], fma(7.0, f[3], 32.0 * f[4]))))
+
         (ux, du), (vx, dv), (wx, _) = piece(u, m_u), piece(v, m_v), piece(w, m_w)
         r = safe_sqrt(ux * ux + vx * vx + wx * wx, 1e-300)
-        f = safe_div(ux * dv - vx * du, r * (r + wx))
-        total_f = fma(7.0, f[0], fma(32.0, f[1], fma(12.0, f[2], fma(7.0, f[3], 32.0 * f[4]))))
-        increments = jnp.where(i + 1 < n, 1.0 / 90.0 * (t2 - t1) * total_f, 0.0)
-        sums = jnp.cumsum(increments)
-        big_gamma = total + jnp.concatenate([jnp.zeros(1), sums[:-1]])
-        return big_gamma, total + sums[-1]
+        twist = ux * dv - vx * du
+        north = boole_sum(safe_div(twist, r * (r + wx)))
+        south = boole_sum(safe_div(twist, r * (r - wx)))
+        d_alpha = _wrap(raw[after] - raw[here])
+        weight = pa._ramp(wx[2] / r[2], HEMISPHERE_SOFT)
+        d_gamma = fma(weight, north - d_alpha, (1.0 - weight) * (d_alpha - south))
+        used = i + 1 < n
+        increments = jnp.stack([jnp.where(used, d_gamma, 0.0), jnp.where(used, d_alpha, 0.0)])
+        sums = jnp.cumsum(increments, axis=1)
+        values = totals[:, None] + jnp.concatenate([jnp.zeros((2, 1)), sums[:, :-1]], axis=1)
+        return values, totals + sums[:, -1]
 
-    big_gamma, _ = blocked_scan(boole, jnp.arange(n_chunks), jnp.ceil(n_eval / chunk), jnp.zeros(()),
-                                (u, m_u, v, m_v, w, m_w, i_start, n, h, x0))
-    big_gamma = big_gamma.reshape(-1)
-    (m_big_gamma,) = _uniform_natural_splines([big_gamma], n, h, n_eval)
-    return Struct(u=u, v=v, w=w, m_u=m_u, m_v=m_v, m_w=m_w, big_gamma=big_gamma, m_big_gamma=m_big_gamma, n=n,
-                  x0=x0, h=h, error=error)
+    first = jnp.stack([jnp.zeros(()), raw[0]])
+    values, _ = blocked_scan(boole, jnp.arange(n_chunks), jnp.ceil(n_eval / chunk), first,
+                             (u, m_u, v, m_v, w, m_w, raw, i_start, n, h, x0))
+    # (chunks, 2, chunk) -> (2, capacity)
+    values = jnp.moveaxis(values, 1, 0).reshape(2, -1)
+    gamma, alpha_unwrapped = values[0], values[1]
+    plus, minus = gamma + alpha_unwrapped, gamma - alpha_unwrapped
+    m_plus, m_minus, m_unwrapped = _uniform_natural_splines([plus, minus, alpha_unwrapped], n, h, n_eval)
+    return Struct(u=u, v=v, w=w, m_u=m_u, m_v=m_v, m_w=m_w, plus=plus, m_plus=m_plus, minus=minus, m_minus=m_minus,
+                  unwrapped=alpha_unwrapped, m_unwrapped=m_unwrapped, n=n, x0=x0, h=h, error=error)
 
 
 def spline_angles(splines, f):
@@ -1681,13 +1714,21 @@ def spline_angles(splines, f):
     ``gamma`` are known modulo ``2 pi``."""
     inside = (f >= splines.x0) & (f <= splines.x0 + (splines.n - 1.0) * splines.h)
     if "u" in splines:
-        u, _ = _spline_at(splines.u, splines.m_u, splines.n, splines.x0, splines.h, f)
-        v, _ = _spline_at(splines.v, splines.m_v, splines.n, splines.x0, splines.h, f)
-        w, _ = _spline_at(splines.w, splines.m_w, splines.n, splines.x0, splines.h, f)
-        big_gamma, _ = _spline_at(splines.big_gamma, splines.m_big_gamma, splines.n, splines.x0, splines.h, f)
+        def at(name):
+            return _spline_at(getattr(splines, name), getattr(splines, "m_" + name), splines.n, splines.x0, splines.h,
+                              f)[0]
+
+        u, v, w = at("u"), at("v"), at("w")
         a = st_angles.small_atan2(v, u)
         b = st_angles._atan2(safe_sqrt(u * u + v * v, 1e-300), w)
-        return a, b, big_gamma - a, inside
+        # alpha on the branch of the unwrapped spline (which matters only
+        # in the band, where both forms of gamma are used and alpha is
+        # smooth)
+        unwrapped = at("unwrapped")
+        a_u = unwrapped + _wrap(a - unwrapped)
+        weight = pa._ramp(w / safe_sqrt(u * u + v * v + w * w, 1e-300), HEMISPHERE_SOFT)
+        gamma = fma(weight, at("plus") - a_u, (1.0 - weight) * (at("minus") + a_u))
+        return a, b, gamma, inside
     a, _ = _spline_at(splines.alpha, splines.m_alpha, splines.n, splines.x0, splines.h, f)
     b, _ = _spline_at(splines.beta, splines.m_beta, splines.n, splines.x0, splines.h, f)
     g, _ = _spline_at(splines.gamma, splines.m_gamma, splines.n, splines.x0, splines.h, f)
