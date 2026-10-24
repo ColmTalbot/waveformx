@@ -50,6 +50,12 @@ TEST_FILES = {
     "test_transforms_xhm.py": "IMRPhenomXHM under <code>jit</code>, <code>vmap</code>, <code>grad</code> and <code>jvp</code>, in float64 and float32, at equal masses",
     "test_xhm_mlx.py": "IMRPhenomXHM in MLX against JAX: polarizations and modes on non-uniform and uniform grids, Jacobian, gradients, batches",
     "test_xas_mlx.py": "IMRPhenomXAS in MLX against JAX and LAL: waveform on non-uniform and large uniform grids, Jacobian, gradients, batches",
+    "test_taylorf2.py": "TaylorF2 against LAL and waveformrs through the public functions, float32 (binary neutron stars too), batches, errors",
+    "test_transforms_taylorf2.py": "TaylorF2 under <code>jit</code>, <code>vmap</code>, <code>grad</code> and <code>jvp</code>, in float64 and float32",
+    "test_taylorf2_mlx.py": "TaylorF2 in MLX against JAX and LAL: waveform on non-uniform and large uniform grids, Jacobian, gradients, batches",
+    "test_phenomd.py": "IMRPhenomD against LAL (also with LAL's QNM spline in place of the fits) and waveformrs, the QNM fits, float32, batches, errors",
+    "test_transforms_phenomd.py": "IMRPhenomD under <code>jit</code>, <code>vmap</code>, <code>grad</code> and <code>jvp</code>, in float64 and float32",
+    "test_phenomd_mlx.py": "IMRPhenomD in MLX against JAX and LAL: waveform on non-uniform and large uniform grids, Jacobian, gradients, batches",
     "test_xpnr_hm.py": "Higher modes (release 122019) against <code>SimIMRPhenomXHMFrequencySequenceOneMode</code>",
     "test_xpnr_msa.py": "MSA and NNLO angles and the precession set-up, GSL's elliptic functions",
     "test_xpnr_pnr_helpers.py": "PNR fits and angle helpers against LAL's internal functions (ctypes)",
@@ -85,7 +91,9 @@ def duration(seconds):
         return f"{seconds:.1f} s"
     if seconds >= 1e-3:
         return f"{seconds * 1e3:.2f} ms" if seconds < 0.1 else f"{seconds * 1e3:.0f} ms"
-    return f"{seconds * 1e6:.0f} µs"
+    if seconds >= 1e-5:
+        return f"{seconds * 1e6:.0f} µs"
+    return f"{seconds * 1e6:.2f} µs"
 
 
 def factor(value):
@@ -521,6 +529,109 @@ def xhm_values(values):
         first = mlx_t["first_calls"]
         values["xhm_mlx_first_value"] = duration(first["value"])
         values["xhm_mlx_first_grad"] = duration(first["grad"])
+
+
+def inspiral_values(values, pending):
+    """TaylorF2 and IMRPhenomD (``taylorf2.json``, ``phenomd.json``,
+    ``phenomd_qnm.json``): placeholders ``tf2_*`` and ``pd_*``."""
+    busy = []
+    for prefix, name, label in (("tf2", "taylorf2.json", "TaylorF2"), ("pd", "phenomd.json", "IMRPhenomD")):
+        data = load(name)
+        lal = data["lal"]
+        values[f"{prefix}_table_size"] = str(data["table_size"])
+        values[f"{prefix}_lal_n"] = str(lal["relative_error"]["n"])
+        for key in ("max", "median", "p90"):
+            values[f"{prefix}_lal_{key}_rel"] = sci(lal["relative_error"][key])
+            values[f"{prefix}_lal_{key}_mm"] = sci(lal["mismatch"][key])
+        s = data["float32"]["summary"]
+        for group, short in (("population", "pop"), ("bns", "bns"), ("bns_uniform", "bnsu")):
+            for kind in ("jax32", "mlx"):
+                stats = s[group].get(kind) or {}
+                for key in ("median", "max"):
+                    values[f"{prefix}_{short}_{kind}_{key}"] = sci(stats.get(key))
+            values[f"{prefix}_{short}_n"] = str((s[group].get("jax32") or {}).get("n", 0))
+        g = data["gradients"]
+        values[f"{prefix}_grad_n"] = str(g["n"])
+        values[f"{prefix}_grad_within_jax32"] = str(g["within_jax32"])
+        values[f"{prefix}_grad_within_mlx"] = str(g["within_mlx"])
+        values[f"{prefix}_grad_ratio_jax32"] = sci(g["ratio_jax32"]["max"])
+        values[f"{prefix}_grad_ratio_mlx"] = sci((g["ratio_mlx"] or {}).get("max"))
+        t = data["timings"]
+        f64, f32, lal_t, mlx_t = t["float64"], t["float32"], t["lal"], t.get("mlx")
+
+        def per_binary(entry, size):
+            return entry["batch"][size] / int(size)
+
+        def mlx_cell(key, size=None, large=False):
+            if mlx_t is None:
+                return "–"
+            table = mlx_t[("large_" if large else "") + key]
+            return duration(table["1"] if size is None else table[size] / int(size))
+
+        rows = [
+            ("One binary, 1000 frequencies", [f64["single"], f32["single"], lal_t["single"]], mlx_cell("value")),
+            ("One binary, 2<sup>20</sup> uniform frequencies", [f64["large"], f32["large"], lal_t["large"]],
+             mlx_cell("value", large=True)),
+            ("256 binaries × 1000 frequencies, per binary", [per_binary(f64, "256"), per_binary(f32, "256"),
+                                                             lal_t["single"]], mlx_cell("value", "256")),
+            ("4096 binaries × 1000 frequencies, per binary", [per_binary(f64, "4096"), per_binary(f32, "4096"),
+                                                              lal_t["single"]], mlx_cell("value", "4096")),
+            ("Gradient, one binary, 1000 frequencies", [f64["grad"], f32["grad"], None], mlx_cell("grad")),
+            ("Gradient, 4096 binaries × 1000, per binary", [None, None, None], mlx_cell("grad", "4096")),
+            ("Jacobian, 4096 binaries × 1000, per binary", [None, None, None], mlx_cell("jacobian", "4096")),
+            ("Compilation (first call)", [f64["compile"], f32["compile"], None], "–"),
+            ("Compilation under <code>jax.vmap</code>", [f64["compile_vmap"], f32["compile_vmap"], None], "–"),
+            ("Compilation of the gradient", [f64["compile_grad"], f32["compile_grad"], None], "–"),
+        ]
+        values[f"{prefix}_timing_rows"] = "\n".join(
+            f"<tr><td>{row}</td>" + "".join(f'<td class="num">{duration(v)}</td>' for v in cells)
+            + f'<td class="num">{last}</td></tr>' for row, cells, last in rows)
+        values[f"{prefix}_single"] = duration(f64["single"])
+        values[f"{prefix}_lal_single"] = duration(lal_t["single"])
+        values[f"{prefix}_large"] = duration(f64["large"])
+        values[f"{prefix}_large32"] = duration(f32["large"])
+        values[f"{prefix}_lal_large"] = duration(lal_t["large"])
+        values[f"{prefix}_large_speedup"] = factor(lal_t["large"] / f64["large"])
+        values[f"{prefix}_batch4096"] = duration(per_binary(f64, "4096"))
+        values[f"{prefix}_batch_speedup"] = factor(lal_t["single"] / per_binary(f64, "4096"))
+        for key in ("compile", "compile_vmap", "compile_grad"):
+            values[f"{prefix}_{key}"] = duration(f64[key])
+        if mlx_t is not None:
+            best = max((int(n) / v, n) for n, v in mlx_t["value"].items())
+            jax_best = max(max(int(n) / v for n, v in e["batch"].items()) for e in (f32, f64))
+            values[f"{prefix}_mlx_best_rate"], values[f"{prefix}_mlx_best_size"] = rate(best[0]), best[1]
+            values[f"{prefix}_mlx_best_speedup"] = factor(best[0] / jax_best)
+            values[f"{prefix}_mlx_single"] = mlx_cell("value")
+            values[f"{prefix}_mlx_large"] = mlx_cell("value", large=True)
+            values[f"{prefix}_mlx_first_value"] = duration(mlx_t["first_calls"]["value"])
+            values[f"{prefix}_mlx_first_grad"] = duration(mlx_t["first_calls"]["grad"])
+        if max(data.get("load_average") or [0.0]) > 4.0:
+            busy.append(label)
+    qnm = load("phenomd_qnm.json")
+    values["pd_qnm_degree"] = str(qnm["degree"])
+    rows = []
+    for key, label in (("fring", "<i>Mf</i><sub>ring</sub>"), ("fdamp", "<i>Mf</i><sub>damp</sub>")):
+        for row in qnm[key]:
+            lo, hi = row["range"]
+            rows.append(f"<tr><td>{label}</td><td>[{lo:+.2f}, {hi:+.2f}]</td>"
+                        + "".join(f'<td class="num">{sci(row[k])}</td>' for k in
+                                  ("fit_median", "fit_max", "loo_median", "loo_max", "spline_median", "spline_max"))
+                        + "</tr>")
+    values["pd_qnm_rows"] = "\n".join(rows)
+    middle = {key: next(r for r in qnm[key] if r["range"] == [-0.9, 0.5]) for key in ("fring", "fdamp")}
+    values["pd_qnm_fit_typical"] = sci(max(middle[k]["fit_median"] for k in middle))
+    low = next(r for r in qnm["fdamp"] if r["range"][0] == -1.0)
+    values["pd_qnm_low_fit"], values["pd_qnm_low_loo"] = sci(low["fit_max"]), sci(low["loo_max"])
+    top = {k: next(r for r in qnm[k] if r["range"][1] == 1.0) for k in ("fring", "fdamp")}
+    values["pd_qnm_top_loo"] = f'{100 * max(r["loo_max"] for r in top.values()):.0f}%'
+    values["pd_qnm_top_spline"] = f'{100 * max(r["spline_max"] for r in top.values()):.0f}%'
+    values["pd_qnm_top_fit"] = sci(max(r["fit_max"] for r in top.values()))
+    values["pd_qnm_spline_max"] = sci(max(r["spline_max"] for k in ("fring", "fdamp") for r in qnm[k]
+                                          if r["range"][0] >= -0.9 and r["range"][1] < 1.0))
+    if busy:
+        pending.append(f"the timings of {' and '.join(busy)} on an idle machine: they were measured while other "
+                       "jobs ran (<code>report/taylorf2_phenomd.py</code>; "
+                       '<a href="#phenomd">the TaylorF2 and IMRPhenomD section</a>)')
 
 
 def mlx_values(values):
@@ -973,6 +1084,7 @@ def build(args):
     pending.append("JAX on one core: setting XLA's thread flags (<code>--xla_cpu_multi_thread_eigen=false "
                    "intra_op_parallelism_threads=1</code>) did not change the ~3 cores it keeps busy, so the "
                    "per-core comparison with LAL and waveformrs is still to be made")
+    inspiral_values(values, pending)
     if "timings_environment" not in load("float32_nrsur7dq4.json"):
         pending.append("NRSur7dq4's float32 timings on an idle machine: they were measured while other jobs ran "
                        '(<code>report/float32_nrsur7dq4.py --only-timings</code>; <a href="#nrsur">the NRSur7dq4 '
