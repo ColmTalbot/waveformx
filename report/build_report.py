@@ -43,7 +43,10 @@ CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 TEST_FILES = {
     "test_quick.py": "The quick tier (<code>pytest</code>): IMRPhenomXPNR and the extended model with its derivative, NRSur7dq4",
     "test_api.py": "The interface: options, arguments, errors, spherical harmonics",
-    "test_xpnr_xas.py": "IMRPhenomXAS (2,2) mode against <code>SimIMRPhenomXASFrequencySequence</code>",
+    "test_xpnr_xas.py": "IMRPhenomXPNR's (2,2) mode without precession against <code>SimIMRPhenomXASFrequencySequence</code>",
+    "test_xas.py": "IMRPhenomXAS against LAL through the public functions, float32 (binary neutron stars too), batches, LAL's errors, the QNM fits",
+    "test_transforms_xas.py": "IMRPhenomXAS under <code>jit</code>, <code>vmap</code>, <code>grad</code> and <code>jvp</code>, in float64 and float32",
+    "test_xas_mlx.py": "IMRPhenomXAS in MLX against JAX and LAL: waveform on non-uniform and large uniform grids, Jacobian, gradients, batches",
     "test_xpnr_hm.py": "Higher modes (release 122019) against <code>SimIMRPhenomXHMFrequencySequenceOneMode</code>",
     "test_xpnr_msa.py": "MSA and NNLO angles and the precession set-up, GSL's elliptic functions",
     "test_xpnr_pnr_helpers.py": "PNR fits and angle helpers against LAL's internal functions (ctypes)",
@@ -316,6 +319,86 @@ def mlx_xpnr_values(values):
     values["mx_frequencies"] = str(t["frequencies"])
 
 
+def xas_values(values):
+    """IMRPhenomXAS (``xas.json``)."""
+    data = load("xas.json")
+    values["xas_table_size"] = str(data["table_size"])
+    lal = data["lal"]
+    values["xas_lal_n"] = str(lal["relative_error"]["n"])
+    values["xas_lal_max_rel"] = sci(lal["relative_error"]["max"])
+    values["xas_lal_median_rel"] = sci(lal["relative_error"]["median"])
+    values["xas_lal_max_mm"] = sci(lal["mismatch"]["max"])
+    s = data["float32"]["summary"]
+    for group, prefix in (("population", "pop"), ("bns", "bns"), ("bns_uniform", "bnsu"), ("light", "light")):
+        for name in ("jax32", "mlx"):
+            stats = s[group].get(name) or {}
+            for key in ("median", "p90", "max"):
+                values[f"xas_{prefix}_{name}_{key}"] = sci(stats.get(key))
+        values[f"xas_{prefix}_n"] = str((s[group].get("jax32") or {}).get("n", 0))
+    g = data["gradients"]
+    values["xas_grad_n"] = str(g["n"])
+    values["xas_grad_within_jax32"] = str(g["within_jax32"])
+    values["xas_grad_within_mlx"] = str(g["within_mlx"])
+    values["xas_grad_ratio_jax32"] = sci(g["ratio_jax32"]["max"])
+    values["xas_grad_ratio_mlx"] = sci((g["ratio_mlx"] or {}).get("max"))
+    t = data["timings"]
+    f64, f32, old, lal_t, mlx_t = t["float64"], t["float32"], t["lal_faithful_float64"], t["lal"], t.get("mlx")
+
+    def per_binary(entry, size):
+        return entry["batch"][size] / int(size)
+
+    def mlx_cell(key, size=None, large=False):
+        if mlx_t is None:
+            return "–"
+        table = mlx_t[("large_" if large else "") + key]
+        return duration(table["1"] if size is None else table[size] / int(size))
+
+    rows = [
+        ("One binary, 1000 frequencies", [f64["single"], f32["single"], old["single"], lal_t["single"]],
+         mlx_cell("value")),
+        (f"One binary, 2<sup>20</sup> uniform frequencies", [f64["large"], f32["large"], old["large"], lal_t["large"]],
+         mlx_cell("value", large=True)),
+        ("256 binaries × 1000 frequencies, per binary",
+         [per_binary(f64, "256"), per_binary(f32, "256"), per_binary(old, "256"), lal_t["single"]],
+         mlx_cell("value", "256")),
+        ("4096 binaries × 1000 frequencies, per binary",
+         [per_binary(f64, "4096"), per_binary(f32, "4096"), per_binary(old, "4096"), lal_t["single"]],
+         mlx_cell("value", "4096")),
+        ("Gradient, one binary, 1000 frequencies", [f64["grad"], f32["grad"], old["grad"], None], mlx_cell("grad")),
+        ("Gradient, one binary, 2<sup>20</sup> frequencies", [None, None, None, None],
+         mlx_cell("grad", large=True)),
+    ]
+    values["xas_timing_rows"] = "\n".join(
+        f"<tr><td>{label}</td>" + "".join(f'<td class="num">{duration(v)}</td>' for v in cells)
+        + f'<td class="num">{last}</td></tr>' for label, cells, last in rows)
+    values["xas_single"] = duration(f64["single"])
+    values["xas_lal_single"] = duration(lal_t["single"])
+    values["xas_old_single"] = duration(old["single"])
+    values["xas_large"] = duration(f64["large"])
+    values["xas_large32"] = duration(f32["large"])
+    values["xas_old_large"] = duration(old["large"])
+    values["xas_lal_large"] = duration(lal_t["large"])
+    values["xas_large_speedup"] = factor(lal_t["large"] / f64["large"])
+    values["xas_batch_speedup"] = factor(per_binary(old, "4096") / per_binary(f64, "4096"))
+    for name, entry in (("", f64), ("old_", old)):
+        values[f"xas_{name}compile"] = duration(entry["compile"])
+        values[f"xas_{name}compile_vmap"] = duration(entry["compile_vmap"])
+        values[f"xas_{name}compile_grad"] = duration(entry["compile_grad"])
+    if mlx_t is not None:
+        best = max((int(n) / v, n) for n, v in mlx_t["value"].items())
+        jax_best = max(int(n) / v for n, v in f32["batch"].items())
+        values["xas_mlx_best_rate"], values["xas_mlx_best_size"] = rate(best[0]), best[1]
+        values["xas_mlx_best_speedup"] = factor(best[0] / max(jax_best, max(int(n) / v for n, v in f64["batch"].items())))
+        values["xas_mlx_single"] = mlx_cell("value")
+        values["xas_mlx_large"] = mlx_cell("value", large=True)
+        values["xas_mlx_large16"] = duration(mlx_t["large_value"]["16"])
+        values["xas_mlx_grad"] = mlx_cell("grad")
+        first = mlx_t["first_calls"]
+        values["xas_mlx_first_imports"] = duration(first["imports"])
+        values["xas_mlx_first_value"] = duration(first["value"])
+        values["xas_mlx_first_grad"] = duration(first["grad"])
+
+
 def mlx_values(values):
     """NRSur7dq4 in MLX (``mlx_nrsur7dq4.json``)."""
     data = load("mlx_nrsur7dq4.json")
@@ -490,6 +573,7 @@ def build(args):
     lean_values(values)
     mlx_values(values)
     mlx_xpnr_values(values)
+    xas_values(values)
 
     rows = []
     for label, data, key in (
