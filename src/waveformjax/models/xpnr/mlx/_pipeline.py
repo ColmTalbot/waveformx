@@ -13,10 +13,15 @@ zero. :func:`evaluate` returns the polarizations (``(B, N, 4)``: the real
 and imaginary parts of ``h_+`` and ``h_x``), the error flag of each binary
 and, with tangents, the Jacobian ``(B, N, 4, P)``.
 
-Sizes are chosen per call: the steps of the SpinTaylor solution (a
-capacity raised for the binaries that need more), and the points of the
-grid of the PNR interpolants (a power of two at least the largest grid of
-the batch).
+The batch is evaluated in two parts: :func:`setup` (the common set-up, the
+SpinTaylor solution and the set-up of version 330, up to the grid of the
+PNR interpolants) for the whole batch, then :func:`finish` (the angles on
+the grid, the interpolants and the waveform) for groups of binaries whose
+grids have similar sizes (:func:`_groups`). Sizes are chosen per call,
+from values read back from the GPU: the steps of the SpinTaylor solution
+(a capacity raised for the binaries that need more) and the points of the
+grids (a power of two at least the largest grid of the group). Large
+batches go in chunks (:func:`evaluate_chunked`).
 """
 
 from __future__ import annotations
@@ -29,7 +34,7 @@ from ._interpolants import ends_gather, interpolants, intervals, spline_values
 from ._kernels import Packed
 from ._solution import _call, _next_power_of_two, _run, integrate, st_angles, tables
 
-__all__ = ["evaluate", "N_PARAMETERS", "binary_tangents"]
+__all__ = ["evaluate", "evaluate_chunked", "setup", "finish", "N_PARAMETERS", "binary_tangents"]
 
 N_PARAMETERS = 12
 

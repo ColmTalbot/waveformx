@@ -51,6 +51,13 @@ The package has the same interface as the Python bindings of
     physics is unchanged, and the waveform is the extended variant's up
     to the accuracy of the integration. It compiles and runs faster than
     the other variants, and works in single precision.
+  - The lean variant is also available in
+    [MLX](https://github.com/ml-explore/mlx), in single precision on Apple
+    GPUs (optional dependency `mlx`): the polarizations at given
+    frequencies for one binary or a batch, with derivatives with respect
+    to every parameter of the binary. It is produced from the JAX model
+    itself rather than written again, so the two compute the same
+    waveform.
   - Its output is the strain multiplied by 10^21, so that it can be used in
     single precision; the option `scaled_strain=False` gives the strain
     itself, as LALSimulation does.

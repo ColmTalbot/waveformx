@@ -56,6 +56,7 @@ TEST_FILES = {
     "test_transforms_nrsur7dq4.py": "NRSur7dq4 under <code>jit</code>, <code>vmap</code> and <code>grad</code>, removable singularities",
     "test_nrsur7dq4_float32.py": "NRSur7dq4 in float32 (no float64 operation, accuracy, <code>jit</code>, <code>vmap</code>, <code>grad</code>) and the scale of its output",
     "test_nrsur7dq4_mlx.py": "NRSur7dq4 in MLX against JAX: waveform, modes, batches, gradients, the Metal kernels, LAL's grids and the conditioned waveforms",
+    "test_xpnr_mlx.py": "The lean IMRPhenomXPNR in MLX against JAX: the stages, the generated kernels, the SpinTaylor kernel, waveform, Jacobian and gradients",
     "test_conversions.py": "<code>simulate_td</code> and <code>simulate_fd</code>: lengths, epochs, filters, tapers against LAL",
     "test_transforms_conversions.py": "The conversions as pure functions under <code>jit</code>, <code>vmap</code> and <code>grad</code>",
 }
@@ -249,6 +250,72 @@ def float32_values(values):
     values["f32_dyn_share"] = f"{t['double']['batch64_dynamics'] / t['double']['batch64']:.0%}"
 
 
+def mlx_xpnr_values(values):
+    """The lean IMRPhenomXPNR in MLX (``mlx_xpnr.json``)."""
+    data = load("mlx_xpnr.json")
+    s = data["summary"]
+    values["mx_n"] = str(data["n"])
+    values["mx_mm_median"], values["mx_mm_p90"], values["mx_mm_max"] = (
+        sci(s["mlx"][k]) for k in ("median", "p90", "max"))
+    values["mx32_mm_median"], values["mx32_mm_p90"], values["mx32_mm_max"] = (
+        sci(s["jax32"][k]) for k in ("median", "p90", "max"))
+    records = data["records"]
+    values["mx_above"] = str(sum(r.get("mismatch_mlx", 0.0) > 1e-6 for r in records))
+    values["mx32_above"] = str(sum(r.get("mismatch_jax32", 0.0) > 1e-6 for r in records))
+    worst = max(records, key=lambda r: r.get("mismatch_mlx", 0.0))
+    values["mx_worst_total"] = f"{worst['total']:.0f}"
+    values["mx_worst_jax32"] = sci(worst.get("mismatch_jax32"))
+    finite = s["finite"]
+    values["mx_finite_both"] = str(finite["both"])
+    values["mx_finite_double_only"] = str(finite["double_only"])
+    values["mx_finite_mlx_only"] = str(finite["mlx_only"])
+    values["mx_jax32_not_finite"] = str(finite["jax32_not_finite"])
+    g = data["gradient_summary"]
+    values["mx_grad_n"] = str(g["n"])
+    values["mx_grad_within"] = str(g["within_mlx"])
+    values["mx32_grad_within"] = str(g["within_jax32"])
+    values["mx_grad_ratio_median"], values["mx_grad_ratio_max"] = sci(g["ratio_mlx"]["median"]), sci(g["ratio_mlx"]["max"])
+    values["mx32_grad_ratio_median"], values["mx32_grad_ratio_max"] = (sci(g["ratio_jax32"]["median"]),
+                                                                       sci(g["ratio_jax32"]["max"]))
+    t = data["timings"]
+    mlx_t = t["mlx"]
+
+    def cell(name, key, size):
+        value = t[name][key].get(size)
+        return f'<td class="num">{duration(value / int(size)) if value is not None else "–"}</td>'
+
+    rows = []
+    for size in mlx_t["value"]:
+        rows.append(f'<tr><td class="num">{size}</td><td class="num">{duration(mlx_t["value"][size])}</td>'
+                    + "".join(cell(name, "value", size) for name in ("mlx", "jax_float32", "jax_float64"))
+                    + "".join(cell(name, "grad", size) for name in ("mlx", "jax_float32", "jax_float64"))
+                    + "</tr>")
+    values["mx_timing_rows"] = "\n".join(rows)
+
+    def best(name, key):
+        return max((int(n) / v, n) for n, v in t[name][key].items())
+
+    values["mx_single"] = duration(mlx_t["value"]["1"])
+    values["mx_jax_single"] = duration(t["jax_float64"]["value"]["1"])
+    values["mx_grad_single"] = duration(mlx_t["grad"]["1"])
+    values["mx_jax_grad_single"] = duration(t["jax_float64"]["grad"]["1"])
+    (rate_mlx, size_mlx), (rate_jax, size_jax) = best("mlx", "value"), max(best("jax_float64", "value"),
+                                                                            best("jax_float32", "value"))
+    values["mx_best_rate"], values["mx_best_size"] = rate(rate_mlx), size_mlx
+    values["mx_jax_best_rate"] = rate(rate_jax)
+    values["mx_best_speedup"] = factor(rate_mlx / rate_jax)
+    (rate_mlx, size_mlx), (rate_jax, _) = best("mlx", "grad"), max(best("jax_float64", "grad"),
+                                                                   best("jax_float32", "grad"))
+    values["mx_grad_best_rate"], values["mx_grad_best_size"] = rate(rate_mlx), size_mlx
+    values["mx_jax_grad_best_rate"] = rate(rate_jax)
+    values["mx_grad_speedup"] = factor(rate_mlx / rate_jax)
+    first = mlx_t["first_calls"]
+    values["mx_first_imports"] = duration(first["imports"])
+    values["mx_first_value"] = duration(first["value"])
+    values["mx_first_grad"] = duration(first["grad"])
+    values["mx_frequencies"] = str(t["frequencies"])
+
+
 def mlx_values(values):
     """NRSur7dq4 in MLX (``mlx_nrsur7dq4.json``)."""
     data = load("mlx_nrsur7dq4.json")
@@ -422,6 +489,7 @@ def build(args):
     float32_values(values)
     lean_values(values)
     mlx_values(values)
+    mlx_xpnr_values(values)
 
     rows = []
     for label, data, key in (
