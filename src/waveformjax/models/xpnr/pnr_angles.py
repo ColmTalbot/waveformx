@@ -39,10 +39,10 @@ though not always for the same pairs). This is rounding-level everywhere but
 in the inflection points of the MR ``beta``: they are roots of a cubic from
 the trigonometric formula, ``acos`` of a value within a few ulps of 1 in
 typical cases (an error ``eps`` there moves the roots by ``sqrt(eps)``) and a
-cancellation of terms ~1e3 times larger than the roots. There the fused
-multiply-adds of LAL are reproduced exactly (``_fma_exact``) and its complex
-arithmetic, which has none, is kept from being contracted (``_rounded``):
-the inflection points then agree with LAL to ~1e-12 instead of ~1e-8.
+cancellation of terms ~1e3 times larger than the roots: they agree with LAL
+to ~1e-8 (relative), which moves the connection frequencies of ``beta`` by as
+much (a mismatch of ~1e-16). LAL's complex arithmetic, which has no fused
+multiply-adds, is kept from being contracted (``_rounded``).
 """
 
 from __future__ import annotations
@@ -159,49 +159,12 @@ def _ratio(numerator, denominator):
     return jnp.where(ok, numerator / jnp.where(ok, denominator, 1.0), 0.0)
 
 
-_SPLITTER = 134217729.0  # 2^27 + 1
-
-
 def _rounded(*values):
     """The values, rounded: an ``optimization_barrier`` keeps XLA (which
     contracts ``a * b + c`` into fused multiply-adds when it compiles) from
     fusing a product into the sum or difference that uses it."""
     values = lax.optimization_barrier(values)
     return values[0] if len(values) == 1 else values
-
-
-def _split(x):
-    """Veltkamp's splitting of ``x`` into two halves of 26 bits."""
-    t = _rounded(_SPLITTER * x)
-    hi = t - (t - x)
-    return hi, x - hi
-
-
-@jax.custom_jvp
-def _fma_exact(a, b, c):
-    """``a * b + c`` rounded once, as the fused multiply-adds of LAL's
-    arm64 build, whether or not XLA contracts: Dekker's exact product and
-    Knuth's TwoSum (correctly rounded but for rare double-rounding ties).
-
-    Used where LAL's expressions cancel strongly and the rounding of the
-    product matters: the coefficients of the inflection cubic of the MR
-    ``beta``, whose roots come from ``acos`` of a value near 1 (an error of
-    ``eps`` there moves the roots by ``sqrt(eps)``)."""
-    p, c = _rounded(a * b, c)
-    ah, al = _split(a)
-    bh, bl = _split(b)
-    e = ((ah * bh - p) + ah * bl + al * bh) + al * bl
-    s = p + c
-    bb = s - p
-    err = (p - (s - bb)) + (c - bb)
-    return s + (err + e)
-
-
-@_fma_exact.defjvp
-def _fma_exact_jvp(primals, tangents):
-    a, b, c = primals
-    da, db, dc = tangents
-    return _fma_exact(a, b, c), b * da + a * db + dc
 
 
 def _atan2_tol(a, b, tol):
@@ -392,33 +355,33 @@ def mr_dbeta(mf, p):
     :func:`mr_beta` with respect to ``Mf``.
 
     The derivatives of the MR ``beta`` only enter the connection
-    frequencies, whose turning points cancel strongly: they are evaluated
-    with LAL's fused multiply-adds (:func:`_fma_exact`)."""
-    den = _fma_exact(p.b4 * (mf + p.b5), mf + p.b5, 1.0)
-    return (_fma_exact(_fma_exact(2.0 * p.b3 * p.b4, p.b5, -(p.b2 * p.b4)) * mf, mf, _fma_exact(2.0 * p.b3 * p.b4 * p.b5, p.b5, _fma_exact(2.0, p.b3, -(2.0 * p.b1 * p.b4))) * mf) + _fma_exact(p.b2 * p.b4 * p.b5, p.b5, _fma_exact(-(2.0 * p.b1 * p.b4), p.b5, p.b2))) / (den * den)
+    frequencies; they are written with LAL's fused multiply-adds
+    (:func:`~._math.fma`)."""
+    den = fma(p.b4 * (mf + p.b5), mf + p.b5, 1.0)
+    return (fma(fma(2.0 * p.b3 * p.b4, p.b5, -(p.b2 * p.b4)) * mf, mf, fma(2.0 * p.b3 * p.b4 * p.b5, p.b5, fma(2.0, p.b3, -(2.0 * p.b1 * p.b4))) * mf) + fma(p.b2 * p.b4 * p.b5, p.b5, fma(-(2.0 * p.b1 * p.b4), p.b5, p.b2))) / (den * den)
 
 
 def mr_ddbeta(mf, p):
     """``IMRPhenomX_PNR_MR_ddbeta_expression``: the second derivative of
     :func:`mr_beta`."""
     b1, b2, b3, b4, b5 = p.b1, p.b2, p.b3, p.b4, p.b5
-    a = _fma_exact(b2 * b4, b4, -(2.0 * b3 * b4 * b4 * b5))
-    b = _fma_exact(-(3.0 * b3 * b4 * b4 * b5), b5, _fma_exact(-3.0 * b3, b4, 3.0 * b1 * b4 * b4))
-    c = _fma_exact(-(3.0 * b2 * b4 * b4 * b5), b5, _fma_exact(-3.0 * b2, b4, 6.0 * b1 * b4 * b4 * b5))
-    d = _fma_exact(b3 * b4 * b4 * b5 * b5 * b5, b5, _fma_exact(-(2.0 * b2 * b4 * b4 * b5 * b5), b5, _fma_exact(3.0 * b1 * b4 * b4 * b5, b5, _fma_exact(2.0 * b3 * b4 * b5, b5, _fma_exact(-(2.0 * b2 * b4), b5, _fma_exact(-b1, b4, b3))))))
-    return 2.0 * (_fma_exact(c, mf, _fma_exact(a * mf * mf, mf, b * mf * mf)) + d) / _fma_exact(b4 * (b5 + mf), b5 + mf, 1.0) ** 3
+    a = fma(b2 * b4, b4, -(2.0 * b3 * b4 * b4 * b5))
+    b = fma(-(3.0 * b3 * b4 * b4 * b5), b5, fma(-3.0 * b3, b4, 3.0 * b1 * b4 * b4))
+    c = fma(-(3.0 * b2 * b4 * b4 * b5), b5, fma(-3.0 * b2, b4, 6.0 * b1 * b4 * b4 * b5))
+    d = fma(b3 * b4 * b4 * b5 * b5 * b5, b5, fma(-(2.0 * b2 * b4 * b4 * b5 * b5), b5, fma(3.0 * b1 * b4 * b4 * b5, b5, fma(2.0 * b3 * b4 * b5, b5, fma(-(2.0 * b2 * b4), b5, fma(-b1, b4, b3))))))
+    return 2.0 * (fma(c, mf, fma(a * mf * mf, mf, b * mf * mf)) + d) / fma(b4 * (b5 + mf), b5 + mf, 1.0) ** 3
 
 
 def mr_dddbeta(mf, p):
     """``IMRPhenomX_PNR_MR_dddbeta_expression``: the third derivative of
     :func:`mr_beta`."""
     b1, b2, b3, b4, b5 = p.b1, p.b2, p.b3, p.b4, p.b5
-    a = _fma_exact(-b2 * b4, b4, 2.0 * b3 * b4 * b4 * b5)
-    b = _fma_exact(4.0 * b3 * b4 * b4 * b5, b5, _fma_exact(4.0 * b3, b4, -(4.0 * b1 * b4 * b4)))
-    c = _fma_exact(6.0 * b2 * b4 * b4 * b5, b5, _fma_exact(6.0 * b2, b4, -(12.0 * b1 * b4 * b4 * b5)))
-    d = _fma_exact(-(4.0 * b3 * b4 * b4 * b5 * b5 * b5), b5, _fma_exact(8.0 * b2 * b4 * b4 * b5 * b5, b5, _fma_exact(-(12.0 * b1 * b4 * b4 * b5), b5, _fma_exact(-(8.0 * b3 * b4 * b5), b5, _fma_exact(8.0 * b2 * b4, b5, _fma_exact(-4.0, b3, 4.0 * b1 * b4))))))
-    e = _fma_exact(-(2.0 * b3 * b4 * b4 * b5 * b5 * b5 * b5), b5, _fma_exact(3.0 * b2 * b4 * b4 * b5 * b5 * b5, b5, _fma_exact(-(4.0 * b1 * b4 * b4 * b5 * b5), b5, _fma_exact(-(4.0 * b3 * b4 * b5 * b5), b5, _fma_exact(2.0 * b2 * b4 * b5, b5, _fma_exact(4.0 * b1 * b4, b5, _fma_exact(-(2.0 * b3), b5, -b2)))))))
-    return 6.0 * b4 * (_fma_exact(d, mf, _fma_exact(c * mf, mf, _fma_exact(a * mf * mf * mf, mf, b * mf * mf * mf))) + e) / _fma_exact(b4 * (b5 + mf), b5 + mf, 1.0) ** 4
+    a = fma(-b2 * b4, b4, 2.0 * b3 * b4 * b4 * b5)
+    b = fma(4.0 * b3 * b4 * b4 * b5, b5, fma(4.0 * b3, b4, -(4.0 * b1 * b4 * b4)))
+    c = fma(6.0 * b2 * b4 * b4 * b5, b5, fma(6.0 * b2, b4, -(12.0 * b1 * b4 * b4 * b5)))
+    d = fma(-(4.0 * b3 * b4 * b4 * b5 * b5 * b5), b5, fma(8.0 * b2 * b4 * b4 * b5 * b5, b5, fma(-(12.0 * b1 * b4 * b4 * b5), b5, fma(-(8.0 * b3 * b4 * b5), b5, fma(8.0 * b2 * b4, b5, fma(-4.0, b3, 4.0 * b1 * b4))))))
+    e = fma(-(2.0 * b3 * b4 * b4 * b5 * b5 * b5 * b5), b5, fma(3.0 * b2 * b4 * b4 * b5 * b5 * b5, b5, fma(-(4.0 * b1 * b4 * b4 * b5 * b5), b5, fma(-(4.0 * b3 * b4 * b5 * b5), b5, fma(2.0 * b2 * b4 * b5, b5, fma(4.0 * b1 * b4, b5, fma(-(2.0 * b3), b5, -b2)))))))
+    return 6.0 * b4 * (fma(d, mf, fma(c * mf, mf, fma(a * mf * mf * mf, mf, b * mf * mf * mf))) + e) / fma(b4 * (b5 + mf), b5 + mf, 1.0) ** 4
 
 
 def beta_rescaling_1(mf, beta1, beta2, dbeta1, dbeta2):
@@ -556,10 +519,9 @@ def attach_weight(p, soft=None):
 def inflection_cubic(p):
     """The coefficients ``(a, b, c, d)`` of the cubic ``a x^3 + b x^2 + c x +
     d`` whose roots are the inflection points of the MR ``beta`` (Eq. 68 of
-    arXiv:2107.08876), with LAL's fused multiply-adds (see
-    :func:`_fma_exact`)."""
+    arXiv:2107.08876), with LAL's fused multiply-adds (:func:`~._math.fma`)."""
     b1, b2, b3, b4, b5 = p.b1, p.b2, p.b3, p.b4, p.b5
-    f = _fma_exact
+    f = fma
     a = 2.0 * f(b2 * b4, b4, -(2.0 * b3 * b4 * b4 * b5))
     b = 6.0 * f(-(b3 * b4 * b4 * b5), b5, f(-b3, b4, b1 * b4 * b4))
     c = 6.0 * f(-(b2 * b4 * b4 * b5), b5, f(-b2, b4, 2.0 * b1 * b4 * b4 * b5))
@@ -569,7 +531,7 @@ def inflection_cubic(p):
 
 def _two_roots(b, c, d, safe):
     """``IMRPhenomX_PNR_two_inflection_points`` as (re, im) pairs."""
-    w = _csqrt((_fma_exact(c, c, -(4.0 * b * d)), 0.0), safe)
+    w = _csqrt((fma(c, c, -(4.0 * b * d)), 0.0), safe)
     k = _div(1.0, 2.0 * b, safe)
     return [_cscale((-c + w[0], w[1]), k), _cscale((-c - w[0], -w[1]), k)]
 
@@ -754,9 +716,9 @@ def _beta_connection_frequencies(p, safe, branch, soft=None):
     dbeta_inflection = mr_dbeta(mf_inflection, p)
 
     # the two extrema of beta
-    k = _fma_exact(b3 * b4 * b5, b5, _fma_exact(-b1, b4, b3))
-    root_term = _fma_exact(b4 * _fma_exact(-(2.0 * b3), b5, b2), _fma_exact(b2 * b4 * b5, b5, _fma_exact(-(2.0 * b1 * b4), b5, b2)), k * k)
-    den = b4 * _fma_exact(-(2.0 * b3), b5, b2)
+    k = fma(b3 * b4 * b5, b5, fma(-b1, b4, b3))
+    root_term = fma(b4 * fma(-(2.0 * b3), b5, b2), fma(b2 * b4 * b5, b5, fma(-(2.0 * b1 * b4), b5, b2)), k * k)
+    den = b4 * fma(-(2.0 * b3), b5, b2)
     sqrt_root_term = _sqrt(root_term, safe)
     mf_plus = _div(k + sqrt_root_term, den, safe)
     mf_minus = _div(k - sqrt_root_term, den, safe)
@@ -770,7 +732,7 @@ def _beta_connection_frequencies(p, safe, branch, soft=None):
     # Eqs. 56 and 57: the step from the maximum
     sign = jnp.where(branch(dbeta_inflection > 0.0), 1.0, -1.0)
     chosen_dbeta = sign * (dbeta_inflection / 100.0 * (dbeta_inflection / 100.0)) * 25.0
-    root = _sqrt(_fma_exact(ddbeta, ddbeta, 2.0 * dddbeta * chosen_dbeta), safe)
+    root = _sqrt(fma(ddbeta, ddbeta, 2.0 * dddbeta * chosen_dbeta), safe)
     inverse = _div(1.0, dddbeta, safe)
     d1 = inverse * (-ddbeta + root)
     d2 = inverse * (-ddbeta - root)
