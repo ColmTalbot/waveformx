@@ -358,18 +358,175 @@ def stage_f2(prec, wf, extra, f, spline_values, inside, map_errors, kappa, st_al
 
 
 # ---------------------------------------------------------------------------
+# the parts by hand: their arithmetic at one point (or step, or interval),
+# after the searches and gathers that the MLX port does itself
+# ---------------------------------------------------------------------------
+
+
+def st_newton(omega, y0, dense, om1):
+    """``_time_at_omega`` of :mod:`..spintaylor.lean` in the step holding
+    ``M omega = omega`` (``y0``: ``M omega`` and LNhat at its start;
+    ``dense``: their dense output; ``om1``: ``M omega`` at its end): the
+    position ``x`` in the step (not differentiated)."""
+    from ..spintaylor import trajectory
+
+    omega, y0, dense, om1 = jax.lax.stop_gradient((omega, y0, dense, om1))
+    om0 = y0[0]
+    x = jnp.clip(safe_div(omega - om0, om1 - om0), 0.0, 1.0)
+
+    def omega_at(x):
+        return trajectory._dense_eval(dense, y0, x)[..., 0]
+
+    def newton(_, x):
+        value, slope = jax.jvp(omega_at, (x,), (jnp.ones_like(x),))
+        return jnp.clip(x - safe_div(value - omega, slope), 0.0, 1.0)
+
+    return jax.lax.fori_loop(0, st_lean.NEWTON, newton, x)
+
+
+def st_point_angles(st_range, rotation, mf, y0, dense, t0, h, x, node):
+    """:func:`..spintaylor.lean.angles` at one point ``mf`` in its step
+    (``y0``, ``dense``, ``t0``, ``h``) at ``x`` (:func:`st_newton`), with
+    ``node`` the continuous ``alpha`` of the node before it: ``(alpha,
+    dalpha, cosbeta, dcosbeta, inside)``."""
+    from ..spintaylor import trajectory
+    from ..spintaylor.angles import _rotate, small_atan2, small_square
+
+    mf_scale, first_mf, last_mf = st_range[0], st_range[1], st_range[2]
+    omega = mf / mf_scale
+    t = jax.lax.stop_gradient(t0 + x * h)
+    h_safe = jnp.where(h != 0.0, h, 1.0)
+
+    def state(t):
+        return trajectory._dense_eval(dense, y0, (t - t0) / h_safe)
+
+    y, dydt, t = st_angles._refined(state, t, omega)
+    rot = (rotation[0], rotation[1], rotation[2])
+    lx, ly, lz = _rotate(y[..., 1], y[..., 2], y[..., 3], *rot)
+    dlx, dly, dlz = _rotate(dydt[..., 1], dydt[..., 2], dydt[..., 3], *rot)
+    raw = small_atan2(ly, lx)
+    d = raw - node
+    alpha = node + d - 2 * PI * jnp.round(jax.lax.stop_gradient(d) / (2 * PI))
+    dmf_dt = mf_scale * dydt[..., 0]
+    r2 = lx * lx + ly * ly
+    big = r2 > small_square()
+    dalpha_dt = jnp.where(big, lx * dly - ly * dlx, 0.0) / jnp.where(big, r2, 1.0)
+    inside = (mf >= first_mf) & (mf <= last_mf)
+    return alpha, safe_div(dalpha_dt, dmf_dt), lz, safe_div(dlz, dmf_dt), inside
+
+
+def st_node_raw(rotation, lnhat):
+    """``atan2`` of LNhat in the J frame at a node (``lean.context``)."""
+    from ..spintaylor.angles import _rotate, small_atan2
+
+    x, yy, _ = _rotate(lnhat[0], lnhat[1], lnhat[2], rotation[0], rotation[1], rotation[2])
+    return small_atan2(yy, x)
+
+
+def grid_point_mf(grid, wf, k):
+    """``Mf`` of point ``k`` (real) of the grid."""
+    return grid_frequencies(k, grid, wf.m_tot)
+
+
+def uvw(alpha, beta):
+    """The unit vector of the smooth interpolants."""
+    sin_beta = jnp.sin(beta)
+    return jnp.stack([sin_beta * jnp.cos(alpha), sin_beta * jnp.sin(alpha), jnp.cos(beta)])
+
+
+def boole_interval(grid, i, values, curvatures, raw):
+    """The increments of ``gamma`` and of the unwrapped ``alpha`` over the
+    interval ``[i, i + 1]`` (``i`` real) of the grid (``boole`` of
+    :func:`..pnr._geometric_interpolants`): ``values`` and ``curvatures``
+    are ``(u, v, w)`` and their second derivatives at both ends (3 x 2),
+    ``raw`` the ``atan2(v, u)`` at both ends. Zero beyond the grid."""
+    i_start, n, h = grid[0], grid[1], grid[2]
+    x0 = i_start * h
+
+    def frequencies(k):
+        return (i_start + jnp.minimum(k, n - 1.0)) * h
+
+    t1 = frequencies(i)
+    t2 = frequencies(i + 1.0)
+    points = jnp.stack([t2, fma(3.0, t1, t2) / 4.0, (t1 + t2) / 2.0, t1, fma(3.0, t2, t1) / 4.0])
+    dx = points - (x0 + i * h)
+
+    def piece(k):
+        y0, y1 = values[k, 0], values[k, 1]
+        m0, m1 = curvatures[k, 0], curvatures[k, 1]
+        b = (y1 - y0) / h - h * (m1 + 2.0 * m0) / 6.0
+        value = y0 + dx * (b + dx * (m0 / 2.0 + dx * (m1 - m0) / (6.0 * h)))
+        return value, b + dx * (m0 + (m1 - m0) / (2.0 * h) * dx)
+
+    def boole_sum(f):
+        return 1.0 / 90.0 * (t2 - t1) * fma(7.0, f[0], fma(32.0, f[1], fma(12.0, f[2], fma(7.0, f[3], 32.0 * f[4]))))
+
+    (ux, du), (vx, dv), (wx, _) = piece(0), piece(1), piece(2)
+    r = safe_sqrt(ux * ux + vx * vx + wx * wx, tiny())
+    twist = ux * dv - vx * du
+    north = boole_sum(safe_div(twist, r * (r + wx)))
+    south = boole_sum(safe_div(twist, r * (r - wx)))
+    d_alpha = pnr._wrap(raw[1] - raw[0])
+    weight = pa._ramp(wx[2] / r[2], pnr.HEMISPHERE_SOFT)
+    d_gamma = fma(weight, north - d_alpha, (1.0 - weight) * (d_alpha - south))
+    used = i + 1.0 < n
+    return jnp.where(used, d_gamma, 0.0), jnp.where(used, d_alpha, 0.0)
+
+
+def spline_point(grid, x, k, ends, curvatures):
+    """A uniform spline (:func:`..pnr._spline_at`) at ``x`` in the interval
+    ``k`` (real, already clipped) with the values ``ends`` and second
+    derivatives ``curvatures`` at its ends."""
+    i_start, h = grid[0], grid[2]
+    x0 = i_start * h
+    xk = x0 + k * h
+    y0, y1 = ends[0], ends[1]
+    m0, m1 = curvatures[0], curvatures[1]
+    dx = x - xk
+    b = (y1 - y0) / h - h * (m1 + 2.0 * m0) / 6.0
+    c = m0 / 2.0
+    d = (m1 - m0) / (6.0 * h)
+    return y0 + dx * (b + dx * (c + dx * d))
+
+
+# ---------------------------------------------------------------------------
 # the stages composed in JAX
 # ---------------------------------------------------------------------------
+
+
+def _is_dynamic(leaf):
+    """Whether a leaf of a pytree is a value (an array of any library, or
+    a shape) rather than a Python constant of the model's structs."""
+    return not isinstance(leaf, (bool, int, float, complex, str, type(None)))
 
 
 def partition(tree):
     """The array leaves of a pytree and a hashable description of the rest
     (its structure and its Python leaves), as ``model._partition``."""
     leaves, treedef = jax.tree_util.tree_flatten(tree)
-    dynamic = tuple(isinstance(leaf, (jax.Array, np.ndarray, np.generic)) for leaf in leaves)
+    dynamic = tuple(_is_dynamic(leaf) for leaf in leaves)
     values = [leaf for leaf, d in zip(leaves, dynamic) if d]
     static = tuple(None if d else leaf for leaf, d in zip(leaves, dynamic))
     return values, (treedef, static, dynamic)
+
+
+def named_leaves(tree, prefix=""):
+    """``(path, leaf)`` of the array leaves of a pytree of structs, lists,
+    tuples and dicts, in the order of :func:`partition` (paths like
+    ``.alpha_params.a1`` or ``[2]``)."""
+    out = []
+    if isinstance(tree, Struct):
+        for name in sorted(tree.keys()):
+            out += named_leaves(getattr(tree, name), f"{prefix}.{name}")
+    elif isinstance(tree, dict):
+        for name in sorted(tree):
+            out += named_leaves(tree[name], f"{prefix}[{name!r}]")
+    elif isinstance(tree, (list, tuple)):
+        for i, item in enumerate(tree):
+            out += named_leaves(item, f"{prefix}[{i}]")
+    elif tree is not None and _is_dynamic(tree):
+        out.append((prefix, tree))
+    return out
 
 
 def combine(values, meta):
@@ -382,29 +539,86 @@ def combine(values, meta):
 class Staged:
     """``function(*pytrees)`` under ``jax.jit`` in a given precision, with
     the Python leaves of its arguments and results kept static (the
-    structs of the model carry Python flags)."""
+    structs of the model carry Python flags). :meth:`jvp` gives its
+    forward-mode derivatives along several directions."""
 
     def __init__(self, function, dtype):
         self.function = function
         self.dtype = np.dtype(dtype)
         self.cache = {}
 
-    def __call__(self, *args):
+    def _flat(self, args):
         parts = [partition(a) for a in args]
         metas = tuple(meta for _, meta in parts)
         if metas not in self.cache:
             holder = {}
 
             def flat(*values):
-                trees = [combine(v, meta) for v, meta in zip(values, metas)]
+                it = iter(values)
+                trees = [combine([next(it) for _ in vals], meta) for (vals, _), meta in zip(parts, metas)]
                 with precision(self.dtype), lean_mode(True):
                     out, holder["meta"] = partition(self.function(*trees))
                 return out
 
             self.cache[metas] = (jax.jit(flat), holder)
         jitted, holder = self.cache[metas]
-        out = jitted(*[v for v, _ in parts])
-        return combine(out, holder["meta"])
+        return jitted, holder, [v for vals, _ in parts for v in vals]
+
+    def __call__(self, *args):
+        jitted, holder, flat = self._flat(args)
+        return combine(jitted(*flat), holder["meta"])
+
+    def jvp(self, args, tangents):
+        """``(outputs, output_tangents)`` for the tangents of the array
+        leaves of ``args`` (one flat list per argument, ``None`` for zero,
+        each with a leading axis of directions); the output tangents are a
+        flat list (``None`` for integers and booleans)."""
+        jitted, holder, flat = self._flat(args)
+        flat_t = [t for ts in tangents for t in ts]
+        floating = [jnp.issubdtype(jnp.result_type(v), jnp.inexact) for v in flat]
+        n_dir = next(t.shape[0] for t in flat_t if t is not None)
+        given = [jnp.zeros((n_dir,) + jnp.shape(v), jnp.result_type(v)) if t is None
+                 else jnp.asarray(t, jnp.result_type(v)) for v, t, f in zip(flat, flat_t, floating) if f]
+
+        def one(*dir_tangents):
+            it = iter(dir_tangents)
+            ts = [next(it) if f else np.zeros(jnp.shape(v), jax.dtypes.float0) for v, f in zip(flat, floating)]
+            out, t_out = jax.jvp(jitted, flat, ts)
+            return out, [t if jnp.issubdtype(t.dtype, jnp.inexact) else None for t in t_out]
+
+        out, t_out = jax.vmap(one, out_axes=(None, 0))(*given)
+        return combine(out, holder["meta"]), t_out
+
+
+class Dual:
+    """A pytree and the flat list of the tangents of its array leaves
+    (``None``, or with a leading axis of directions)."""
+
+    def __init__(self, tree, tangents):
+        self.tree = tree
+        self.tangents = tangents
+
+    def split(self):
+        """The elements of a tuple-valued pytree as :class:`Dual`."""
+        out, start = [], 0
+        for item in self.tree:
+            n = len(partition(item)[0])
+            out.append(Dual(item, self.tangents[start:start + n]))
+            start += n
+        return out
+
+
+def _call(staged, *duals):
+    """``staged`` on :class:`Dual` arguments (tangents if any are given)."""
+    if all(all(t is None for t in d.tangents) for d in duals):
+        out = staged(*[d.tree for d in duals])
+        return Dual(out, [None] * len(partition(out)[0]))
+    out, t_out = staged.jvp([d.tree for d in duals], [d.tangents for d in duals])
+    return Dual(out, t_out)
+
+
+def _const(tree):
+    return Dual(tree, [None] * len(partition(tree)[0]))
 
 
 @functools.lru_cache(maxsize=None)
@@ -416,8 +630,8 @@ def _compiled(dtype_name, modes, amp_scale):
     def under(function):
         return Staged(function, dtype)
 
-    def a(leaves, f_min, f_max):
-        return stage_a(leaves, f_min, f_max, modes, amp_scale)
+    def a(leaves, f):
+        return stage_a(leaves, f[0], f[-1], modes, amp_scale)
 
     def b(ode):
         sol = st_lean.solution(ode.m1, ode.m2, list(ode.chi1), list(ode.chi2), ode.f_ref, ode.f_low, ode.f_cut,
@@ -432,12 +646,17 @@ def _compiled(dtype_name, modes, amp_scale):
     def c2(prec, wf, points, values, st_range):
         return stage_c2(prec, wf, points, values, st_range, modes)
 
+    def grid_mf(k, grid, wf):
+        return grid_frequencies(k, grid, wf.m_tot)
+
     def d(prec, wf, mf, st_values):
         return jax.vmap(grid_point, in_axes=(None, None, 0, 0))(prec, wf, mf, st_values)
 
     def s(alpha, beta, grid):
         i_start, n, h = grid[0], grid[1], grid[2]
-        return pnr._geometric_interpolants(alpha, beta, i_start, n, h, n, jnp.asarray(False))
+        pad = pnr.PNR_GRID_CAPACITY - alpha.shape[0]
+        return pnr._geometric_interpolants(jnp.pad(alpha, (0, pad)), jnp.pad(beta, (0, pad)), i_start, n, h, n,
+                                           jnp.asarray(False))
 
     def spline_values(splines, f):
         out = [pnr._spline_at(getattr(splines, name), getattr(splines, "m_" + name), splines.n, splines.x0,
@@ -445,28 +664,47 @@ def _compiled(dtype_name, modes, amp_scale):
         inside = (f >= splines.x0) & (f <= splines.x0 + (splines.n - 1.0) * splines.h)
         return jnp.stack(out, axis=-1), inside
 
-    def e(prec, wf, at_ref, inside_ref):
-        return stage_e(prec, wf, at_ref, inside_ref, modes)
+    def at_ref(splines, wf):
+        return spline_values(splines, wf.f_ref)
+
+    def e(prec, wf, values):
+        return stage_e(prec, wf, values[0], values[1], modes)
 
     def f1(prec, wf, f):
         return jax.vmap(stage_f1, in_axes=(None, None, 0, None))(prec, wf, f, modes)
 
-    def f2(prec, wf, extra, f, values, inside, map_errors, kappa, st_alpha, st_inside):
+    def f2(prec, wf, extra, f, values, mapped, kappa_s, st_f):
+        values, inside = values
+        _, map_errors, _, _ = mapped
         return jax.vmap(stage_f2, in_axes=(None, None, None, 0, 0, 0, 0, 0, 0, 0, None))(
-            prec, wf, extra, f, values, inside, map_errors, kappa, st_alpha, st_inside, modes)
+            prec, wf, extra, f, values, inside, map_errors, kappa_s, st_f[0], st_f[4], modes)
 
-    def smooth(kappa, f):
-        return smooth_amp_ratio(kappa, f)
+    def smooth(mapped, f):
+        return smooth_amp_ratio(mapped[3], f) if (2, 2) in modes else mapped[3]
 
-    return Struct(a=under(a), b=under(b), c1=under(stage_c1), b2=under(b2), c2=under(c2), d=under(d), s=under(s),
-                  spline_values=under(spline_values), e=under(e), f1=under(f1), f2=under(f2), smooth=under(smooth))
+    def assemble(h, flags):
+        error = functools.reduce(jnp.logical_or, [jnp.any(x) for x in flags])
+        hp = jnp.where(error, jnp.nan, h[0][:, 0] + 1j * h[0][:, 1])
+        hc = jnp.where(error, jnp.nan, h[0][:, 2] + 1j * h[0][:, 3])
+        return hp, hc, error
+
+    return Struct(a=under(a), b=under(b), c1=under(stage_c1), b2=under(b2), c2=under(c2), grid_mf=under(grid_mf),
+                  d=under(d), s=under(s), spline_values=under(spline_values), at_ref=under(at_ref), e=under(e),
+                  f1=under(f1), f2=under(f2), smooth=under(smooth), assemble=under(assemble))
 
 
-def reference(binary, frequencies, mode_array=None, scaled_strain=True, keep=False):
+#: The parameters of a binary along which :func:`reference` differentiates
+#: (the order of the flat leaves of :data:`BINARY_FIELDS`, spins expanded).
+N_PARAMETERS = 12
+
+
+def reference(binary, frequencies, mode_array=None, scaled_strain=True, keep=False, tangents=False):
     """The lean polarizations from the stages composed in JAX (eagerly,
     stage by stage, with the sizes of the binary), in the precision of the
     binary: ``(h_+, h_x)``, and with ``keep`` also a dict of the
-    intermediate values of every stage."""
+    intermediate values of every stage (:class:`Dual`, with their
+    derivatives along the twelve parameters of the binary if
+    ``tangents``)."""
     from ...._options import STRAIN_SCALE
     from .._math import precision_of
 
@@ -474,39 +712,43 @@ def reference(binary, frequencies, mode_array=None, scaled_strain=True, keep=Fal
     modes = model.coprecessing_modes(mode_array)
     st = _compiled(dtype.name, modes, STRAIN_SCALE if scaled_strain else 1.0)
     leaves = {name: jnp.asarray(value, dtype) for name, value in binary_leaves(binary).items()}
-    f = jnp.asarray(frequencies, dtype)
+    if tangents:
+        eye = np.eye(N_PARAMETERS)
+        # (the flat leaves of the dict are in sorted order of the names)
+        columns = {"mass_1": eye[0], "mass_2": eye[1], "spin_1": eye[2:5].T, "spin_2": eye[5:8].T,
+                   "luminosity_distance": eye[8], "inclination": eye[9], "phi_ref": eye[10], "f_ref": eye[11]}
+        binary_t = [jnp.asarray(columns[name], dtype) for name in sorted(leaves)]
+        x = Dual(leaves, binary_t)
+    else:
+        x = _const(leaves)
+    f = _const(jnp.asarray(frequencies, dtype))
     out = {}
-    base, wf0, ode, error_a = st.a(leaves, f[0], f[-1])
-    sol, summary = st.b(ode)
-    prec, wf, points, rotation, st_range = st.c1(base, wf0, summary)
-    bank = st.b2(sol, rotation, st_range, points)
-    prec, wf, grid, error_c = st.c2(prec, wf, points, bank, st_range)
-    n = int(grid[1])
-    k = jnp.arange(n, dtype=dtype)
-    mf_grid = grid_frequencies(k, grid, wf.m_tot)
-    st_grid = st.b2(sol, rotation, st_range, mf_grid)
-    alpha, beta, err_grid = st.d(prec, wf, mf_grid, st_grid)
-    capacity = pnr.PNR_GRID_CAPACITY
-    pad = capacity - n
-    splines = st.s(jnp.pad(alpha, (0, pad)), jnp.pad(beta, (0, pad)), grid)
-    at_ref, inside_ref = st.spline_values(splines, wf.f_ref)
-    prec, wf, extra, error_e = st.e(prec, wf, at_ref, inside_ref)
-    mapped, map_errors, mf_as, kappa = st.f1(prec, wf, f)
-    values, inside = st.spline_values(splines, mapped)
-    kappa_s = st.smooth(kappa, f) if (2, 2) in modes else kappa
-    st_f = st.b2(sol, rotation, st_range, mf_as)
-    h, err_f = st.f2(prec, wf, extra, f, values, inside, map_errors, kappa_s, st_f[0], st_f[4])
-    error = (error_a | ~ode.active | summary.failed | error_c | summary.incomplete | jnp.any(err_grid)
-             | error_e | jnp.any(err_f))
-    nan = jnp.nan
-    hp = jnp.where(error, nan, h[:, 0] + 1j * h[:, 1])
-    hc = jnp.where(error, nan, h[:, 2] + 1j * h[:, 3])
+    base, wf0, ode, error_a = _call(st.a, x, f).split()
+    sol, summary = _call(st.b, ode).split()
+    prec1, wf1, points, rotation, st_range = _call(st.c1, base, wf0, summary).split()
+    bank = _call(st.b2, sol, rotation, st_range, points)
+    prec, wf, grid, error_c = _call(st.c2, prec1, wf1, points, bank, st_range).split()
+    n = int(grid.tree[1])
+    k = _const(jnp.arange(n, dtype=dtype))
+    mf_grid = _call(st.grid_mf, k, grid, wf)
+    st_grid = _call(st.b2, sol, rotation, st_range, mf_grid)
+    alpha, beta, err_grid = _call(st.d, prec, wf, mf_grid, st_grid).split()
+    splines = _call(st.s, alpha, beta, grid)
+    at_ref = _call(st.at_ref, splines, wf)
+    prec_e, wf_e, extra, error_e = _call(st.e, prec, wf, at_ref).split()
+    mapped = _call(st.f1, prec_e, wf_e, f)
+    values = _call(st.spline_values, splines, Dual(mapped.tree[0], mapped.tangents[:1]))
+    kappa_s = _call(st.smooth, mapped, f)
+    st_f = _call(st.b2, sol, rotation, st_range, Dual(mapped.tree[2], mapped.tangents[2:3]))
+    h = _call(st.f2, prec_e, wf_e, extra, f, values, mapped, kappa_s, st_f)
+    flags = _const((error_a.tree, ~ode.tree.active, summary.tree.failed, error_c.tree, summary.tree.incomplete,
+                    err_grid.tree, error_e.tree, h.tree[1]))
+    hp, hc, error = _call(st.assemble, h, flags).split()
     if keep:
-        out.update(base=base, wf0=wf0, ode=ode, error_a=error_a, sol=sol, summary=summary, points=points,
-                   rotation=rotation, st_range=st_range, bank=bank, prec_c2=prec, grid=grid, error_c=error_c,
-                   mf_grid=mf_grid, st_grid=st_grid, alpha=alpha, beta=beta, err_grid=err_grid, splines=splines,
-                   at_ref=at_ref, inside_ref=inside_ref, extra=extra, error_e=error_e, mapped=mapped,
-                   map_errors=map_errors, mf_as=mf_as, kappa=kappa, kappa_s=kappa_s, values=values, inside=inside,
-                   st_f=st_f, h=h, err_f=err_f, error=error)
-        return (hp, hc), out
-    return hp, hc
+        out.update(base=base, wf0=wf0, ode=ode, error_a=error_a, sol=sol, summary=summary, prec_c1=prec1, wf_c1=wf1,
+                   points=points, rotation=rotation, st_range=st_range, bank=bank, prec_c2=prec, wf_c2=wf, grid=grid,
+                   error_c=error_c, mf_grid=mf_grid, st_grid=st_grid, alpha=alpha, beta=beta, err_grid=err_grid,
+                   splines=splines, at_ref=at_ref, prec_e=prec_e, wf_e=wf_e, extra=extra, error_e=error_e,
+                   mapped=mapped, values=values, kappa_s=kappa_s, st_f=st_f, h=h, error=error, hp=hp, hc=hc)
+        return (hp.tree, hc.tree), out
+    return hp.tree, hc.tree

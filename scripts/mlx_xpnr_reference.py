@@ -94,6 +94,7 @@ def main():
         out[f"{name}/frequencies"] = f
         out[f"{name}/hp"] = np.asarray(hp)
         out[f"{name}/hc"] = np.asarray(hc)
+        values = {key: value.tree for key, value in values.items()}
         sol = values.pop("sol")
         n = int(sol.n)
         for field in ("y", "k0", "h", "dense", "omega_end", "t0"):
