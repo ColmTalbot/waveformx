@@ -374,3 +374,63 @@ def test_spintaylor():
             # to 90%: its Newton step takes a secant float32 cannot resolve)
             assert np.max(np.abs(got - want)) <= max(2e-3 * scale, np.max(np.abs(single - want))), (name, field)
         del partition
+
+
+def test_spintaylor_angles():
+    """The SpinTaylor angles at the points of the set-up (``alpha``,
+    ``cos(beta)`` and their derivatives in ``Mf``), and their derivatives
+    along the parameters, against float64: as close as JAX float32's."""
+    from waveformjax.models.xpnr.mlx import _solution
+
+    names = ("generic", "unequal", "beyond", "light")
+    trees, ttrees = _inputs(("ode", "rotation", "st_range", "points"), names, "float64")
+    solution, _, _ = _solution.integrate(trees[0], ttrees[0], P)
+    tab = _solution.tables(solution, trees[1], ttrees[1], P)
+    got, dgot = _solution.st_angles(solution, tab, trees[2], ttrees[2], trees[1], ttrees[1], trees[3], ttrees[3], P)
+    for b, name in enumerate(names):
+        r64, r32 = jax_reference(name, "float64")["bank"], jax_reference(name, "float32")["bank"]
+        for k in range(4):
+            want = np.asarray(r64.tree[k], np.float64)
+            single = np.asarray(r32.tree[k], np.float64)
+            value = np.asarray(got[k][b], np.float64)
+            scale = np.max(np.abs(want))
+            assert np.max(np.abs(value - want)) <= max(3 * np.max(np.abs(single - want)), 1e-5 * scale), (name, k)
+            t64 = np.asarray(r64.tangents[k], np.float64).T
+            t32 = np.asarray(r32.tangents[k], np.float64).T
+            tangent = np.asarray(dgot[k][b], np.float64)
+            scale = np.max(np.abs(t64))
+            assert np.max(np.abs(tangent - t64)) <= max(3 * np.max(np.abs(t32 - t64)), 1e-4 * scale), (name, k)
+        assert np.array_equal(np.asarray(got[4][b]), np.asarray(r64.tree[4]))
+
+
+def test_interpolants():
+    """The interpolants of the PNR angles on the grid (from JAX float32's
+    angles there) and their values at the frequencies of the modes, against
+    float64: as close as JAX float32's."""
+    from waveformjax.models.xpnr.mlx import _interpolants
+
+    for name in ("generic", "light", "beyond"):
+        r32, r64 = jax_reference(name, "float32"), jax_reference(name, "float64")
+        grid = np.asarray(r32["grid"].tree, np.float32)
+        n = int(grid[1])
+        size = 1 << int(np.ceil(np.log2(n)))
+        alpha, beta = np.zeros((1, size), np.float32), np.zeros((1, size), np.float32)
+        alpha[0, :n], beta[0, :n] = np.asarray(r32["alpha"].tree), np.asarray(r32["beta"].tree)
+        splines = _interpolants.interpolants(mx.array(alpha), mx.array(beta), None, None, mx.array(grid[None]), None,
+                                             mx.array([n]), 0)
+        for j, field in enumerate(_stages.SPLINES):
+            want = np.asarray(getattr(r64["splines"].tree, field))[:n]
+            single = np.asarray(getattr(r32["splines"].tree, field))[:n]
+            got = np.asarray(splines.values[0, :n, j], np.float64)
+            scale = np.max(np.abs(want))
+            assert np.max(np.abs(got - want)) <= max(3 * np.max(np.abs(single - want)), 1e-5 * scale), (name, field)
+        mapped = mx.array(np.asarray(r32["mapped"].tree[0], np.float32).reshape(1, -1))
+        values, inside, _ = _interpolants.spline_values(splines, mapped, None, 0)
+        want = np.asarray(r64["values"].tree[0], np.float64).reshape(-1, 6)
+        single = np.asarray(r32["values"].tree[0], np.float64).reshape(-1, 6)
+        got = np.asarray(values[0], np.float64)
+        for j in range(6):
+            scale = np.max(np.abs(want[:, j]))
+            assert np.max(np.abs(got[:, j] - want[:, j])) <= max(3 * np.max(np.abs(single[:, j] - want[:, j])),
+                                                                  1e-5 * scale), (name, j)
+        assert np.array_equal(np.asarray(inside[0]), np.asarray(r64["values"].tree[1]).reshape(-1))
