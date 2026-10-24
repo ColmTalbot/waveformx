@@ -190,3 +190,34 @@ def test_strain_scale():
     plain = np.asarray(model_mlx.polarizations(binary, f, scaled_strain=False)[0], np.complex128)
     assert np.max(np.abs(plain * 1e21 - scaled)) < 1e-4 * np.max(np.abs(scaled))
 
+
+
+def test_reference_mf():
+    """The mass-scaled reference: against the JAX model of the same table,
+    NaN for a non-zero f_ref, and the converters against JAX's (to
+    float32's rounding of the phase between the references) with
+    ``mx.grad``."""
+    from waveformx.models.taylorf2 import reference
+
+    for name in ("generic", "light", "bns"):
+        binary = BINARIES[name]._replace(f_ref=0.0)
+        f = frequencies_for(binary, 1000)
+        p = np.float32(vector(binary)).astype(np.float64)
+        with precision(jnp.float64):
+            q = (p[0], p[1], p[4], p[7], p[8], p[9], p[10], p[11])
+            reference_h = core.evaluate(core.unpack(core.table(q, 1e21, 0.01)), core.frequency_powers(jnp.asarray(f)))
+        out = model_mlx.polarizations(binary, f, reference_mf=0.01)
+        for h, a in zip(out, reference_h):
+            assert mismatch(np.asarray(h, np.complex128), np.asarray(a)) < 1e-6
+        bad = model_mlx.polarizations(binary._replace(f_ref=20.0), f, reference_mf=0.01)[0]
+        assert np.all(np.isnan(np.asarray(bad)))
+        given = binary._replace(f_ref=30.0)
+        ours = model_mlx.to_mass_scaled_reference(given, 0.01)
+        theirs = reference.to_mass_scaled_reference(wf.Binary(*(jnp.asarray(np.float32(v), jnp.float64)
+                                                                for v in given)), 0.01)
+        assert abs(np.sin(2 * (float(ours.phi_ref) - float(theirs.phi_ref)))) < 2e-3
+        back = model_mlx.to_physical_reference(ours, 30.0, 0.01)
+        assert abs(np.sin(2 * (float(back.phi_ref) - float(given.phi_ref)))) < 2e-3
+        grad = mx.grad(lambda x: model_mlx.to_mass_scaled_reference(given._replace(mass_1=x), 0.01).phi_ref)(
+            mx.array(np.float32(given.mass_1)))
+        assert np.isfinite(float(grad))

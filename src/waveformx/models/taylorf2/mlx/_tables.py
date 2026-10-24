@@ -39,6 +39,7 @@ import functools
 import re
 
 import jax
+import jax.numpy as jnp
 import mlx.core as mx
 import numpy as np
 
@@ -50,7 +51,7 @@ from ...xpnr.mlx._api import _frequencies, batched
 from ...xpnr.mlx._program import lower
 
 __all__ = ["N_INPUTS", "N_DIRECTIONS", "COLUMNS", "DOUBLE_FLOAT", "TableKernels", "polarizations",
-           "polarizations_and_jacobian"]
+           "polarizations_and_jacobian", "converters", "reference"]
 
 #: The inputs of the set-up: the eight parameters of the tables and the
 #: first frequency.
@@ -117,8 +118,11 @@ inline DF df_m53(float f) {
 }
 
 // T0 = K0 (m1 + m2)^(1/3) / (m1 m2) and A = T0 f_ref^(-5/3) (zero unless
-// anchored), as the tables compute them in float64: hi, lo of {T0, A}
-inline void leading_term(float m1, float m2, float f_ref, bool anchored, thread float* hi, thread float* lo) {
+// anchored), as the tables compute them in float64: hi, lo of {T0, A}. With
+// the mass-scaled reference (mass_scaled non-zero: -3 / 128 (pi M f_ref)^(-5/3)),
+// A = mass_scaled (m1 + m2)^2 / (m1 m2).
+inline void leading_term(float m1, float m2, float f_ref, bool anchored, DF mass_scaled, thread float* hi,
+                         thread float* lo) {
     DF mass = df_two_sum(m1, m2);
     float c = metal::precise::exp(metal::precise::log(mass.hi) / 3.0f);
     DF c3 = df_mul(df_two_prod(c, c), c);
@@ -129,7 +133,16 @@ inline void leading_term(float m1, float m2, float f_ref, bool anchored, thread 
     DF qp = df_mul(product, q);
     float r = ((cbrt_mass.hi - qp.hi) + (cbrt_mass.lo - qp.lo)) / product.hi;
     DF t0 = df_mul(df_quick(q, r), DF{K0_HI, K0_LO});
-    DF anchor = anchored ? df_mul(t0, df_m53(f_ref)) : DF{0.0f, 0.0f};
+    DF anchor = DF{0.0f, 0.0f};
+    if (anchored && mass_scaled.hi != 0.0f) {
+        DF square = df_mul(mass, mass);
+        float s = square.hi / product.hi;
+        DF sp = df_mul(product, s);
+        float sr = ((square.hi - sp.hi) + (square.lo - sp.lo)) / product.hi;
+        anchor = df_mul(df_quick(s, sr), mass_scaled);
+    } else if (anchored) {
+        anchor = df_mul(t0, df_m53(f_ref));
+    }
     hi[0] = t0.hi;
     lo[0] = t0.lo;
     hi[1] = anchor.hi;
@@ -220,8 +233,9 @@ if (thread_index_in_threadgroup < ND) {
 }
 """
 
-# ``ANCHOR`` (the model's) sets ``float f_ref`` and ``bool anchored`` from
-# the inputs ``x`` and the table ``y`` (``{v}``: ``.v`` for dual numbers).
+# ``ANCHOR`` (the model's) sets ``float f_ref``, ``bool anchored`` and ``DF
+# mass_scaled`` (:func:`anchor`) from the inputs ``x`` and the table ``y``
+# (``{v}``: ``.v`` for dual numbers).
 _SETUP = """
 uint b = thread_position_in_grid.x;
 if (b >= dims[0]) return;
@@ -231,7 +245,7 @@ float y[NT];
 model_table(x, y);
 {anchor}
 float hi[2], lo[2];
-leading_term(x[0], x[1], f_ref, anchored, hi, lo);
+leading_term(x[0], x[1], f_ref, anchored, mass_scaled, hi, lo);
 for (uint k = 0; k < 2; ++k) {{
     y[O_BIG + k] = hi[k];
     y[O_BIG_LO + k] = lo[k];
@@ -250,7 +264,7 @@ WjDual y[NT];
 model_table_jvp(x, y);
 {anchor}
 float hi[2], lo[2];
-leading_term(x[0].v, x[1].v, f_ref, anchored, hi, lo);
+leading_term(x[0].v, x[1].v, f_ref, anchored, mass_scaled, hi, lo);
 for (uint k = 0; k < 2; ++k) {{
     y[O_BIG + k].v = hi[k];
     y[O_BIG_LO + k].v = lo[k];
@@ -260,6 +274,22 @@ for (uint k = 0; k < NT; ++k) {{
     dtable[((size_t)b * NT + k) * ND + d] = y[k].d;
 }}
 """
+
+
+def mass_scaled(reference_mf):
+    """The Metal ``DF`` constant of the anchor of the mass-scaled reference,
+    ``-3 / 128 (pi reference_mf)^(-5/3)`` (zero without)."""
+    if reference_mf is None:
+        return "DF{0.0f, 0.0f}"
+    value = -3.0 / 128.0 * (np.pi * reference_mf) ** (-5.0 / 3.0)
+    hi = float(np.float32(value))
+    return f"DF{{{hi!r}f, {float(np.float32(value - hi))!r}f}}"
+
+
+def kernel_name(name, reference_mf):
+    """A kernel's name for the reference convention (MLX caches kernels by
+    name)."""
+    return name if reference_mf is None else f"{name}_mf{repr(float(reference_mf)).replace('.', 'p').replace('-', 'm')}"
 
 
 def _fast(source):
@@ -498,6 +528,14 @@ def _core(kernels):
     return core
 
 
+def reference(reference_mf):
+    """``reference_mf`` checked as ``WaveformOptions`` does (``None``: LAL's
+    convention)."""
+    from ...._options import WaveformOptions
+
+    return WaveformOptions(reference_mf=reference_mf).reference_mf
+
+
 def scale(scaled_strain):
     """The scale of the strain."""
     return STRAIN_SCALE if scaled_strain else 1.0
@@ -524,3 +562,54 @@ def polarizations_and_jacobian(kernels, binary, frequencies):
     if has_batch:
         return out
     return (out[0][0][0], out[0][1][0]), (out[1][0][0], out[1][1][0])
+
+
+# --- the reference conventions -----------------------------------------------
+
+
+def _field(value):
+    return value if isinstance(value, mx.array) else mx.array(np.asarray(value, dtype=np.float32))
+
+
+def converters(to_mass_scaled, to_physical):
+    """The MLX versions of a model's converters (JAX functions of
+    :mod:`..reference`): the JAX function of the new ``phi_ref``, traced in
+    float32 and lowered to MLX operations (:mod:`...xpnr.mlx._program`),
+    so that ``mx.grad`` follows them. In float32: for binary neutron stars
+    from low frequencies the phase between the references (``~10^4``
+    radians) costs ``~10^-3`` radians of ``phi_ref``; convert in float64
+    with the JAX functions where that matters."""
+    from ...._binary import Binary
+    from ...xpnr.mlx._mlxrun import run
+
+    def jax_binary(x):
+        z = jnp.zeros((), x.dtype)
+        return Binary(x[0], x[1], jnp.stack([z, z, x[2]]), jnp.stack([z, z, x[3]]), 1.0, 0.0, x[4], x[5])
+
+    @functools.lru_cache(maxsize=None)
+    def program(kind, reference_mf, with_f_min):
+        if kind == "scaled":
+            def function(x):
+                kw = dict(f_min=x[6]) if with_f_min else {}
+                return to_mass_scaled(jax_binary(x), reference_mf, **kw).phi_ref
+        else:
+            def function(x):
+                return to_physical(jax_binary(x), x[6], reference_mf).phi_ref
+        return lower(jax.make_jaxpr(function)(jax.ShapeDtypeStruct((7,), np.float32)))
+
+    def inputs(binary, last):
+        fields = [_field(binary.mass_1), _field(binary.mass_2), _field(binary.spin_1)[..., 2],
+                  _field(binary.spin_2)[..., 2], _field(binary.phi_ref), _field(binary.f_ref), _field(last)]
+        return [fields]
+
+    def to_mass_scaled_reference(binary, reference_mf, f_min=None):
+        with_f_min = f_min is not None
+        phi = run(program("scaled", float(reference_mf), with_f_min),
+                  inputs(binary, f_min if with_f_min else 0.0))[0][0]
+        return binary._replace(phi_ref=phi, f_ref=mx.zeros_like(_field(binary.f_ref)))
+
+    def to_physical_reference(binary, f_ref, reference_mf):
+        phi = run(program("physical", float(reference_mf), False), inputs(binary, f_ref))[0][0]
+        return binary._replace(phi_ref=phi, f_ref=mx.broadcast_to(_field(f_ref), phi.shape))
+
+    return to_mass_scaled_reference, to_physical_reference

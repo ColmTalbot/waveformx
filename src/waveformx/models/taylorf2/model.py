@@ -26,8 +26,10 @@ def polarizations(binary, frequencies, options):
     ``SimInspiralChooseFDWaveformSequence``: every frequency is evaluated
     (no cut at the innermost stable circular orbit, as LAL's sequence). In
     float32 when the binary's parameters are float32; the strain times
-    ``1e21`` unless ``options.scaled_strain`` is false."""
+    ``1e21`` unless ``options.scaled_strain`` is false. With
+    ``options.reference_mf`` the binary is given at ``M f_ref =
+    reference_mf`` (its ``f_ref`` zero; NaN otherwise)."""
     with precision(precision_of(binary)):
         f = jnp.asarray(frequencies, real())
-        table = core.table(aligned_parameters(binary), strain_scale(options))
+        table = core.table(aligned_parameters(binary), strain_scale(options), options.reference_mf)
         return core.evaluate(core.unpack(table), core.frequency_powers(f))

@@ -140,3 +140,46 @@ def test_lal_errors():
         wf.modes("TaylorF2", f, **good)
     assert "TaylorF2" in wf.approximants("frequency")
     assert not wf.is_precessing("TaylorF2")
+
+
+# --- the mass-scaled reference -----------------------------------------------
+
+
+def reference_invariance(approximant, reference, cases, f_min_keyword=False):
+    """A binary converted to the mass-scaled reference gives the same
+    waveform with ``reference_mf`` (to rounding), and back."""
+    for case in cases:
+        k = keywords(case)
+        f = np.geomspace(case[7], 0.2 / ((case[0] + case[1]) * MTSUN_SI), 2000)
+        binary = wf.Binary(*(jnp.asarray(v, jnp.float64) for v in wf.Binary(**k)))
+        extra = dict(f_min=case[7]) if f_min_keyword else {}
+        for mf in (0.01, 0.004):
+            scaled = reference.to_mass_scaled_reference(binary, mf, **extra)
+            assert float(scaled.f_ref) == 0.0
+            ours = wf.polarizations(approximant, f, reference_mf=mf, **{n: np.asarray(v) for n, v in
+                                                                          scaled._asdict().items()})
+            for a, b in zip(ours, wf.polarizations(approximant, f, **k)):
+                error, _ = compare(np.asarray(a), np.asarray(b))
+                assert error < 1e-9, (case, mf, error)
+            back = reference.to_physical_reference(scaled, case[8] if case[8] or not f_min_keyword else case[7], mf)
+            assert np.cos(2 * (float(back.phi_ref) - case[6])) == pytest.approx(1.0, abs=1e-20)
+
+
+def test_reference_mf():
+    from waveformx.models.taylorf2 import reference
+
+    reference_invariance("TaylorF2", reference, CASES[:6])
+    f = np.geomspace(20.0, 512.0, 64)
+    with pytest.raises(wf.InvalidParameterError, match="f_ref must be zero"):
+        wf.polarizations("TaylorF2", f, reference_mf=0.01, **keywords(CASES[0]))
+    # the converters under jit, vmap, grad and in float32
+    binaries = [wf.Binary(*(jnp.asarray(v, jnp.float64) for v in wf.Binary(**keywords(c)))) for c in CASES[:4]]
+    stacked = jax.tree_util.tree_map(lambda *v: jnp.stack(v), *binaries)
+    out = jax.jit(jax.vmap(reference.to_mass_scaled_reference))(stacked)
+    for i, b in enumerate(binaries):
+        assert float(out.phi_ref[i]) == pytest.approx(float(reference.to_mass_scaled_reference(b).phi_ref), abs=1e-12)
+    grad = jax.grad(lambda m: reference.to_mass_scaled_reference(binaries[0]._replace(mass_1=m)).phi_ref)(36.0)
+    assert np.isfinite(float(grad))
+    single = reference.to_mass_scaled_reference(wf.Binary(*(jnp.asarray(v, jnp.float32) for v in binaries[1])))
+    assert single.phi_ref.dtype == jnp.float32
+    assert np.cos(2 * (float(single.phi_ref) - float(out.phi_ref[1]))) == pytest.approx(1.0, abs=1e-10)

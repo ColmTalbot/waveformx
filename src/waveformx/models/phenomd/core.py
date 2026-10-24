@@ -259,21 +259,35 @@ def coefficients(x1, x2, chi1, chi2):
     values = jnp.stack([amp_ins(F_AMP_INS), fit["collocation"], amp_mrd(f_peak), damp_ins(F_AMP_INS) * f_peak,
                         damp_mrd(f_peak) * f_peak])
     delta_int = jnp.linalg.solve(rows, values)
+
+    def phase(mf, leading=True):
+        """``-Psi + t0 Mf``: the phase ``phi`` (``h = A exp(i phi)``) at ``M f
+        = mf`` but for its constant, without the leading term of the
+        inspiral unless ``leading``."""
+        inspiral = ins(mf) if leading else ins(mf) - v[0] * jnp.cbrt(PI * mf) ** -5
+        psi = jnp.where(mf < f1, inspiral, jnp.where(mf >= f2, mrd(mf) + c1_mrd + c2_mrd * mf,
+                                                     inter(mf) + c1_int + c2_int * mf))
+        return -psi + t0 * mf
+
     return dict(v=v, l=logs, beta=beta, alpha=alpha, c_int=(c1_int, c2_int), c_mrd=(c1_mrd, c2_mrd), t0=t0,
                 rho=rho, delta=delta_int, gamma=gamma, f_ring=f_ring, f_damp=f_damp, f_peak=f_peak, final_spin=af,
-                eta=eta)
+                eta=eta, phase=phase)
 
 
 # --- the table ---------------------------------------------------------------
 
 
-def table(params, f_min, amp_scale=1.0):
+def table(params, f_min, amp_scale=1.0, reference_mf=None):
     """The table of a binary (a flat array of :data:`SIZE` values) from
     ``params``: ``mass_1``, ``mass_2`` (solar masses, either order),
     ``chi_1``, ``chi_2`` (aligned spins), ``luminosity_distance`` (Mpc),
     ``inclination``, ``phi_ref``, ``f_ref`` (Hz, zero for ``f_min``), and
     the first frequency ``f_min``, as
-    ``XLALSimInspiralChooseFDWaveformSequence``."""
+    ``XLALSimInspiralChooseFDWaveformSequence``.
+
+    With ``reference_mf`` (static; ``WaveformOptions.reference_mf``), the
+    reference is ``M f_ref = reference_mf`` and ``f_ref`` must be zero (NaN
+    otherwise)."""
     m1, m2, chi1, chi2, distance, inclination, phi_ref, f_ref = params
     total = m1 + m2
     c = coefficients(m1 / total, m2 / total, chi1, chi2)
@@ -324,15 +338,24 @@ def table(params, f_min, amp_scale=1.0):
                   f_phase_ins=F_PHASE_INS / s, f_phase_mrd=0.5 * f_ring / s)
 
     # the reference phase: phi(f_ref) = 2 phi_ref (f_ref = 0 is f_min)
-    f_ref = jnp.where(f_ref == 0.0, f_min, f_ref)
-    rest, inspiral = _phase_rest(fields, frequency_powers(jnp.asarray(f_ref, real())))
-    rows = rows + (2.0 * phi_ref - rest[..., 0]) * jnp.asarray(np.eye(len(BASIS))[CONST], real())
+    m1d, m2d = (jnp.asarray(m, jnp.float64) for m in (m1, m2))
+    if reference_mf is None:
+        invalid = False
+        f_ref = jnp.where(f_ref == 0.0, f_min, f_ref)
+        rest, inspiral = _phase_rest(fields, frequency_powers(jnp.asarray(f_ref, real())))
+        rest, inspiral = rest[..., 0], inspiral[..., 0]
+        f_ref64 = jnp.asarray(f_ref, jnp.float64)
+    else:
+        # (in M f, without rounding f_ref)
+        invalid = jax.lax.stop_gradient(f_ref) != 0.0
+        inspiral = reference_mf < F_PHASE_INS
+        rest = c["phase"](reference_mf, leading=False)
+        f_ref64 = reference_mf / (MTSUN_SI * (m1d + m2d))
+    rows = rows + (2.0 * phi_ref - rest) * jnp.asarray(np.eye(len(BASIS))[CONST], real())
 
     # the leading term in float64 (see ..xas.core.phase)
-    m1d, m2d = (jnp.asarray(m, jnp.float64) for m in (m1, m2))
     t0 = K0 * jnp.cbrt(m1d + m2d) / (m1d * m2d)
-    f_ref64 = jnp.asarray(f_ref, jnp.float64)
-    anchor = jnp.where(inspiral[..., 0], t0 * jnp.exp(-5.0 / 3.0 * jnp.log(f_ref64)), 0.0)
+    anchor = jnp.where(inspiral, t0 * jnp.exp(-5.0 / 3.0 * jnp.log(f_ref64)), 0.0)
     big64 = jnp.stack([t0, anchor])
     big = big64.astype(real())
     big_lo = jax.lax.stop_gradient(big64 - big.astype(jnp.float64)).astype(real())
@@ -342,7 +365,7 @@ def table(params, f_min, amp_scale=1.0):
     amp_ins = [prefactor * x * u_pow[k] for k, x in enumerate(c["rho"])]
     g1, g2, g3 = c["gamma"]
     width = g3 * f_damp
-    error = c["final_spin"] > 1.0
+    error = (c["final_spin"] > 1.0) | invalid
     cos_i = jnp.cos(inclination)
     fields = dict(
         phase=rows, big=big, big_lo=big_lo, **{k: fields[k] for k in ("atan_a", "atan_w", "atan_shift")},

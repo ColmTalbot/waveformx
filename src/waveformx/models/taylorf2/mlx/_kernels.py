@@ -11,7 +11,7 @@ from __future__ import annotations
 import functools
 
 from .. import core
-from ._tables import TableKernels
+from ._tables import TableKernels, kernel_name, mass_scaled
 
 __all__ = ["kernels"]
 
@@ -64,15 +64,22 @@ inline float4 model_tangent(thread const Point& p, const device float* T, const 
 }
 """
 
-#: The reference at f_ref, none at f_ref = 0 (coalescence).
-ANCHOR = "float f_ref = x[7]{v}; bool anchored = f_ref > 0.0f;"
-
-
-def _table(params, f_min, amp_scale):
-    return core.table(params, amp_scale)
+def anchor(reference_mf):
+    """The reference: at f_ref, none at f_ref = 0 (coalescence); with the
+    mass-scaled reference always (from the masses)."""
+    if reference_mf is None:
+        return "float f_ref = x[7]{v}; bool anchored = f_ref > 0.0f; DF mass_scaled = DF{{0.0f, 0.0f}};"
+    return "float f_ref = 0.0f; bool anchored = true; DF mass_scaled = " + mass_scaled(reference_mf).replace(
+        "{", "{{").replace("}", "}}") + ";"
 
 
 @functools.lru_cache(maxsize=None)
-def kernels(amp_scale, fast=True):
-    """The kernels of TaylorF2 for the scale of the strain ``amp_scale``."""
-    return TableKernels("taylorf2", core, _table, POINT, ANCHOR, _CONSTANTS, amp_scale, fast)
+def kernels(amp_scale, reference_mf=None, fast=True):
+    """The kernels of TaylorF2 for the scale of the strain ``amp_scale``
+    and the reference convention (``reference_mf``)."""
+
+    def table(params, f_min, scale):
+        return core.table(params, scale, reference_mf)
+
+    return TableKernels(kernel_name("taylorf2", reference_mf), core, table, POINT, anchor(reference_mf), _CONSTANTS,
+                        amp_scale, fast)

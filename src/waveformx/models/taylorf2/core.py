@@ -36,7 +36,7 @@ from ..xas.core import PHASE_BASIS as _XAS_BASIS
 from ..xpnr._math import MPC_SI, MRSUN_SI, MTSUN_SI, PI, real
 from . import pn
 
-__all__ = ["BASIS", "LAYOUT", "SIZE", "OFFSETS", "table", "unpack", "frequency_powers", "evaluate", "phase",
+__all__ = ["BASIS", "LAYOUT", "SIZE", "OFFSETS", "table", "phase_mf", "unpack", "frequency_powers", "evaluate", "phase",
            "amplitude"]
 
 #: The powers ``(a, l)`` of the basis ``f^a (log f)^l`` of the phase but
@@ -89,12 +89,30 @@ def unpack(flat):
     return out
 
 
-def table(params, amp_scale=1.0):
+def phase_mf(v, logs, mf, start=0):
+    """``-Psi`` at ``M f = mf``: ``-sum_k (v_k + l_k log v) v^(k - 5)``,
+    ``v = (pi mf)^(1/3)``, over ``k >= start`` (``start = 2``: but for the
+    leading term) for the phasing ``v``, ``logs`` of :func:`.pn.phasing`."""
+    u = jnp.cbrt(PI * mf)
+    log_u = jnp.log(u)
+    total = 0.0
+    for k in range(start, len(v)):
+        if k == 1:
+            continue
+        total = total - (v[k] + logs[k] * log_u if k in logs else v[k]) * u ** (k - 5)
+    return total
+
+
+def table(params, amp_scale=1.0, reference_mf=None):
     """The table of a binary (a flat array of :data:`SIZE` values) from
     ``params``: ``mass_1``, ``mass_2`` (solar masses, either order),
     ``chi_1``, ``chi_2`` (aligned spins), ``luminosity_distance`` (Mpc),
     ``inclination``, ``phi_ref``, ``f_ref`` (Hz, zero for the reference at
-    coalescence), as ``XLALSimInspiralChooseFDWaveformSequence``."""
+    coalescence), as ``XLALSimInspiralChooseFDWaveformSequence``.
+
+    With ``reference_mf`` (static; ``WaveformOptions.reference_mf``), the
+    reference is ``M f_ref = reference_mf`` and ``f_ref`` must be zero (NaN
+    otherwise)."""
     m1, m2, chi1, chi2, distance, inclination, phi_ref, f_ref = params
     total = m1 + m2
     x1, x2 = m1 / total, m2 / total
@@ -119,17 +137,24 @@ def table(params, amp_scale=1.0):
     rows = jnp.stack([jnp.asarray(c, real()) for c in rows])
 
     # the reference: phi(f_ref) = 2 phi_ref + pi / 4 (none for f_ref = 0)
-    referenced = f_ref > 0.0
-    f_ref_safe = jnp.where(referenced, f_ref, 1.0)
-    fields = dict(phase=rows)
-    rest = _phase_rest(fields, frequency_powers(jnp.asarray(f_ref_safe, real())))
-    constant = 2.0 * phi_ref + PI / 4.0 - jnp.where(referenced, rest[..., 0], 0.0)
+    m1d, m2d = (jnp.asarray(m, jnp.float64) for m in (m1, m2))
+    if reference_mf is None:
+        invalid = False
+        referenced = f_ref > 0.0
+        f_ref_safe = jnp.where(referenced, f_ref, 1.0)
+        rest = _phase_rest(dict(phase=rows), frequency_powers(jnp.asarray(f_ref_safe, real())))[..., 0]
+        f_ref64 = jnp.asarray(f_ref_safe, jnp.float64)
+    else:
+        # (in M f, without rounding f_ref)
+        invalid = jax.lax.stop_gradient(f_ref) != 0.0
+        referenced = True
+        rest = phase_mf(v, logs, reference_mf, start=2)
+        f_ref64 = reference_mf / (MTSUN_SI * (m1d + m2d))
+    constant = 2.0 * phi_ref + PI / 4.0 - jnp.where(referenced, rest, 0.0)
     rows = rows + constant * jnp.asarray(np.eye(len(BASIS))[CONST], real())
 
     # the leading term in float64 (see ..xas.core.phase)
-    m1d, m2d = (jnp.asarray(m, jnp.float64) for m in (m1, m2))
     t0 = K0 * jnp.cbrt(m1d + m2d) / (m1d * m2d)
-    f_ref64 = jnp.asarray(f_ref_safe, jnp.float64)
     anchor = jnp.where(referenced, t0 * jnp.exp(-5.0 / 3.0 * jnp.log(f_ref64)), 0.0)
     big64 = jnp.stack([t0, anchor])
     big = big64.astype(real())
@@ -137,7 +162,8 @@ def table(params, amp_scale=1.0):
 
     amp = K_AMP * amp_scale * jnp.sqrt(m1 * m2) * jnp.exp(-1.0 / 6.0 * jnp.log(total)) / distance
     cos_i = jnp.cos(inclination)
-    fields = dict(phase=rows, big=big, big_lo=big_lo, amp=amp, kp=0.5 * (1.0 + cos_i * cos_i), kc=-cos_i)
+    kp = jnp.where(invalid, jnp.nan, 0.5 * (1.0 + cos_i * cos_i))
+    fields = dict(phase=rows, big=big, big_lo=big_lo, amp=amp, kp=kp, kc=jnp.where(invalid, jnp.nan, -cos_i))
     return jnp.concatenate([jnp.asarray(fields[name], real()).reshape(-1) for name, _ in LAYOUT])
 
 

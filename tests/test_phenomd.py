@@ -188,3 +188,19 @@ def test_lal_errors():
         wf.polarizations("IMRPhenomD", f, **{**good, "spin_2": (0.0, 0.2, 0.3)})
     with pytest.raises(wf.UnsupportedError):
         wf.modes("IMRPhenomD", f, **good)
+
+
+def test_reference_mf():
+    """Reference invariance with the mass-scaled reference (f_ref = 0 is
+    the first frequency: the converter takes it)."""
+    from test_taylorf2 import reference_invariance
+    from waveformx.models.phenomd import reference
+
+    reference_invariance("IMRPhenomD", reference, CASES[:7], f_min_keyword=True)
+    f = np.geomspace(20.0, 512.0, 64)
+    with pytest.raises(wf.InvalidParameterError, match="f_ref must be zero"):
+        wf.polarizations("IMRPhenomD", f, reference_mf=0.01, **keywords(CASES[0]))
+    b = wf.Binary(*(jnp.asarray(v, jnp.float64) for v in wf.Binary(**keywords(CASES[8]))))
+    assert np.isnan(float(reference.to_mass_scaled_reference(b).phi_ref))
+    grad = jax.grad(lambda m: reference.to_mass_scaled_reference(b._replace(mass_1=m), f_min=20.0).phi_ref)(20.0)
+    assert np.isfinite(float(grad))

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import functools
 
-from ...taylorf2.mlx._tables import TableKernels
+from ...taylorf2.mlx._tables import TableKernels, kernel_name, mass_scaled
 from .. import core
 
 __all__ = ["kernels"]
@@ -147,12 +147,24 @@ inline float4 model_tangent(thread const Point& p, const device float* T, const 
 }
 """
 
-#: The reference at f_ref (f_min for f_ref = 0), anchored in the inspiral.
-ANCHOR = ("float f_ref = x[7]{v} == 0.0f ? x[8]{v} : x[7]{v}; "
-          "bool anchored = f_ref < y[O_F_PHASE_INS]{v};")
+def anchor(reference_mf):
+    """The reference at f_ref (f_min for f_ref = 0), anchored in the
+    inspiral; with the mass-scaled reference from the masses."""
+    if reference_mf is None:
+        return ("float f_ref = x[7]{v} == 0.0f ? x[8]{v} : x[7]{v}; "
+                "bool anchored = f_ref < y[O_F_PHASE_INS]{v}; DF mass_scaled = DF{{0.0f, 0.0f}};")
+    inspiral = "true" if reference_mf < core.F_PHASE_INS else "false"
+    return (f"float f_ref = 0.0f; bool anchored = {inspiral}; DF mass_scaled = "
+            + mass_scaled(reference_mf).replace("{", "{{").replace("}", "}}") + ";")
 
 
 @functools.lru_cache(maxsize=None)
-def kernels(amp_scale, fast=True):
-    """The kernels of IMRPhenomD for the scale of the strain ``amp_scale``."""
-    return TableKernels("phenomd", core, core.table, POINT, ANCHOR, _constants(), amp_scale, fast)
+def kernels(amp_scale, reference_mf=None, fast=True):
+    """The kernels of IMRPhenomD for the scale of the strain ``amp_scale``
+    and the reference convention (``reference_mf``)."""
+
+    def table(params, f_min, scale):
+        return core.table(params, f_min, scale, reference_mf)
+
+    return TableKernels(kernel_name("phenomd", reference_mf), core, table, POINT, anchor(reference_mf), _constants(),
+                        amp_scale, fast)

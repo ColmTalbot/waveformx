@@ -26,18 +26,34 @@ unless ``scaled_strain`` is false.
 
 from __future__ import annotations
 
-__all__ = ["polarizations", "polarizations_and_jacobian"]
+from ...._options import REFERENCE_MF
+
+__all__ = ["polarizations", "polarizations_and_jacobian", "to_mass_scaled_reference", "to_physical_reference"]
 
 
-def polarizations(binary, frequencies, scaled_strain=True):
+def polarizations(binary, frequencies, scaled_strain=True, reference_mf=None):
     """``(h_+, h_x)`` of TaylorF2 (see :func:`._api.polarizations`)."""
     from ._api import polarizations as function
 
-    return function(binary, frequencies, scaled_strain)
+    return function(binary, frequencies, scaled_strain, reference_mf)
 
 
-def polarizations_and_jacobian(binary, frequencies, scaled_strain=True):
+def polarizations_and_jacobian(binary, frequencies, scaled_strain=True, reference_mf=None):
     """``(h_+, h_x)`` and their Jacobians (see :func:`._api.polarizations_and_jacobian`)."""
     from ._api import polarizations_and_jacobian as function
 
-    return function(binary, frequencies, scaled_strain)
+    return function(binary, frequencies, scaled_strain, reference_mf)
+
+
+def to_mass_scaled_reference(binary, reference_mf=REFERENCE_MF):
+    """``binary`` at the mass-scaled reference (see :func:`._api.to_mass_scaled_reference`)."""
+    from ._api import to_mass_scaled_reference as function
+
+    return function(binary, reference_mf)
+
+
+def to_physical_reference(binary, f_ref, reference_mf=REFERENCE_MF):
+    """``binary`` at ``f_ref`` in Hz (see :func:`._api.to_physical_reference`)."""
+    from ._api import to_physical_reference as function
+
+    return function(binary, f_ref, reference_mf)

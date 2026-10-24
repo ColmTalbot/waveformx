@@ -16,6 +16,7 @@ from __future__ import annotations
 import numpy as np
 
 from ...exceptions import InvalidParameterError, UnsupportedError
+from .. import check_reference_mf
 from . import model
 
 __all__ = ["MODEL", "TaylorF2Model", "check_aligned"]
@@ -37,8 +38,10 @@ class TaylorF2Model:
     precessing = False
 
     def validate(self, binary, frequencies, options):
-        """LALSimulation's checks of TaylorF2 for concrete values."""
+        """LALSimulation's checks of TaylorF2 for concrete values, and that
+        ``f_ref`` is zero with ``options.reference_mf``."""
         check_aligned(binary, "TaylorF2")
+        check_reference_mf(binary, options, "TaylorF2")
 
     def polarizations(self, binary, frequencies, options):
         """``SimInspiralChooseFDWaveformSequence`` (see :func:`.model.polarizations`)."""

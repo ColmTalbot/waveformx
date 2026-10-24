@@ -17,6 +17,7 @@ from __future__ import annotations
 import numpy as np
 
 from ...exceptions import InvalidParameterError, UnsupportedError
+from .. import check_reference_mf
 from ..taylorf2.api import check_aligned
 from . import fits, model
 
@@ -32,6 +33,7 @@ class PhenomDModel:
     def validate(self, binary, frequencies, options):
         """LALSimulation's checks of IMRPhenomD for concrete values."""
         check_aligned(binary, "IMRPhenomD")
+        check_reference_mf(binary, options, "IMRPhenomD")
         m1, m2 = float(binary.mass_1), float(binary.mass_2)
         chi1, chi2 = float(np.asarray(binary.spin_1)[2]), float(np.asarray(binary.spin_2)[2])
         x1, x2 = m1 / (m1 + m2), m2 / (m1 + m2)

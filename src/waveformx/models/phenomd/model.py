@@ -37,12 +37,14 @@ def polarizations(binary, frequencies, options):
     fails. In float32 when the binary's parameters are float32, but for the
     table of each binary, which is computed in float64 (see
     :func:`.core.narrow`); the strain times ``1e21`` unless
-    ``options.scaled_strain`` is false."""
+    ``options.scaled_strain`` is false. With ``options.reference_mf`` the
+    binary is given at ``M f_ref = reference_mf`` (its ``f_ref`` zero; NaN
+    otherwise)."""
     dtype = precision_of(binary)
     with precision(np.float64):
         params = tuple(jnp.asarray(p, jnp.float64) for p in aligned_parameters(binary))
         f_min = jax.lax.stop_gradient(jnp.asarray(frequencies, jnp.float64)[0])
-        table = core.table(params, f_min, strain_scale(options))
+        table = core.table(params, f_min, strain_scale(options), options.reference_mf)
     with precision(dtype):
         f = jnp.asarray(frequencies, real())
         return core.evaluate(core.unpack(core.narrow(table, dtype)), core.frequency_powers(f))
