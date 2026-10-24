@@ -4,7 +4,9 @@
 """Rotation of the modes from the coorbital to the inertial frame in MLX
 (as :mod:`.._frames`, whose docstring derives the sums). The modes have
 shape ``(B, n_modes, n)``, the phase ``(B, n)`` and the quaternion ``(B, n,
-4)``."""
+4)``. The waveform rotates to the inertial frame with the Metal kernels of
+:mod:`._wigner`; :func:`coprecessing_to_inertial` here is their reference,
+in the tests."""
 
 from __future__ import annotations
 

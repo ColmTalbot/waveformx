@@ -24,8 +24,9 @@ from .._waveform import C_PER_MPC, MTSUN_SI, STRAIN_SCALE, active_modes, output_
 from ._data import NRSurData
 from ._dynamics import index, reference_omegas, safe_norm
 from ._fits import fit_parameters, fold_mass_ratio, q_fit, spin_monomials
-from ._frames import coorbital_to_coprecessing, coprecessing_to_inertial
+from ._frames import coorbital_to_coprecessing
 from ._kernel import integrate
+from ._wigner import rotate
 
 __all__ = [
     "batched",
@@ -127,12 +128,21 @@ def _pieces_to_modes():
 _PIECES_TO_MODES = _pieces_to_modes()
 
 
+def _shared_matmul(matrix, x):
+    """``matrix @ x[b]`` for every ``b`` of ``x`` (``(B, n, k)``), as one
+    matrix product: broadcast over the batch, MLX reads the matrix again for
+    every binary (25 times slower for a batch of 1024)."""
+    size, n, k = x.shape
+    out = matrix @ x.transpose(1, 0, 2).reshape(n, size * k)
+    return out.reshape(matrix.shape[0], size, k).transpose(1, 0, 2)
+
+
 def _coorbital_dynamics(data: NRSurData, states, chi_a0, chi_b0):
     """The quaternion (normalised), the orbital phase and the spins in the
     coorbital frame on the coorbital times (``(B, n_coorb, ...)``), from the
     states at the dynamics nodes (``(B, n_ds, 11)``) by one matrix product
     (the splines of :func:`.._waveform._coorbital_dynamics`)."""
-    series = data.ds_to_coorb @ states
+    series = _shared_matmul(data.ds_to_coorb, states)
     quat = series[..., 0:4]
     phase = series[..., 4]
     norm_a = safe_norm(chi_a0)[:, None, None]
@@ -177,7 +187,7 @@ def inertial_modes(data: NRSurData, binary, mode_array=None):
         mask = mx.array(mask.astype(np.float32))[:, None]
         re, im = re * mask, im * mask
     re, im = coorbital_to_coprecessing(re, im, phase)
-    return coprecessing_to_inertial(re, im, quat), labels, valid
+    return tuple(rotate(re, im, quat)), labels, valid
 
 
 _ODD = mx.array(np.array([m % 2 != 0 for _, m in MODES]))
@@ -264,7 +274,7 @@ def _resample(data: NRSurData, values, tau):
     h_inv = data.coorb_h_inv[:, None]
     rhs = 3.0 * (dy[:, 1:] * h_inv[1:] - dy[:, :-1] * h_inv[:-1])
     zeros = mx.zeros_like(values[:, :1])
-    c = mx.concatenate([zeros, data.coorb_system_inverse @ rhs, zeros], axis=1)
+    c = mx.concatenate([zeros, _shared_matmul(data.coorb_system_inverse, rhs), zeros], axis=1)
     interval = index(mx.clip(mx.searchsorted(x, tau, side="right").astype(mx.int32) - 1, 0, n - 2))
     shape = (*interval.shape, values.shape[-1])
     at = mx.broadcast_to(interval[..., None], shape)

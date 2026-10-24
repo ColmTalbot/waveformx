@@ -18,7 +18,10 @@ module             contents
                    and the integration that the kernel replaces
 ``_kernel``        the integration of the dynamics in one Metal kernel,
                    with its Jacobian for the derivatives
-``_frames``        coorbital -> coprecessing -> inertial frame
+``_frames``        coorbital -> coprecessing -> inertial frame in MLX
+                   operations
+``_wigner``        the rotation to the inertial frame in Metal kernels,
+                   with its VJP
 ``_waveform``      the modes and polarizations of a batch of binaries
 =================  ==========================================================
 

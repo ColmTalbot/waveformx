@@ -270,3 +270,37 @@ def test_scaled_strain(nrsur):
         for key in (range(2) if isinstance(scaled, tuple) else scaled):
             a, b = np.array(scaled[key]), np.array(strain[key])
             assert np.max(np.abs(a - 1e21 * b)) < 1e-6 * np.max(np.abs(a))
+
+
+def test_wigner_kernel(nrsur):
+    """The Metal kernels of the rotation to the inertial frame agree with the
+    MLX operations, values and VJP, including quaternions without precession
+    (``rb = 0``) and with ``ra = 0``; their generators are JAX's
+    ``dD/dq`` at the identity."""
+    from waveformjax.models.nrsur7dq4 import _frames as jax_frames
+    from waveformjax.models.nrsur7dq4.mlx import _frames, _wigner
+
+    rng = np.random.default_rng(0)
+    shape = (3, len(_wigner.MODES), 64)
+    re, im, c_re, c_im = (mx.array(rng.standard_normal(shape).astype(np.float32)) for _ in range(4))
+    q = rng.standard_normal((3, 64, 4))
+    q[0, :8] = (1.0, 0.0, 0.0, 0.0)
+    q[1, :8] = (0.0, 1.0, 0.0, 0.0)
+    q = mx.array((q / np.linalg.norm(q, axis=-1, keepdims=True)).astype(np.float32))
+    out = _wigner.rotate(re, im, q)
+    expected = _frames.coprecessing_to_inertial(re, im, q)
+    for a, b in zip(out, expected):
+        assert float(mx.max(mx.abs(a - b))) < 1e-6 * float(mx.max(mx.abs(b)))
+    _, cotangents = mx.vjp(lambda *x: tuple(_wigner.rotate(*x)), [re, im, q], [c_re, c_im])
+    _, expected = mx.vjp(lambda *x: _frames.coprecessing_to_inertial(*x), [re, im, q], [c_re, c_im])
+    for a, b in zip(cotangents, expected):
+        assert float(mx.max(mx.abs(a - b))) < 1e-6 * float(mx.max(mx.abs(b)))
+
+    n = len(_wigner.MODES)
+
+    def matrix(quaternion):
+        rotated = jax_frames.coprecessing_to_inertial(jnp.eye(n), jnp.zeros((n, n)), jnp.tile(quaternion[:, None], (1, n)))
+        return jnp.stack(rotated)
+
+    jacobian = np.asarray(jax.jacfwd(matrix)(jnp.array([1.0, 0.0, 0.0, 0.0])))
+    np.testing.assert_allclose(_wigner.generators(), np.moveaxis(jacobian[0] + 1j * jacobian[1], -1, 0), atol=1e-12)
