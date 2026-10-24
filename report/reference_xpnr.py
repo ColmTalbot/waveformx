@@ -19,9 +19,19 @@
   the reference). Mismatches with white noise, 20-1024 Hz in steps of
   1/8 Hz, maximised over time and phase, the polarizations in the same
   basis;
+  LAL at 20 Hz is also compared with the consistent model directly
+  (``lal_20_vs_lean``: the lean model given the binary at 20 Hz carries it
+  to its canonical reference, so this is the distance from LAL's test
+  point), and LAL at a test point near the canonical reference (the same
+  spins and angles given at ``f_ref = M_near / M``, ``M_near`` off 0.01
+  by a relative offset log-uniform in [0.002, 0.2]) with the consistent
+  model (``lal_near_vs_lean``): how LAL's distance from the consistent
+  model grows with the distance of its reference from the canonical one;
 * compilation (one process per convention, no cache) and the run time of
   the jitted pure function per total mass (all modes, 20-1024 Hz in steps
-  of 1/8 Hz, median of 9 calls).
+  of 1/8 Hz, median of 9 calls): LAL's convention, the canonical
+  ``reference_mf = 0.01`` and the references 0.006 and 0.002, which the
+  model first carries to 0.01.
 
 Usage::
 
@@ -167,28 +177,50 @@ def against_lal(n, seed, library):
         # 0.01 / M share L at the reference, and so the basis of the
         # polarizations; LAL at 20 Hz has that of L at 20 Hz)
         h = [np.asarray(x) for x in scaled(there, jnp.asarray(F))]
+        # (LAL's test point against the consistent model: the binary given at
+        # 20 Hz is the one the model carries to the canonical reference,
+        # whatever reference_mf it is given)
         records.append(dict(q=q, mass=mass, f_ref=f_ref, lean_vs_lal=mismatch(at_ref, h),
-                            lal_vs_lal=mismatch(at_20, rotated(at_ref, float(psi)))))
+                            lal_vs_lal=mismatch(at_20, rotated(at_ref, float(psi))),
+                            lal_20_vs_lean=mismatch(at_20, rotated(h, float(psi)))))
+        # LAL's test point near the canonical reference: the same spins and
+        # angles given at f_ref = M_near / M, M_near off REF by a relative
+        # offset log-uniform in [0.002, 0.2], either sign (the comparison of
+        # the consistent model with LAL, by the distance from REF)
+        offset = np.exp(rng.uniform(np.log(0.002), np.log(0.2))) * rng.choice([-1.0, 1.0])
+        mf_near = REF * (1.0 + offset)
+        near = binary._replace(f_ref=jnp.asarray(mf_near / (mass * MTSUN_SI), jnp.float64))
+        near_there, near_psi = to_scaled(near)
+        try:
+            at_near = lal_h(near)
+        except RuntimeError:
+            records.pop()
+            continue
+        h_near = [np.asarray(x) for x in scaled(near_there, jnp.asarray(F))]
+        records[-1].update(mf_near=mf_near, offset=offset, lal_near_vs_lean=mismatch(at_near, rotated(h_near, float(near_psi))))
         print(f"q {q:.1f} M {mass:.0f} lean vs LAL {records[-1]['lean_vs_lal']:.1e} "
-              f"LAL 20 Hz vs LAL {f_ref:.0f} Hz {records[-1]['lal_vs_lal']:.1e}", flush=True)
+              f"LAL 20 Hz vs LAL {f_ref:.0f} Hz {records[-1]['lal_vs_lal']:.1e} "
+              f"LAL 20 Hz vs lean {records[-1]['lal_20_vs_lean']:.1e} "
+              f"LAL at Mf {mf_near:.4f} vs lean {records[-1]['lal_near_vs_lean']:.1e}", flush=True)
     return records
 
 
 def timings():
     env = dict(os.environ, JAX_COMPILATION_CACHE_DIR="")
     out = {}
-    for convention in ("lal", str(REF)):
+    for convention, key in (("lal", "lal"), (str(REF), "scaled"), ("0.006", "scaled_0.006"),
+                            ("0.002", "scaled_0.002")):
         result = subprocess.run([sys.executable, "-c", TIMING, convention, json.dumps(MASSES)], env=env,
                                 capture_output=True, text=True, check=True)
-        out["lal" if convention == "lal" else "scaled"] = json.loads(result.stdout.strip().splitlines()[-1])
-        print(convention, out["lal" if convention == "lal" else "scaled"], flush=True)
+        out[key] = json.loads(result.stdout.strip().splitlines()[-1])
+        print(convention, out[key], flush=True)
     return out
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--n", type=int, default=256)
-    parser.add_argument("--n-lal", type=int, default=40)
+    parser.add_argument("--n-lal", type=int, default=100)
     parser.add_argument("--seed", type=int, default=11)
     parser.add_argument("--lalsimulation-library", default=os.environ.get("PATCHED_LALSIMULATION"))
     parser.add_argument("--output", default=str(HERE / "data" / "reference_xpnr.json"))

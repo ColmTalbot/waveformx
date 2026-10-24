@@ -76,10 +76,14 @@ The package has the same interface as the Python bindings of
     given late in the inspiral, near merger, for every binary, and the
     waveform works for every choice of modes, including those whose only
     modes are the (2,1) ones, and whether or not the reference lies in the
-    requested band. `to_mass_scaled_reference` and `to_physical_reference`
-    convert binaries between the two conventions, as pure functions that
-    can be differentiated (also in MLX: the option is available there
-    too).
+    requested band. With this option the waveform does not depend on the
+    choice of reference: whatever `reference_mf` is, the model first
+    carries the binary to `REFERENCE_MF` and takes everything that
+    depends on the reference there, so a binary converted between two
+    references gives the same waveform. `to_mass_scaled_reference` and
+    `to_physical_reference` convert binaries between the two conventions,
+    as pure functions that can be differentiated (also in MLX: the option
+    is available there too).
   - The lean variant is also available in
     [MLX](https://github.com/ml-explore/mlx), in single precision on Apple
     GPUs (optional dependency `mlx`): the polarizations at given

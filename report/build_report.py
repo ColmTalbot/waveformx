@@ -209,8 +209,13 @@ def reference_values(values):
     """The mass-scaled reference frequency (``report/reference_xpnr.py``)."""
     names = ["ref_n", "ref_finite_lal_21", "ref_finite_lal_all", "ref_finite_scaled_min", "ref_lal_n",
              "ref_lean_vs_lal_median", "ref_lean_vs_lal_max", "ref_lal_vs_lal_median", "ref_lal_vs_lal_max",
-             "ref_lal_vs_lal_above", "ref_compile_lal", "ref_compile_scaled"]
-    names += [f"ref_runtime_{c}_{m}" for c in ("lal", "scaled") for m in ("10", "60", "150", "400")]
+             "ref_lal_vs_lal_above", "ref_compile_lal", "ref_compile_scaled", "ref_lal_20_vs_lean_median",
+             "ref_lal_20_vs_lean_max", "ref_lal_20_vs_lean_above", "ref_lal_near_vs_lean_median",
+             "ref_lal_near_vs_lean_max", "ref_lal_near_vs_lean_above"]
+    conventions = ("lal", "scaled", "scaled_0.006", "scaled_0.002")
+    names += [f"ref_compile_{c.replace('.', '')}" for c in conventions[2:]]
+    names += [f"ref_runtime_{c.replace('.', '')}_{m}" for c in conventions for m in ("10", "60", "150", "400")]
+    names += [f"ref_near_{b}_{x}" for b in ("2", "5", "20") for x in ("n", "median", "max")]
     if not (DATA / "reference_xpnr.json").exists():
         values.update({name: "–" for name in names})
         return
@@ -222,16 +227,29 @@ def reference_values(values):
     values["ref_finite_scaled_min"] = str(min(v for k, v in finite.items() if k.startswith("scaled")))
     records = data.get("lal", [])
     values["ref_lal_n"] = str(len(records)) if records else "–"
-    for key in ("lean_vs_lal", "lal_vs_lal"):
-        mm = sorted(r[key] for r in records)
+    for key in ("lean_vs_lal", "lal_vs_lal", "lal_20_vs_lean", "lal_near_vs_lean"):
+        mm = sorted(r[key] for r in records if key in r)
         values[f"ref_{key}_median"] = sci(mm[len(mm) // 2]) if mm else "–"
         values[f"ref_{key}_max"] = sci(mm[-1]) if mm else "–"
-    values["ref_lal_vs_lal_above"] = str(sum(r["lal_vs_lal"] > 1e-3 for r in records)) if records else "–"
-    for convention in ("lal", "scaled"):
+    for key in ("lal_vs_lal", "lal_20_vs_lean", "lal_near_vs_lean"):
+        above = [r[key] > 1e-3 for r in records if key in r]
+        values[f"ref_{key}_above"] = str(sum(above)) if above else "–"
+    # LAL near the canonical reference, by the relative offset of its reference
+    for label, lo, hi in (("2", 0.0, 0.02), ("5", 0.02, 0.05), ("20", 0.05, 0.2)):
+        mm = sorted(r["lal_near_vs_lean"] for r in records if "offset" in r and lo <= abs(r["offset"]) < hi + 1e-12)
+        values[f"ref_near_{label}_n"] = str(len(mm)) if mm else "–"
+        values[f"ref_near_{label}_median"] = sci(mm[len(mm) // 2]) if mm else "–"
+        values[f"ref_near_{label}_max"] = sci(mm[-1]) if mm else "–"
+    for convention in conventions:
+        name = convention.replace(".", "")
+        if convention not in data["timings"]:
+            values[f"ref_compile_{name}"] = "–"
+            values.update({f"ref_runtime_{name}_{m}": "–" for m in ("10", "60", "150", "400")})
+            continue
         t = data["timings"][convention]
-        values[f"ref_compile_{convention}"] = duration(t["compile"])
+        values[f"ref_compile_{name}"] = duration(t["compile"])
         for m in ("10", "60", "150", "400"):
-            values[f"ref_runtime_{convention}_{m}"] = duration(t["runtime"][f"{float(m)}"])
+            values[f"ref_runtime_{name}_{m}"] = duration(t["runtime"][f"{float(m)}"])
 
 
 def float32_values(values):
