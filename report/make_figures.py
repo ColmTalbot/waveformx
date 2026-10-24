@@ -167,11 +167,37 @@ def gradients():
     save(fig, "gradients")
 
 
+def mlx():
+    data = load("mlx_nrsur7dq4.json")
+    if data is None:
+        return
+    pure = data["timings"]["pure"]
+    device = data["mlx_environment"]["device"]
+    fig, axes = plt.subplots(1, 2, figsize=(8.4, 3.2), sharey=True)
+    for ax, key, title in zip(axes, ("value", "grad"), ("Waveform (h$_+$ on 8192 samples)", "Gradient of its power")):
+        for name, label, colour, marker in (("mlx", f"MLX, float32, {device} GPU", BLUE, "o"),
+                                            ("jax_float32", "JAX, float32, CPU", ORANGE, "s"),
+                                            ("jax_float64", "JAX, float64, CPU", GREEN, "^")):
+            rows = pure[name][key]
+            sizes = np.array([int(n) for n in rows])
+            ax.plot(sizes, sizes / np.array([rows[str(n)] for n in sizes]), marker=marker, color=colour, ms=4, lw=1.2,
+                    label=label)
+        ax.set_xscale("log", base=2)
+        ax.set_yscale("log")
+        ax.set_xlabel("Binaries per call")
+        ax.set_title(title, fontsize=9)
+    axes[0].set_ylabel("Per second")
+    axes[0].legend(loc="upper left", fontsize=7.5)
+    fig.tight_layout()
+    save(fig, "mlx")
+
+
 def main():
     style()
     accuracy()
     batch()
     gradients()
+    mlx()
 
 
 if __name__ == "__main__":

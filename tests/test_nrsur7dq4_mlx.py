@@ -305,3 +305,153 @@ def test_wigner_kernel(nrsur):
 
     jacobian = np.asarray(jax.jacfwd(matrix)(jnp.array([1.0, 0.0, 0.0, 0.0])))
     np.testing.assert_allclose(_wigner.generators(), np.moveaxis(jacobian[0] + 1j * jacobian[1], -1, 0), atol=1e-12)
+
+
+# ---------------------------------------------------------------------------
+# LAL's grid and the conditioned waveforms
+# ---------------------------------------------------------------------------
+
+#: Binaries valid from ``f_min = 20`` Hz (the first) or from the start of the
+#: surrogate (``f_min = 0``).
+ON_GRID = [
+    (BINARIES["precessing"], 20.0),
+    (wf.Binary(25.0, 60.0, (0.7, 0.0, 0.7), (0.0, -0.9, 0.0), 1500.0, 2.1, -0.4, 0.0), 0.0),
+    (BINARIES["heavy, q=6"]._replace(f_ref=0.0), 0.0),
+]
+
+
+def assert_close_complex(a, b):
+    a, b = np.asarray(a), np.asarray(b)
+    assert_close(np.concatenate([a.real, a.imag]), np.concatenate([b.real, b.imag]))
+
+
+def test_grids():
+    """The grids of a batch, computed together, are those of the JAX driver
+    binary by binary (``t0`` to the rounding of the fits, evaluated in
+    another order), with LAL's errors."""
+    from waveformjax._binary import row
+    from waveformjax.models.nrsur7dq4 import _driver
+    from waveformjax.models.nrsur7dq4.mlx import _driver as mlx_driver
+
+    rng = np.random.default_rng(3)
+    n = 300
+    m1 = rng.uniform(5, 300, n)
+    q = rng.uniform(0.15, 7, n)
+    spins = rng.uniform(-1, 1, (n, 6)) * rng.uniform(0, 1.05, (n, 1))
+    f_ref = np.where(rng.random(n) < 0.3, 0.0, rng.uniform(5, 60, n))
+    table = np.column_stack([m1, m1 / q, spins, np.full(n, 400.0), np.full(n, 0.3), np.full(n, 0.1), f_ref])
+    for f_min, delta_t in ((20.0, 1 / 4096), (0.0, 1 / 2048)):
+        grids, errors = mlx_driver.grids(table, delta_t, f_min, OPTIONS)
+        for i in range(n):
+            try:
+                grid = _driver.setup(row(table, i), delta_t, f_min, OPTIONS)
+            except wf.exceptions.WaveformError as error:
+                assert type(errors[i]) is type(error) and str(errors[i]) == str(error)
+                continue
+            assert i not in errors
+            assert (grids.n[i], grids.epoch[i], grids.dt[i], grids.f_ref[i]) == (
+                grid.n, grid.epoch, grid.dt, grid.binary.f_ref)
+            assert abs(grids.t0[i] - grid.t0) < 1e-11
+        assert 0 < len(errors) < n
+
+
+def test_td_polarizations(nrsur):
+    """LAL's waveform and modes on its grid: the length and epoch of the JAX
+    driver, the values of the JAX waveform."""
+    from waveformjax.models.nrsur7dq4 import _driver
+
+    for binary, f_min in ON_GRID:
+        expected = _driver.td_polarizations(binary, 1 / 4096, f_min, OPTIONS)
+        result = nrsur.td_polarizations(binary, 1 / 4096, f_min, OPTIONS)
+        assert result.hplus.dtype == mx.float32
+        assert result.hplus.shape == expected.hplus.shape and result.epoch == expected.epoch
+        for a, b in zip(result, expected):
+            assert_close(np.array(a), np.asarray(b))
+    binary, f_min = ON_GRID[0]
+    expected = _driver.td_modes(binary, 1 / 4096, f_min, OPTIONS)
+    result = nrsur.td_modes(binary, 1 / 4096, f_min, OPTIONS)
+    assert set(result.modes) == set(expected.modes) and result.epoch == expected.epoch
+    peak = max(np.max(np.abs(np.asarray(h))) for h in expected.modes.values())
+    for mode, h in expected.modes.items():
+        assert np.max(np.abs(np.array(result[mode]) - np.asarray(h))) < 1e-3 * peak
+    with pytest.raises(wf.InvalidParameterError):
+        nrsur.td_polarizations(binary._replace(mass_1=400.0), 1 / 4096, f_min, OPTIONS)
+
+
+def test_batch_td_polarizations(nrsur):
+    """The batch on LAL's grids: the binaries one by one, with the errors
+    and ``ok`` of :func:`waveformjax.batch_td_polarizations`."""
+    table = wf.parameter_table(stacked([binary for binary, _ in ON_GRID])._asdict())
+    table = np.concatenate([table, [[10.0, 1.0] + [0.0] * 6 + [400.0, 0.0, 0.0, 0.0],
+                                    [-1.0, 1.0] + [0.0] * 6 + [400.0, 0.0, 0.0, 0.0]]])
+    batch = nrsur.batch_td_polarizations(table, 1 / 4096, 0.0, OPTIONS, chunk_size=2)
+    expected = wf.batch_td_polarizations("NRSur7dq4", 1 / 4096, 0.0, table)
+    np.testing.assert_array_equal(batch.ok, expected.ok)
+    assert {i: str(e) for i, e in batch.errors.items()} == {i: str(e) for i, e in expected.errors.items()}
+    for result, reference in zip(batch, expected):
+        if reference is not None:
+            assert result.hplus.shape == reference.hplus.shape and result.epoch == reference.epoch
+            for a, b in zip(result, reference):
+                assert_close(np.array(a), np.asarray(b))
+    with pytest.raises(wf.InvalidParameterError):
+        nrsur.batch_td_polarizations(table, 1 / 4096, 0.0, OPTIONS, strict=True)
+
+
+@pytest.mark.parametrize("index", range(len(ON_GRID)))
+def test_simulate(nrsur, index):
+    """``SimInspiralTD`` and ``SimInspiralFD``: the lengths, epochs and
+    sampling of the JAX conversions, and their values."""
+    from waveformjax import conversions
+
+    binary, f_min = ON_GRID[index]
+    expected = conversions.simulate_td("NRSur7dq4", binary, OPTIONS, 1 / 4096, f_min)
+    result = nrsur.simulate_td(binary, 1 / 4096, f_min, OPTIONS)
+    assert result.hplus.shape == expected.hplus.shape and result.epoch == expected.epoch
+    for a, b in zip(result, expected):
+        assert_close(np.array(a), np.asarray(b))
+    for delta_f in (0.0, 1 / 8):
+        expected = conversions.simulate_fd("NRSur7dq4", binary, OPTIONS, delta_f, f_min, 2048.0)
+        result = nrsur.simulate_fd(binary, delta_f, f_min, 2048.0, OPTIONS)
+        assert result.hplus.dtype == mx.complex64
+        assert result.hplus.shape == expected.hplus.shape
+        assert (result.epoch, result.delta_f) == (expected.epoch, expected.delta_f)
+        for a, b in zip(result, expected):
+            assert_close_complex(np.array(a), np.asarray(b))
+
+
+def test_simulate_function(nrsur):
+    """The pure functions of the conditioned waveforms: their reference at
+    the reference binary, a batch, the float64 JAX gradient and
+    ``mx.compile``."""
+    from waveformjax import conversions
+
+    binary, f_min = ON_GRID[0]
+    function = nrsur.simulate_fd_function(binary, 1 / 8, f_min, 1024.0, OPTIONS)
+    hp, hc = function(binary)
+    assert hp.shape == (len(function),)
+    assert_close_complex(np.array(hp), np.array(function.reference.hplus))
+    pair = stacked([binary, binary._replace(mass_1=41.0)])
+    batch, _ = function(pair)
+    assert batch.shape == (2, len(function))
+    assert_close_complex(np.array(batch[0]), np.array(hp))
+    jax_function = conversions.simulate_fd_function("NRSur7dq4", binary, OPTIONS, 1 / 8, f_min, 1024.0)
+    weights = np.random.default_rng(0).standard_normal((2, len(function)))
+
+    @jax.jit
+    @jax.grad
+    def jax_gradient(b):
+        hp, hc = jax_function(b)
+        return jnp.sum(jnp.real(hp) * weights[0] + jnp.imag(hc) * weights[1])
+
+    weights_mx = mx.array(weights.astype(np.float32))
+
+    def projection(b):
+        hp, hc = function(b)
+        return mx.sum(mx.real(hp) * weights_mx[0] + mx.imag(hc) * weights_mx[1])
+
+    single = np.concatenate([np.ravel(np.array(x)) for x in mx.grad(projection)(as_mlx(binary))])
+    double = np.concatenate([np.ravel(np.asarray(x)) for x in jax_gradient(as_float64(binary))])
+    assert np.all(np.abs(single - double) <= 1e-2 * np.abs(double) + 1e-3 * np.max(np.abs(double))), (single, double)
+    function = nrsur.simulate_td_function(binary, 1 / 4096, f_min, OPTIONS)
+    hp, _ = mx.compile(function)(as_mlx(binary))
+    assert_close(np.array(hp), np.array(function.reference.hplus))

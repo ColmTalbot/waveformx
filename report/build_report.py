@@ -54,6 +54,7 @@ TEST_FILES = {
     "test_nrsur7dq4_random.py": "NRSur7dq4, 64 random binaries against LAL (slow)",
     "test_transforms_nrsur7dq4.py": "NRSur7dq4 under <code>jit</code>, <code>vmap</code> and <code>grad</code>, removable singularities",
     "test_nrsur7dq4_float32.py": "NRSur7dq4 in float32 (no float64 operation, accuracy, <code>jit</code>, <code>vmap</code>, <code>grad</code>) and the scale of its output",
+    "test_nrsur7dq4_mlx.py": "NRSur7dq4 in MLX against JAX: waveform, modes, batches, gradients, the Metal kernels, LAL's grids and the conditioned waveforms",
     "test_conversions.py": "<code>simulate_td</code> and <code>simulate_fd</code>: lengths, epochs, filters, tapers against LAL",
     "test_transforms_conversions.py": "The conversions as pure functions under <code>jit</code>, <code>vmap</code> and <code>grad</code>",
 }
@@ -111,10 +112,9 @@ def commit_rows():
     return rows
 
 
-def test_results():
-    """Per test file: (tests, passed, failed, skipped, seconds) from the
-    JUnit XML of the last full run."""
-    path = DATA / "pytest.xml"
+def _junit(path):
+    """Per test file: (tests, passed, failed, skipped, seconds), and the
+    time of the run, from a JUnit XML file."""
     tree = ElementTree.parse(path)
     files = {}
     for case in tree.iter("testcase"):
@@ -130,6 +130,19 @@ def test_results():
             entry["passed"] += 1
     suite = next(tree.iter("testsuite"))
     return files, float(suite.get("time", 0.0))
+
+
+def test_results():
+    """Per test file: (tests, passed, failed, skipped, seconds) from the
+    JUnit XML of the last full run, with the MLX tests from their own run
+    (``pytest_mlx.xml``, in a Python with MLX) in place of their skips."""
+    files, seconds = _junit(DATA / "pytest.xml")
+    if (DATA / "pytest_mlx.xml").exists():
+        mlx_files, mlx_seconds = _junit(DATA / "pytest_mlx.xml")
+        replaced = sum(files[name]["seconds"] for name in mlx_files if name in files)
+        files.update(mlx_files)
+        seconds += mlx_seconds - replaced
+    return files, seconds
 
 
 def source_lines():
@@ -206,6 +219,108 @@ def float32_values(values):
     values["f32_dyn_share"] = f"{t['double']['batch64_dynamics'] / t['double']['batch64']:.0%}"
 
 
+def mlx_values(values):
+    """NRSur7dq4 in MLX (``mlx_nrsur7dq4.json``)."""
+    data = load("mlx_nrsur7dq4.json")
+    env = data["mlx_environment"]
+    values["mlx_version"] = env["mlx"]
+    values["mlx_device"] = html.escape(env["device"])
+    values["mlx_memory"] = f"{env['memory_gb']} GB"
+    s = data["summary"]
+    values["mlx_pairs"] = str(s["all"]["n"])
+
+    def cells(entry):
+        if entry is None:
+            return '<td class="num">–</td>' * 3
+        return "".join(f'<td class="num">{sci(entry[k])}</td>' for k in ("median", "p90", "max"))
+
+    rows = [(label, s["all"][f"{key}_mlx"], s["all"][f"{key}_jax32"]) for label, key in (
+        ("Normalised overlap of the two binaries, change", "d_overlap"),
+        ("Inner product over the product of the norms, change", "epsilon"),
+        ("One waveform, noise-weighted relative error ‖δh‖ / ‖h‖", "noise_weighted"),
+        ("One waveform, largest relative error max |δh| / max |h|", "max_relative"))]
+    gradients = s["gradients"]
+    # JAX's float32 derivatives, from the float32 study of the same pairs
+    study = load("float32_nrsur7dq4.json")
+    same_pairs = (study.get("seed"), study.get("n_pairs")) == (data["seed"], data["n_pairs"])
+    jax_gradients = study["summary"]["gradients"]["grad_log_likelihood"] if same_pairs else {}
+    rows += [
+        (f"Derivatives of a log-likelihood, relative error ({gradients['n']} nearby pairs)", gradients["relative"],
+         jax_gradients.get("relative")),
+        ("Derivatives of a log-likelihood, error over the typical size of the component",
+         gradients["over_typical"], jax_gradients.get("over_typical")),
+    ]
+    values["mlx_accuracy_rows"] = "\n".join(f"<tr><td>{label}</td>{cells(a)}{cells(b)}</tr>" for label, a, b in rows)
+    for name in ("mlx", "jax32"):
+        overlap = s["all"][f"d_overlap_{name}"]
+        values[f"{name}_do_median"], values[f"{name}_do_p90"] = sci(overlap["median"]), sci(overlap["p90"])
+        values[f"{name}_dh_median"] = sci(s["all"][f"noise_weighted_{name}"]["median"])
+    values["mlx_grad_median"] = sci(gradients["relative"]["median"])
+    values["mlx_grad_typical_max"] = sci(gradients["over_typical"]["max"])
+    grids = data["grids"]
+    values["mlx_grid_n"] = str(sum(g["n"] for g in grids.values()))
+    values["mlx_grid_items"] = "\n".join(
+        f"        <li>{'from ' + key + ' Hz' if key != '0' else 'from the start of the surrogate'}: the same length "
+        f"and epoch for {g['same_length_and_epoch']} of the {g['valid']} binaries LAL accepts"
+        + (f", and LAL's error for {g['same_errors']} of the {g['lal_errors']} it refuses" if g["lal_errors"] else "")
+        + ";</li>" for key, g in grids.items())
+    values["mlx_grid_t0"] = sci(max(g["max_t0_difference"] for g in grids.values()))
+    conditioned = data["conditioned"]
+    values["mlx_conditioned_n"] = str(len(conditioned))
+    values["mlx_conditioned_max"] = sci(max(r["relative_error"] for r in conditioned))
+    values["mlx_conditioned_same"] = f"{sum(r['same_grid'] for r in conditioned)}/{len(conditioned)}"
+
+    pure = data["timings"]["pure"]
+    mlx_value, mlx_grad = pure["mlx"]["value"], pure["mlx"]["grad"]
+
+    def per_binary(name, key, size):
+        t = pure[name][key].get(size)
+        return f'<td class="num">{duration(t / int(size)) if t is not None else "–"}</td>'
+
+    rows = []
+    for size in mlx_value:
+        rows.append(f'<tr><td class="num">{size}</td><td class="num">{duration(mlx_value[size])}</td>'
+                    + "".join(per_binary(name, "value", size) for name in ("mlx", "jax_float32", "jax_float64"))
+                    + "".join(per_binary(name, "grad", size) for name in ("mlx", "jax_float32", "jax_float64"))
+                    + "</tr>")
+    values["mlx_timing_rows"] = "\n".join(rows)
+
+    def best(name, key):
+        return max((int(n) / t, n) for n, t in pure[name][key].items())
+
+    values["mlx_single"] = duration(mlx_value["1"])
+    values["jax32_single"] = duration(pure["jax_float32"]["value"]["1"])
+    values["mlx_grad_single"] = duration(mlx_grad["1"])
+    values["jax32_grad_single"] = duration(pure["jax_float32"]["grad"]["1"])
+    first = pure["mlx"]["first_calls"]
+    values["mlx_first_data"] = duration(first["data"])
+    values["mlx_first_value"] = duration(first["value"])
+    values["mlx_first_grad"] = duration(first["grad"])
+    (mlx_rate, mlx_size), (jax_rate, _) = best("mlx", "value"), best("jax_float32", "value")
+    values["mlx_best_rate"], values["mlx_best_size"] = rate(mlx_rate), mlx_size
+    values["jax32_best_rate"] = rate(jax_rate)
+    values["mlx_best_speedup"] = factor(mlx_rate / jax_rate)
+    (mlx_rate, mlx_size), (jax_rate, _) = best("mlx", "grad"), best("jax_float32", "grad")
+    values["mlx_grad_best_rate"], values["mlx_grad_best_size"] = rate(mlx_rate), mlx_size
+    values["jax32_grad_best_rate"] = rate(jax_rate)
+    values["mlx_grad_speedup"] = factor(mlx_rate / jax_rate)
+    public = data["timings"]["public"]
+    batch = public["batch"]
+    values["mlx_batch_n"] = str(batch["n"])
+    values["mlx_batch_samples"] = f"{batch['samples'] / batch['n']:,.0f}"
+    values["mlx_batch_time"] = duration(batch["mlx"])
+    values["mlx_batch_grids"] = duration(batch["mlx_grids"])
+    values["mlx_batch_rate"] = rate(batch["n"] / batch["mlx"])
+    values["jax_batch_rate"] = rate(batch["n"] / batch["jax"])
+    values["mlx_batch_speedup"] = factor(batch["jax"] / batch["mlx"])
+    values["mlx_td_single"] = duration(public["td_polarizations"]["mlx"])
+    values["jax_td_single"] = duration(public["td_polarizations"]["jax"])
+    values["mlx_fd_single"] = duration(public["simulate_fd"]["mlx"])
+    values["jax_fd_single"] = duration(public["simulate_fd"]["jax"])
+    values["mlx_svg"] = svg("mlx", "Waveforms and gradients per second against the number of binaries per call, "
+                                   "for NRSur7dq4 in MLX on the GPU and in JAX on the CPU")
+
+
 def build(args):
     make_figures.main()
     values = {}
@@ -275,6 +390,7 @@ def build(args):
     rs_nrsur = nrsur["summary"].get("jax_vs_rs")
     values["nrsur_rs_max_rel"] = sci(rs_nrsur["max_relative_error"]) if rs_nrsur else "–"
     float32_values(values)
+    mlx_values(values)
 
     rows = []
     for label, data, key in (

@@ -231,7 +231,7 @@ ol.pipeline .step-body { font-size: 0.97rem; }
   <h1>IMRPhenomXPNR and NRSur7dq4 in JAX, checked against LALSimulation</h1>
   <p class="dek">How two precessing waveform models, and LALSimulation's conversions between the time and frequency domains, were written as pure JAX functions that compile, vectorise and differentiate. The report covers how they compare with LALSimulation 6.2.0 and with waveformrs, how their derivatives compare with finite differences, and what they cost.</p>
   <dl class="meta">
-    <div><dt>Repository</dt><dd><code>waveformjax</code>, branch <code>main</code> at <code>321ebea</code> (43 commits)</dd></div>
+    <div><dt>Repository</dt><dd><code>waveformjax</code>, branch <code>main</code> at <code>a315b13</code> (49 commits)</dd></div>
     <div><dt>Reference</dt><dd>lalsimulation 6.2.0, lal 7.7.0 (conda-forge, osx-arm64), and waveformrs's Python bindings</dd></div>
     <div><dt>Platform</dt><dd>Apple M2 Ultra, 24 cores; JAX 0.11.2 on the CPU; Python 3.12.15</dd></div>
     <div><dt>Generated</dt><dd>23 October 2026</dd></div>
@@ -270,7 +270,7 @@ ol.pipeline .step-body { font-size: 0.97rem; }
     <div class="card"><span class="label">NRSur7dq4 derivatives</span><span class="value">≤ 2.9×10<sup>-8</sup></span><span class="note">Largest disagreement of any column of the Jacobian with finite differences, over four binaries, wherever the waveform is differentiable. For IMRPhenomXPNR the finite differences disagree by up to 1.5×10<sup>-1</sup>, which is still being investigated (<a href="#gradients">section 8</a>).</span></div>
     <div class="card"><span class="label">One IMRPhenomXPNR waveform</span><span class="value">16.18 ms</span><span class="note">Compiled, on 8033 frequencies, against 13.54 ms for LALSimulation and 3.10 ms for waveformrs. The first call compiles for 37.6 s.</span></div>
     <div class="card"><span class="label">Batches with <code>jax.vmap</code></span><span class="value">102 / s</span><span class="note">IMRPhenomXPNR waveforms per second at best over batch sizes, against 4,293 / s for waveformrs on all threads and 72 / s for LALSimulation on one.</span></div>
-    <div class="card"><span class="label">Tests</span><span class="value">452 / 452 pass</span><span class="note">pytest, including the slow random-draw tests, in 24 minutes. They compare every part of the models with LALSimulation and the reference data of waveformrs.</span></div>
+    <div class="card"><span class="label">Tests</span><span class="value">476 / 476 pass</span><span class="note">pytest, including the slow random-draw tests, in 25 minutes. They compare every part of the models with LALSimulation and the reference data of waveformrs.</span></div>
   </div>
   <div class="table-wrap wide">
     <table>
@@ -287,9 +287,10 @@ ol.pipeline .step-body { font-size: 0.97rem; }
   </div>
   <p>In short:</p>
   <ul>
-    <li><strong>Implementation.</strong> 67 Python modules (19,869 lines, of which 4,381 are parameter-space fits generated from waveformrs's Rust by a translator) cover the two models, their checks and the conversions (<a href="#design">sections 2</a>–<a href="#conversions">5</a>).</li>
+    <li><strong>Implementation.</strong> 77 Python modules (22,665 lines, of which 4,381 are parameter-space fits generated from waveformrs's Rust by a translator) cover the two models, their checks and the conversions (<a href="#design">sections 2</a>–<a href="#conversions">5</a>).</li>
     <li><strong>Accuracy.</strong> NRSur7dq4 agrees with LAL at rounding level. IMRPhenomXPNR's (2,2) mode agrees to ~1e-9. Its higher modes agree to ~1e-5, because LAL takes derivatives by finite differences whose rounding noise JAX's different, but valid, arithmetic changes (<a href="#accuracy">section 7</a>).</li>
     <li><strong>Single precision.</strong> NRSur7dq4 runs in float32 when the binary's parameters are float32, and returns the strain times 10<sup>21</sup> by default. In float32, an inner product between two different waveforms changes by 2.4×10<sup>-6</sup> of the product of their norms (median; at most 1.0×10<sup>-4</sup>). Derivatives agree with float64 to 5.6×10<sup>-5</sup> (<a href="#nrsur">section 4</a>).</li>
+    <li><strong>Apple GPUs.</strong> NRSur7dq4 also runs in MLX on Apple GPUs, in float32, with its derivatives, LAL's grids and the conditioned waveforms. It is as accurate as JAX's float32 version: the overlap of two binaries changes by 2.3×10<sup>-6</sup> (median). In batches it evaluates 41,582 waveforms per second, 27.5× JAX's best on this machine's CPU (<a href="#nrsur">section 4</a>).</li>
     <li><strong>Derivatives.</strong> IMRPhenomXPNR is differentiated in forward mode, and its reverse-mode gradient is the transpose of that forward-mode Jacobian. NRSur7dq4 is differentiated directly in either mode. NRSur7dq4's derivatives agree with finite differences to ~1e-8. For IMRPhenomXPNR, finite differences of the full waveform disagree with the derivatives by up to 1.5×10<sup>-1</sup>, most in the in-plane spins; the transform tests, which use the (2,2) mode, agree to ~1e-7. This is still being investigated (<a href="#gradients">section 8</a>).</li>
     <li><strong>Cost.</strong> A compiled IMRPhenomXPNR waveform costs about as much as LALSimulation's, and a few times as much as waveformrs's. <code>jax.vmap</code> over many binaries is how JAX code would use it. Compilation takes tens of seconds for the model and minutes for its gradient (<a href="#performance">section 9</a>).</li>
   </ul>
@@ -400,7 +401,1108 @@ h = wf.simulate_td("IMRPhenomXPNR", 1 / 4096, 20.0, mass_1=36.0, mass_2=29.0)</c
   </div>
   <p>An inner product between two different waveforms changes by 2.4×10<sup>-6</sup> of the product of their norms (median), and by at most 1.0×10<sup>-4</sup>. Doing the inner products themselves in float32 adds at most 1.7×10<sup>-7</sup> to the overlap. The error of a single waveform, 3.8×10<sup>-5</sup> (median, noise-weighted), is mostly rounding noise from the final resampling onto the float32 time grid: with everything up to the polarizations on the surrogate's own times in float64, it is still 2.5×10<sup>-5</sup>. That noise is almost uncorrelated with another waveform, so it barely moves their inner product. The ODE integrated in float32 is what does. With the dynamics in float64 and the rest in float32, the change of the overlap falls from 2.1×10<sup>-6</sup> to 2.8×10<sup>-7</sup> (median), and from 1.9×10<sup>-5</sup> to 1.7×10<sup>-6</sup> at the 90th percentile.</p>
   <p>Between nearby binaries the log-likelihood changes by 4.2×10<sup>-6</sup> ρ² (median; 2.8×10<sup>-5</sup> ρ² at the 90th percentile), where ρ is the signal-to-noise ratio. That is 1.7×10<sup>-3</sup> at ρ = 20 and 4.2×10<sup>-2</sup> at ρ = 100 (2.8×10<sup>-1</sup> at the 90th percentile). With noise in the data, a further ⟨n, δh⟩ of about ρ ‖δh‖ / ‖h‖ is added. The float32 derivatives agree with the float64 ones to 5.6×10<sup>-5</sup> (median relative error), or 6.0×10<sup>-4</sup> at the 90th percentile. The largest relative errors are in components whose derivative almost vanishes; measured against the typical size of each component, no error exceeds 2.0×10<sup>-3</sup>.</p>
-  <p>On this CPU, float32 is 1.1× as fast for one waveform (2.74 ms against 3.05 ms on 8192 samples). It is 1.7× as fast for a batch of 64 under <code>jax.vmap</code> (56.61 ms against 94.01 ms), and 1.4× for a gradient. The dynamics, a sequence of 230 small steps, take 48% of a float64 batch. Keeping them in float64 would make the inner products about ten times more accurate, at the cost of part of the speed-up on the CPU; the package does not do this. float32 matters most on accelerators, where float64 is much slower, and there it has not been measured.</p>
+  <p>On this CPU, float32 is 1.1× as fast for one waveform (2.74 ms against 3.05 ms on 8192 samples). It is 1.7× as fast for a batch of 64 under <code>jax.vmap</code> (56.61 ms against 94.01 ms), and 1.4× for a gradient. The dynamics, a sequence of 230 small steps, take 48% of a float64 batch. Keeping them in float64 would make the inner products about ten times more accurate, at the cost of part of the speed-up on the CPU; the package does not do this. float32 matters most on accelerators, where float64 is much slower or, as on Apple GPUs, missing. The MLX version below runs there.</p>
+
+  <h3>On Apple GPUs with MLX</h3>
+  <p><code>waveformjax.models.nrsur7dq4.mlx</code> is NRSur7dq4 in <a href="https://github.com/ml-explore/mlx">MLX</a>, Apple's array library, which runs on the GPU of Apple silicon. It is an optional dependency (<code>pip install waveformjax[mlx]</code>). The module is separate from the JAX code, which it leaves unchanged, and reads the same data through the JAX loader. It provides:</p>
+  <ul>
+    <li>the pure functions <code>polarizations_at</code> and <code>modes_at</code>;</li>
+    <li>LAL's waveforms on its grid: <code>td_polarizations</code>, <code>td_modes</code> and <code>batch_td_polarizations</code>;</li>
+    <li>the conditioned waveforms: <code>simulate_td</code>, <code>simulate_fd</code> and their pure functions.</li>
+  </ul>
+  <p>Everything is float32 and differentiable with <code>mx.grad</code>. The pure functions take one binary or a batch along a leading axis. MLX has no float64 on the GPU and no <code>scan</code>, <code>while_loop</code> or <code>cond</code>. Its <code>vmap</code> and forward-mode derivatives do not pass through custom kernels. So:</p>
+  <ul>
+    <li><strong>Splines as matrices.</strong> The JAX version fits its splines with two substitution sweeps (a <code>lax.scan</code>). The knots are fixed, so each spline is a fixed linear map, computed in float64 when the data are read:
+      <ul>
+        <li>the spline of the dynamics states, evaluated at the waveform's times, is one 2000 × 230 matrix;</li>
+        <li>the second derivatives of the spline through the polarizations are the inverse of its tridiagonal system applied to the right-hand side.</li>
+      </ul>
+      For a batch, each map is one matrix product over all the binaries.</li>
+    <li><strong>The dynamics in one Metal kernel.</strong> The 230 sequential RK4 and Adams–Bashforth steps run in a hand-written Metal kernel, with one SIMD group per binary and one state component per lane. A second kernel carries dual numbers through the same steps. It gives the Jacobian of the states with respect to the mass ratio, the spins and the reference time, and the kernel's VJP contracts that Jacobian.</li>
+    <li><strong>The frame rotation in Metal kernels.</strong> The Wigner rotation of every mode sample is a generated kernel. Its VJP is a kernel too: it differentiates with respect to the quaternion through the generators of the rotation, using D(pq) = D(p) D(q).</li>
+    <li><strong>Harmonics as Fourier series.</strong> The spin-weighted harmonics are trigonometric series in the inclination, with coefficients computed once in float64. Evaluated directly, the powers of cos(θ/2) and sin(θ/2) in the gradient were fused by <code>mx.compile</code> into a kernel with more arguments than Metal allows.</li>
+    <li><strong>LAL's grids on the host.</strong> The lengths and epochs are computed in float64, as the JAX driver computes them. A batch is set up all at once: the frequency fits of every binary in one call, then LAL's search in numpy over the batch. This takes 2.96 ms for 1024 binaries, against ~0.15 ms per binary one by one. A binary that LAL refuses is set up again on its own, which raises LAL's error. For 1200 binaries the grids agree with the JAX driver's:
+      <ul>
+        <li>from 20 Hz: the same length and epoch for 407 of the 407 binaries LAL accepts, and LAL's error for 193 of the 193 it refuses;</li>
+        <li>from the start of the surrogate: the same length and epoch for 600 of the 600 binaries LAL accepts;</li>
+        <li>the start times differ by at most 1.0×10<sup>-11</sup> M, the rounding of the fits summed in another order.</li>
+      </ul>
+      The binaries of a batch are sorted by length and evaluated in chunks of a power-of-two size.</li>
+    <li><strong>Conditioning.</strong> LAL does not high-pass filter NRSur7dq4, so <code>SimInspiralTD</code> and <code>SimInspiralFD</code> need only its start taper, the padding and an FFT. The end of the taper depends on the samples, so it is found on the host from the float32 samples.</li>
+  </ul>
+  <p>The accuracy was measured on the same 300 pairs as JAX's float32 above, in the same way (<code>report/mlx_nrsur7dq4.py</code>). The MLX waveform is evaluated by <code>polarizations_at</code> at the float32 times.</p>
+  <div class="table-wrap wide">
+    <table>
+      <thead>
+        <tr><th rowspan="2">Change from float64 JAX</th><th class="num" colspan="3">MLX, float32</th><th class="num" colspan="3">JAX, float32</th></tr>
+        <tr><th class="num">Median</th><th class="num">90th pct.</th><th class="num">Largest</th><th class="num">Median</th><th class="num">90th pct.</th><th class="num">Largest</th></tr>
+      </thead>
+      <tbody>
+<tr><td>Normalised overlap of the two binaries, change</td><td class="num">2.3×10<sup>-6</sup></td><td class="num">2.2×10<sup>-5</sup></td><td class="num">1.2×10<sup>-4</sup></td><td class="num">2.1×10<sup>-6</sup></td><td class="num">1.9×10<sup>-5</sup></td><td class="num">1.0×10<sup>-4</sup></td></tr>
+<tr><td>Inner product over the product of the norms, change</td><td class="num">2.4×10<sup>-6</sup></td><td class="num">2.2×10<sup>-5</sup></td><td class="num">1.2×10<sup>-4</sup></td><td class="num">2.4×10<sup>-6</sup></td><td class="num">2.0×10<sup>-5</sup></td><td class="num">1.0×10<sup>-4</sup></td></tr>
+<tr><td>One waveform, noise-weighted relative error ‖δh‖ / ‖h‖</td><td class="num">5.2×10<sup>-5</sup></td><td class="num">1.1×10<sup>-4</sup></td><td class="num">2.2×10<sup>-4</sup></td><td class="num">3.8×10<sup>-5</sup></td><td class="num">8.3×10<sup>-5</sup></td><td class="num">2.5×10<sup>-4</sup></td></tr>
+<tr><td>One waveform, largest relative error max |δh| / max |h|</td><td class="num">6.4×10<sup>-5</sup></td><td class="num">1.6×10<sup>-4</sup></td><td class="num">7.3×10<sup>-4</sup></td><td class="num">5.1×10<sup>-5</sup></td><td class="num">1.3×10<sup>-4</sup></td><td class="num">7.5×10<sup>-4</sup></td></tr>
+<tr><td>Derivatives of a log-likelihood, relative error (40 nearby pairs)</td><td class="num">5.6×10<sup>-5</sup></td><td class="num">4.8×10<sup>-4</sup></td><td class="num">1.3×10<sup>-1</sup></td><td class="num">5.6×10<sup>-5</sup></td><td class="num">6.0×10<sup>-4</sup></td><td class="num">4.5×10<sup>-1</sup></td></tr>
+<tr><td>Derivatives of a log-likelihood, error over the typical size of the component</td><td class="num">8.6×10<sup>-7</sup></td><td class="num">5.6×10<sup>-5</sup></td><td class="num">1.1×10<sup>-3</sup></td><td class="num">6.5×10<sup>-7</sup></td><td class="num">3.1×10<sup>-5</sup></td><td class="num">2.0×10<sup>-3</sup></td></tr>
+      </tbody>
+      <caption>NRSur7dq4 in MLX on the GPU and in JAX on the CPU, both in float32, against JAX in float64, on the pairs of the table above. The inner products are computed in float64. JAX's derivatives are those of the table above. Data: <code>report/data/mlx_nrsur7dq4.json</code>.</caption>
+    </table>
+  </div>
+  <p>The MLX waveform is as accurate as JAX's float32 one. The overlap of two binaries changes by 2.3×10<sup>-6</sup> (median; 2.2×10<sup>-5</sup> at the 90th percentile), against 2.1×10<sup>-6</sup> (1.9×10<sup>-5</sup>) in JAX. The derivatives agree with float64 to 5.6×10<sup>-5</sup> (median relative error). Against the typical size of each component, no error exceeds 1.1×10<sup>-3</sup>. The conditioned waveforms of 9 cases agree with the JAX conversions to 6.8×10<sup>-5</sup> of the peak, with the same lengths, epochs and sampling in 9/9.</p>
+  <figure class="wide">
+    <div class="plot"><svg role="img" aria-label="Waveforms and gradients per second against the number of binaries per call, for NRSur7dq4 in MLX on the GPU and in JAX on the CPU" xmlns:xlink="http://www.w3.org/1999/xlink" width="599.76pt" height="225.36pt" viewBox="0 0 599.76 225.36" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 225.36 
+L 599.76 225.36 
+L 599.76 0 
+L 0 0 
+L 0 225.36 
+z
+" style="fill: none"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 43.040703 187.537187 
+L 311.190352 187.537187 
+L 311.190352 20.04 
+L 43.040703 20.04 
+L 43.040703 187.537187 
+z
+" style="fill: none"/>
+   </g>
+   <g id="matplotlib.axis_1">
+    <g id="xtick_1">
+     <g id="line2d_1">
+      <path d="M 55.229324 187.537187 
+L 55.229324 20.04 
+" clip-path="url(#p17c8b1dad0)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_2">
+      <defs>
+       <path id="ma34b9a95b0" d="M 0 0 
+L 0 3.5 
+" style="stroke: var(--muted); stroke-width: 0.8"/>
+      </defs>
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="55.229324" y="187.537187" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_1">
+      <!-- $\mathdefault{2^{0}}$ -->
+      <g style="fill: var(--fg)" transform="translate(50.189324 202.997187)">
+       <text>
+        <tspan x="0" y="-0.60175" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">2</tspan>
+        <tspan x="5.812207" y="-4.31875" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">0</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="xtick_2">
+     <g id="line2d_3">
+      <path d="M 95.858058 187.537187 
+L 95.858058 20.04 
+" clip-path="url(#p17c8b1dad0)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_4">
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="95.858058" y="187.537187" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_2">
+      <!-- $\mathdefault{2^{2}}$ -->
+      <g style="fill: var(--fg)" transform="translate(90.818058 202.997187)">
+       <text>
+        <tspan x="0" y="-0.60175" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">2</tspan>
+        <tspan x="5.812207" y="-4.31875" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">2</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="xtick_3">
+     <g id="line2d_5">
+      <path d="M 136.486793 187.537187 
+L 136.486793 20.04 
+" clip-path="url(#p17c8b1dad0)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_6">
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="136.486793" y="187.537187" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_3">
+      <!-- $\mathdefault{2^{4}}$ -->
+      <g style="fill: var(--fg)" transform="translate(131.446793 202.907187)">
+       <text>
+        <tspan x="0" y="-0.68925" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">2</tspan>
+        <tspan x="5.812207" y="-4.40625" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">4</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="xtick_4">
+     <g id="line2d_7">
+      <path d="M 177.115527 187.537187 
+L 177.115527 20.04 
+" clip-path="url(#p17c8b1dad0)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_8">
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="177.115527" y="187.537187" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_4">
+      <!-- $\mathdefault{2^{6}}$ -->
+      <g style="fill: var(--fg)" transform="translate(172.075527 202.997187)">
+       <text>
+        <tspan x="0" y="-0.60175" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">2</tspan>
+        <tspan x="5.812207" y="-4.31875" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">6</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="xtick_5">
+     <g id="line2d_9">
+      <path d="M 217.744262 187.537187 
+L 217.744262 20.04 
+" clip-path="url(#p17c8b1dad0)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_10">
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="217.744262" y="187.537187" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_5">
+      <!-- $\mathdefault{2^{8}}$ -->
+      <g style="fill: var(--fg)" transform="translate(212.704262 202.997187)">
+       <text>
+        <tspan x="0" y="-0.60175" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">2</tspan>
+        <tspan x="5.812207" y="-4.31875" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">8</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="xtick_6">
+     <g id="line2d_11">
+      <path d="M 258.372997 187.537187 
+L 258.372997 20.04 
+" clip-path="url(#p17c8b1dad0)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_12">
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="258.372997" y="187.537187" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_6">
+      <!-- $\mathdefault{2^{10}}$ -->
+      <g style="fill: var(--fg)" transform="translate(251.307997 202.997187)">
+       <text>
+        <tspan x="0" y="-0.60175" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">2</tspan>
+        <tspan x="5.812207" y="-4.31875" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">1</tspan>
+        <tspan x="9.820459" y="-4.31875" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">0</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="xtick_7">
+     <g id="line2d_13">
+      <path d="M 299.001731 187.537187 
+L 299.001731 20.04 
+" clip-path="url(#p17c8b1dad0)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_14">
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="299.001731" y="187.537187" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_7">
+      <!-- $\mathdefault{2^{12}}$ -->
+      <g style="fill: var(--fg)" transform="translate(291.936731 202.997187)">
+       <text>
+        <tspan x="0" y="-0.60175" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">2</tspan>
+        <tspan x="5.812207" y="-4.31875" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">1</tspan>
+        <tspan x="9.820459" y="-4.31875" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">2</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="text_8">
+     <text style="font-size: 9px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle; fill: var(--fg)" x="177.115527" y="215.997891" transform="rotate(-0 177.115527 215.997891)">Binaries per call</text>
+    </g>
+   </g>
+   <g id="matplotlib.axis_2">
+    <g id="ytick_1">
+     <g id="line2d_15">
+      <path d="M 43.040703 164.930093 
+L 311.190352 164.930093 
+" clip-path="url(#p17c8b1dad0)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_16">
+      <defs>
+       <path id="m2760d60649" d="M 0 0 
+L -3.5 0 
+" style="stroke: var(--muted); stroke-width: 0.8"/>
+      </defs>
+      <g>
+       <use xlink:href="#m2760d60649" x="43.040703" y="164.930093" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_9">
+      <!-- $\mathdefault{10^{2}}$ -->
+      <g style="fill: var(--fg)" transform="translate(20.200703 169.160093)">
+       <text>
+        <tspan x="0" y="-0.60175" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">1</tspan>
+        <tspan x="5.726074" y="-0.60175" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">0</tspan>
+        <tspan x="11.538281" y="-4.31875" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">2</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_2">
+     <g id="line2d_17">
+      <path d="M 43.040703 112.512623 
+L 311.190352 112.512623 
+" clip-path="url(#p17c8b1dad0)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_18">
+      <g>
+       <use xlink:href="#m2760d60649" x="43.040703" y="112.512623" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_10">
+      <!-- $\mathdefault{10^{3}}$ -->
+      <g style="fill: var(--fg)" transform="translate(20.200703 116.742623)">
+       <text>
+        <tspan x="0" y="-0.60175" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">1</tspan>
+        <tspan x="5.726074" y="-0.60175" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">0</tspan>
+        <tspan x="11.538281" y="-4.31875" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">3</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_3">
+     <g id="line2d_19">
+      <path d="M 43.040703 60.095153 
+L 311.190352 60.095153 
+" clip-path="url(#p17c8b1dad0)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_20">
+      <g>
+       <use xlink:href="#m2760d60649" x="43.040703" y="60.095153" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_11">
+      <!-- $\mathdefault{10^{4}}$ -->
+      <g style="fill: var(--fg)" transform="translate(20.200703 64.280153)">
+       <text>
+        <tspan x="0" y="-0.68925" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">1</tspan>
+        <tspan x="5.726074" y="-0.68925" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">0</tspan>
+        <tspan x="11.538281" y="-4.40625" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">4</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_4">
+     <g id="line2d_21">
+      <defs>
+       <path id="mc7fd3bc258" d="M 0 0 
+L -2 0 
+" style="stroke: var(--muted); stroke-width: 0.6"/>
+      </defs>
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="185.789101" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_5">
+     <g id="line2d_22">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="180.709323" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_6">
+     <g id="line2d_23">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="176.558843" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_7">
+     <g id="line2d_24">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="173.049662" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_8">
+     <g id="line2d_25">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="170.00987" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_9">
+     <g id="line2d_26">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="167.328585" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_10">
+     <g id="line2d_27">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="149.150862" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_11">
+     <g id="line2d_28">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="139.920604" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_12">
+     <g id="line2d_29">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="133.371631" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_13">
+     <g id="line2d_30">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="128.291854" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_14">
+     <g id="line2d_31">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="124.141373" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_15">
+     <g id="line2d_32">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="120.632192" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_16">
+     <g id="line2d_33">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="117.592401" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_17">
+     <g id="line2d_34">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="114.911115" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_18">
+     <g id="line2d_35">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="96.733392" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_19">
+     <g id="line2d_36">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="87.503134" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_20">
+     <g id="line2d_37">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="80.954162" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_21">
+     <g id="line2d_38">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="75.874384" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_22">
+     <g id="line2d_39">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="71.723903" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_23">
+     <g id="line2d_40">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="68.214722" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_24">
+     <g id="line2d_41">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="65.174931" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_25">
+     <g id="line2d_42">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="62.493645" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_26">
+     <g id="line2d_43">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="44.315923" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_27">
+     <g id="line2d_44">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="35.085664" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_28">
+     <g id="line2d_45">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="28.536692" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_29">
+     <g id="line2d_46">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="43.040703" y="23.456914" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="text_12">
+     <text style="font-size: 9px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle; fill: var(--fg)" x="14.038594" y="103.788594" transform="rotate(-90 14.038594 103.788594)">Per second</text>
+    </g>
+   </g>
+   <g id="line2d_47">
+    <path d="M 55.229324 140.901327 
+L 136.486793 79.383158 
+L 177.115527 56.57384 
+L 217.744262 37.079463 
+L 258.372997 28.602844 
+L 299.001731 27.653509 
+" clip-path="url(#p17c8b1dad0)" style="fill: none; stroke: #3b7dd8; stroke-width: 1.2; stroke-linecap: square"/>
+    <defs>
+     <path id="m79f4f567a7" d="M 0 2 
+C 0.530406 2 1.03916 1.789267 1.414214 1.414214 
+C 1.789267 1.03916 2 0.530406 2 0 
+C 2 -0.530406 1.789267 -1.03916 1.414214 -1.414214 
+C 1.03916 -1.789267 0.530406 -2 0 -2 
+C -0.530406 -2 -1.03916 -1.789267 -1.414214 -1.414214 
+C -1.789267 -1.03916 -2 -0.530406 -2 0 
+C -2 0.530406 -1.789267 1.03916 -1.414214 1.414214 
+C -1.03916 1.789267 -0.530406 2 0 2 
+z
+" style="stroke: #3b7dd8"/>
+    </defs>
+    <g clip-path="url(#p17c8b1dad0)">
+     <use xlink:href="#m79f4f567a7" x="55.229324" y="140.901327" style="fill: #3b7dd8; stroke: #3b7dd8"/>
+     <use xlink:href="#m79f4f567a7" x="136.486793" y="79.383158" style="fill: #3b7dd8; stroke: #3b7dd8"/>
+     <use xlink:href="#m79f4f567a7" x="177.115527" y="56.57384" style="fill: #3b7dd8; stroke: #3b7dd8"/>
+     <use xlink:href="#m79f4f567a7" x="217.744262" y="37.079463" style="fill: #3b7dd8; stroke: #3b7dd8"/>
+     <use xlink:href="#m79f4f567a7" x="258.372997" y="28.602844" style="fill: #3b7dd8; stroke: #3b7dd8"/>
+     <use xlink:href="#m79f4f567a7" x="299.001731" y="27.653509" style="fill: #3b7dd8; stroke: #3b7dd8"/>
+    </g>
+   </g>
+   <g id="line2d_48">
+    <path d="M 55.229324 132.617687 
+L 136.486793 110.775768 
+L 177.115527 106.960761 
+L 217.744262 103.111339 
+" clip-path="url(#p17c8b1dad0)" style="fill: none; stroke: #d0612f; stroke-width: 1.2; stroke-linecap: square"/>
+    <defs>
+     <path id="m6ef1e77e70" d="M -2 2 
+L 2 2 
+L 2 -2 
+L -2 -2 
+z
+" style="stroke: #d0612f; stroke-linejoin: miter"/>
+    </defs>
+    <g clip-path="url(#p17c8b1dad0)">
+     <use xlink:href="#m6ef1e77e70" x="55.229324" y="132.617687" style="fill: #d0612f; stroke: #d0612f; stroke-linejoin: miter"/>
+     <use xlink:href="#m6ef1e77e70" x="136.486793" y="110.775768" style="fill: #d0612f; stroke: #d0612f; stroke-linejoin: miter"/>
+     <use xlink:href="#m6ef1e77e70" x="177.115527" y="106.960761" style="fill: #d0612f; stroke: #d0612f; stroke-linejoin: miter"/>
+     <use xlink:href="#m6ef1e77e70" x="217.744262" y="103.111339" style="fill: #d0612f; stroke: #d0612f; stroke-linejoin: miter"/>
+    </g>
+   </g>
+   <g id="line2d_49">
+    <path d="M 55.229324 135.66873 
+L 136.486793 122.446529 
+L 177.115527 119.908221 
+L 217.744262 120.23034 
+" clip-path="url(#p17c8b1dad0)" style="fill: none; stroke: #2f9e6e; stroke-width: 1.2; stroke-linecap: square"/>
+    <defs>
+     <path id="m02d39a12b6" d="M 0 -2 
+L -2 2 
+L 2 2 
+z
+" style="stroke: #2f9e6e; stroke-linejoin: miter"/>
+    </defs>
+    <g clip-path="url(#p17c8b1dad0)">
+     <use xlink:href="#m02d39a12b6" x="55.229324" y="135.66873" style="fill: #2f9e6e; stroke: #2f9e6e; stroke-linejoin: miter"/>
+     <use xlink:href="#m02d39a12b6" x="136.486793" y="122.446529" style="fill: #2f9e6e; stroke: #2f9e6e; stroke-linejoin: miter"/>
+     <use xlink:href="#m02d39a12b6" x="177.115527" y="119.908221" style="fill: #2f9e6e; stroke: #2f9e6e; stroke-linejoin: miter"/>
+     <use xlink:href="#m02d39a12b6" x="217.744262" y="120.23034" style="fill: #2f9e6e; stroke: #2f9e6e; stroke-linejoin: miter"/>
+    </g>
+   </g>
+   <g id="patch_3">
+    <path d="M 43.040703 187.537187 
+L 43.040703 20.04 
+" style="fill: none; stroke: var(--muted); stroke-width: 0.6; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="patch_4">
+    <path d="M 43.040703 187.537187 
+L 311.190352 187.537187 
+" style="fill: none; stroke: var(--muted); stroke-width: 0.6; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="text_13">
+    <!-- Waveform (h$_+$ on 8192 samples) -->
+    <g style="fill: var(--fg)" transform="translate(102.370527 14.04)">
+     <text>
+      <tspan x="0" y="-0.15625" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">W</tspan>
+      <tspan x="8.898926" y="-0.15625" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">a</tspan>
+      <tspan x="14.414062" y="-0.15625" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">v</tspan>
+      <tspan x="19.740234" y="-0.15625" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">e</tspan>
+      <tspan x="25.277344" y="-0.15625" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">f</tspan>
+      <tspan x="28.445801" y="-0.15625" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">o</tspan>
+      <tspan x="33.952148" y="-0.15625" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">r</tspan>
+      <tspan x="37.652344" y="-0.15625" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">m</tspan>
+      <tspan x="46.419434" y="-0.15625" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)"> </tspan>
+      <tspan x="49.280273" y="-0.15625" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">(</tspan>
+      <tspan x="52.791504" y="-0.15625" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">h</tspan>
+      <tspan x="66.561328" y="-0.15625" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)"> </tspan>
+      <tspan x="69.422168" y="-0.15625" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">o</tspan>
+      <tspan x="74.928516" y="-0.15625" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">n</tspan>
+      <tspan x="80.632617" y="-0.15625" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)"> </tspan>
+      <tspan x="83.493457" y="-0.15625" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">8</tspan>
+      <tspan x="89.219531" y="-0.15625" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">1</tspan>
+      <tspan x="94.945605" y="-0.15625" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">9</tspan>
+      <tspan x="100.67168" y="-0.15625" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">2</tspan>
+      <tspan x="106.397754" y="-0.15625" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)"> </tspan>
+      <tspan x="109.258594" y="-0.15625" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">s</tspan>
+      <tspan x="113.947559" y="-0.15625" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">a</tspan>
+      <tspan x="119.462695" y="-0.15625" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">m</tspan>
+      <tspan x="128.229785" y="-0.15625" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">p</tspan>
+      <tspan x="133.942676" y="-0.15625" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">l</tspan>
+      <tspan x="136.443164" y="-0.15625" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">e</tspan>
+      <tspan x="141.980273" y="-0.15625" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">s</tspan>
+      <tspan x="146.669238" y="-0.15625" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">)</tspan>
+      <tspan x="59.809131" y="1.193746" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">+</tspan>
+     </text>
+    </g>
+   </g>
+   <g id="legend_1">
+    <g id="line2d_50">
+     <path d="M 49.790703 29.863828 
+L 57.290703 29.863828 
+L 64.790703 29.863828 
+" style="fill: none; stroke: #3b7dd8; stroke-width: 1.2; stroke-linecap: square"/>
+     <g>
+      <use xlink:href="#m79f4f567a7" x="57.290703" y="29.863828" style="fill: #3b7dd8; stroke: #3b7dd8"/>
+     </g>
+    </g>
+    <g id="text_14">
+     <text style="font-size: 7.5px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start; fill: var(--fg)" x="70.790703" y="32.488828" transform="rotate(-0 70.790703 32.488828)">MLX, float32, Apple M2 Ultra GPU</text>
+    </g>
+    <g id="line2d_51">
+     <path d="M 49.790703 41.114414 
+L 57.290703 41.114414 
+L 64.790703 41.114414 
+" style="fill: none; stroke: #d0612f; stroke-width: 1.2; stroke-linecap: square"/>
+     <g>
+      <use xlink:href="#m6ef1e77e70" x="57.290703" y="41.114414" style="fill: #d0612f; stroke: #d0612f; stroke-linejoin: miter"/>
+     </g>
+    </g>
+    <g id="text_15">
+     <text style="font-size: 7.5px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start; fill: var(--fg)" x="70.790703" y="43.739414" transform="rotate(-0 70.790703 43.739414)">JAX, float32, CPU</text>
+    </g>
+    <g id="line2d_52">
+     <path d="M 49.790703 52.365 
+L 57.290703 52.365 
+L 64.790703 52.365 
+" style="fill: none; stroke: #2f9e6e; stroke-width: 1.2; stroke-linecap: square"/>
+     <g>
+      <use xlink:href="#m02d39a12b6" x="57.290703" y="52.365" style="fill: #2f9e6e; stroke: #2f9e6e; stroke-linejoin: miter"/>
+     </g>
+    </g>
+    <g id="text_16">
+     <text style="font-size: 7.5px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start; fill: var(--fg)" x="70.790703" y="54.99" transform="rotate(-0 70.790703 54.99)">JAX, float64, CPU</text>
+    </g>
+   </g>
+  </g>
+  <g id="axes_2">
+   <g id="patch_5">
+    <path d="M 324.410352 187.537187 
+L 592.56 187.537187 
+L 592.56 20.04 
+L 324.410352 20.04 
+L 324.410352 187.537187 
+z
+" style="fill: none"/>
+   </g>
+   <g id="matplotlib.axis_3">
+    <g id="xtick_8">
+     <g id="line2d_53">
+      <path d="M 336.598972 187.537187 
+L 336.598972 20.04 
+" clip-path="url(#pb7fc7f3132)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_54">
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="336.598972" y="187.537187" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_17">
+      <!-- $\mathdefault{2^{0}}$ -->
+      <g style="fill: var(--fg)" transform="translate(331.558972 202.997187)">
+       <text>
+        <tspan x="0" y="-0.60175" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">2</tspan>
+        <tspan x="5.812207" y="-4.31875" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">0</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="xtick_9">
+     <g id="line2d_55">
+      <path d="M 385.353453 187.537187 
+L 385.353453 20.04 
+" clip-path="url(#pb7fc7f3132)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_56">
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="385.353453" y="187.537187" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_18">
+      <!-- $\mathdefault{2^{2}}$ -->
+      <g style="fill: var(--fg)" transform="translate(380.313453 202.997187)">
+       <text>
+        <tspan x="0" y="-0.60175" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">2</tspan>
+        <tspan x="5.812207" y="-4.31875" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">2</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="xtick_10">
+     <g id="line2d_57">
+      <path d="M 434.107935 187.537187 
+L 434.107935 20.04 
+" clip-path="url(#pb7fc7f3132)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_58">
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="434.107935" y="187.537187" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_19">
+      <!-- $\mathdefault{2^{4}}$ -->
+      <g style="fill: var(--fg)" transform="translate(429.067935 202.907187)">
+       <text>
+        <tspan x="0" y="-0.68925" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">2</tspan>
+        <tspan x="5.812207" y="-4.40625" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">4</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="xtick_11">
+     <g id="line2d_59">
+      <path d="M 482.862417 187.537187 
+L 482.862417 20.04 
+" clip-path="url(#pb7fc7f3132)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_60">
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="482.862417" y="187.537187" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_20">
+      <!-- $\mathdefault{2^{6}}$ -->
+      <g style="fill: var(--fg)" transform="translate(477.822417 202.997187)">
+       <text>
+        <tspan x="0" y="-0.60175" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">2</tspan>
+        <tspan x="5.812207" y="-4.31875" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">6</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="xtick_12">
+     <g id="line2d_61">
+      <path d="M 531.616898 187.537187 
+L 531.616898 20.04 
+" clip-path="url(#pb7fc7f3132)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_62">
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="531.616898" y="187.537187" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_21">
+      <!-- $\mathdefault{2^{8}}$ -->
+      <g style="fill: var(--fg)" transform="translate(526.576898 202.997187)">
+       <text>
+        <tspan x="0" y="-0.60175" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">2</tspan>
+        <tspan x="5.812207" y="-4.31875" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">8</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="xtick_13">
+     <g id="line2d_63">
+      <path d="M 580.37138 187.537187 
+L 580.37138 20.04 
+" clip-path="url(#pb7fc7f3132)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_64">
+      <g>
+       <use xlink:href="#ma34b9a95b0" x="580.37138" y="187.537187" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_22">
+      <!-- $\mathdefault{2^{10}}$ -->
+      <g style="fill: var(--fg)" transform="translate(573.30638 202.997187)">
+       <text>
+        <tspan x="0" y="-0.60175" style="font-size: 9px; font-family: 'DejaVu Sans'; fill: var(--fg)">2</tspan>
+        <tspan x="5.812207" y="-4.31875" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">1</tspan>
+        <tspan x="9.820459" y="-4.31875" style="font-size: 6.3px; font-family: 'DejaVu Sans'; fill: var(--fg)">0</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="text_23">
+     <text style="font-size: 9px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle; fill: var(--fg)" x="458.485176" y="215.997891" transform="rotate(-0 458.485176 215.997891)">Binaries per call</text>
+    </g>
+   </g>
+   <g id="matplotlib.axis_4">
+    <g id="ytick_30">
+     <g id="line2d_65">
+      <path d="M 324.410352 164.930093 
+L 592.56 164.930093 
+" clip-path="url(#pb7fc7f3132)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_66">
+      <g>
+       <use xlink:href="#m2760d60649" x="324.410352" y="164.930093" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_31">
+     <g id="line2d_67">
+      <path d="M 324.410352 112.512623 
+L 592.56 112.512623 
+" clip-path="url(#pb7fc7f3132)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_68">
+      <g>
+       <use xlink:href="#m2760d60649" x="324.410352" y="112.512623" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_32">
+     <g id="line2d_69">
+      <path d="M 324.410352 60.095153 
+L 592.56 60.095153 
+" clip-path="url(#pb7fc7f3132)" style="fill: none; stroke: var(--rule); stroke-width: 0.5; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_70">
+      <g>
+       <use xlink:href="#m2760d60649" x="324.410352" y="60.095153" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.8"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_33">
+     <g id="line2d_71">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="324.410352" y="185.789101" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_34">
+     <g id="line2d_72">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="324.410352" y="180.709323" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_35">
+     <g id="line2d_73">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="324.410352" y="176.558843" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_36">
+     <g id="line2d_74">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="324.410352" y="173.049662" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_37">
+     <g id="line2d_75">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="324.410352" y="170.00987" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_38">
+     <g id="line2d_76">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="324.410352" y="167.328585" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_39">
+     <g id="line2d_77">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="324.410352" y="149.150862" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_40">
+     <g id="line2d_78">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="324.410352" y="139.920604" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_41">
+     <g id="line2d_79">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="324.410352" y="133.371631" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_42">
+     <g id="line2d_80">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="324.410352" y="128.291854" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_43">
+     <g id="line2d_81">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="324.410352" y="124.141373" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_44">
+     <g id="line2d_82">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="324.410352" y="120.632192" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_45">
+     <g id="line2d_83">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="324.410352" y="117.592401" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_46">
+     <g id="line2d_84">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="324.410352" y="114.911115" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_47">
+     <g id="line2d_85">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="324.410352" y="96.733392" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_48">
+     <g id="line2d_86">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="324.410352" y="87.503134" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_49">
+     <g id="line2d_87">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="324.410352" y="80.954162" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_50">
+     <g id="line2d_88">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="324.410352" y="75.874384" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_51">
+     <g id="line2d_89">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="324.410352" y="71.723903" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_52">
+     <g id="line2d_90">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="324.410352" y="68.214722" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_53">
+     <g id="line2d_91">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="324.410352" y="65.174931" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_54">
+     <g id="line2d_92">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="324.410352" y="62.493645" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_55">
+     <g id="line2d_93">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="324.410352" y="44.315923" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_56">
+     <g id="line2d_94">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="324.410352" y="35.085664" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_57">
+     <g id="line2d_95">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="324.410352" y="28.536692" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_58">
+     <g id="line2d_96">
+      <g>
+       <use xlink:href="#mc7fd3bc258" x="324.410352" y="23.456914" style="fill: var(--muted); stroke: var(--muted); stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+   </g>
+   <g id="line2d_97">
+    <path d="M 336.598972 158.0576 
+L 434.107935 108.265973 
+L 482.862417 80.66619 
+L 531.616898 65.884144 
+L 580.37138 62.44851 
+" clip-path="url(#pb7fc7f3132)" style="fill: none; stroke: #3b7dd8; stroke-width: 1.2; stroke-linecap: square"/>
+    <g clip-path="url(#pb7fc7f3132)">
+     <use xlink:href="#m79f4f567a7" x="336.598972" y="158.0576" style="fill: #3b7dd8; stroke: #3b7dd8"/>
+     <use xlink:href="#m79f4f567a7" x="434.107935" y="108.265973" style="fill: #3b7dd8; stroke: #3b7dd8"/>
+     <use xlink:href="#m79f4f567a7" x="482.862417" y="80.66619" style="fill: #3b7dd8; stroke: #3b7dd8"/>
+     <use xlink:href="#m79f4f567a7" x="531.616898" y="65.884144" style="fill: #3b7dd8; stroke: #3b7dd8"/>
+     <use xlink:href="#m79f4f567a7" x="580.37138" y="62.44851" style="fill: #3b7dd8; stroke: #3b7dd8"/>
+    </g>
+   </g>
+   <g id="line2d_98">
+    <path d="M 336.598972 172.216239 
+L 434.107935 163.0435 
+L 482.862417 165.420008 
+" clip-path="url(#pb7fc7f3132)" style="fill: none; stroke: #d0612f; stroke-width: 1.2; stroke-linecap: square"/>
+    <g clip-path="url(#pb7fc7f3132)">
+     <use xlink:href="#m6ef1e77e70" x="336.598972" y="172.216239" style="fill: #d0612f; stroke: #d0612f; stroke-linejoin: miter"/>
+     <use xlink:href="#m6ef1e77e70" x="434.107935" y="163.0435" style="fill: #d0612f; stroke: #d0612f; stroke-linejoin: miter"/>
+     <use xlink:href="#m6ef1e77e70" x="482.862417" y="165.420008" style="fill: #d0612f; stroke: #d0612f; stroke-linejoin: miter"/>
+    </g>
+   </g>
+   <g id="line2d_99">
+    <path d="M 336.598972 179.923679 
+L 434.107935 173.9405 
+L 482.862417 174.602216 
+" clip-path="url(#pb7fc7f3132)" style="fill: none; stroke: #2f9e6e; stroke-width: 1.2; stroke-linecap: square"/>
+    <g clip-path="url(#pb7fc7f3132)">
+     <use xlink:href="#m02d39a12b6" x="336.598972" y="179.923679" style="fill: #2f9e6e; stroke: #2f9e6e; stroke-linejoin: miter"/>
+     <use xlink:href="#m02d39a12b6" x="434.107935" y="173.9405" style="fill: #2f9e6e; stroke: #2f9e6e; stroke-linejoin: miter"/>
+     <use xlink:href="#m02d39a12b6" x="482.862417" y="174.602216" style="fill: #2f9e6e; stroke: #2f9e6e; stroke-linejoin: miter"/>
+    </g>
+   </g>
+   <g id="patch_6">
+    <path d="M 324.410352 187.537187 
+L 324.410352 20.04 
+" style="fill: none; stroke: var(--muted); stroke-width: 0.6; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="patch_7">
+    <path d="M 324.410352 187.537187 
+L 592.56 187.537187 
+" style="fill: none; stroke: var(--muted); stroke-width: 0.6; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="text_24">
+    <text style="font-size: 9px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle; fill: var(--fg)" x="458.485176" y="14.04" transform="rotate(-0 458.485176 14.04)">Gradient of its power</text>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="p17c8b1dad0">
+   <rect x="43.040703" y="20.04" width="268.149648" height="167.497187"/>
+  </clipPath>
+  <clipPath id="pb7fc7f3132">
+   <rect x="324.410352" y="20.04" width="268.149648" height="167.497187"/>
+  </clipPath>
+ </defs>
+</svg>
+</div>
+    <figcaption>NRSur7dq4 waveforms (left) and gradients of their power (right) per second, against the number of binaries per call. MLX is on the Apple M2 Ultra GPU, compiled with <code>mx.compile</code>. JAX is on the CPU under <code>jax.jit(jax.vmap(...))</code>. Each waveform is h<sub>+</sub> on 8192 samples at 4096 Hz, for random binaries.</figcaption>
+  </figure>
+  <div class="table-wrap wide">
+    <table>
+      <thead>
+        <tr><th class="num" rowspan="2">Binaries per call</th><th class="num" rowspan="2">MLX, per call</th><th class="num" colspan="3">Waveform, per binary</th><th class="num" colspan="3">Gradient, per binary</th></tr>
+        <tr><th class="num">MLX</th><th class="num">JAX float32</th><th class="num">JAX float64</th><th class="num">MLX</th><th class="num">JAX float32</th><th class="num">JAX float64</th></tr>
+      </thead>
+      <tbody>
+<tr><td class="num">1</td><td class="num">3.48 ms</td><td class="num">3.48 ms</td><td class="num">2.42 ms</td><td class="num">2.77 ms</td><td class="num">7.39 ms</td><td class="num">13.77 ms</td><td class="num">19.32 ms</td></tr>
+<tr><td class="num">16</td><td class="num">3.73 ms</td><td class="num">233 µs</td><td class="num">927 µs</td><td class="num">1.55 ms</td><td class="num">830 µs</td><td class="num">9.20 ms</td><td class="num">14.86 ms</td></tr>
+<tr><td class="num">64</td><td class="num">5.48 ms</td><td class="num">86 µs</td><td class="num">784 µs</td><td class="num">1.38 ms</td><td class="num">247 µs</td><td class="num">10.22 ms</td><td class="num">15.29 ms</td></tr>
+<tr><td class="num">256</td><td class="num">9.31 ms</td><td class="num">36 µs</td><td class="num">662 µs</td><td class="num">1.40 ms</td><td class="num">129 µs</td><td class="num">–</td><td class="num">–</td></tr>
+<tr><td class="num">1024</td><td class="num">25.67 ms</td><td class="num">25 µs</td><td class="num">–</td><td class="num">–</td><td class="num">111 µs</td><td class="num">–</td><td class="num">–</td></tr>
+<tr><td class="num">4096</td><td class="num">98.50 ms</td><td class="num">24 µs</td><td class="num">–</td><td class="num">–</td><td class="num">–</td><td class="num">–</td><td class="num">–</td></tr>
+      </tbody>
+      <caption>Median times of the figure's calls. MLX 0.32.4 runs on the Apple M2 Ultra GPU (64 GB of unified memory); JAX runs on its CPU. The larger JAX batches were not timed.</caption>
+    </table>
+  </div>
+  <p>One waveform takes 3.48 ms in MLX, against 2.42 ms in float32 JAX on the CPU. A single small waveform is dominated by the sequential dynamics and by launching kernels, so the GPU does not help. It pays off in batches:</p>
+  <ul>
+    <li><strong>Waveforms.</strong> MLX evaluates 41,582 waveforms per second at 4096 binaries per call. JAX manages at best 1,511 in float32, so MLX is 27.5× faster.</li>
+    <li><strong>Gradients.</strong> One gradient takes 7.39 ms, against 13.77 ms in JAX. In batches MLX computes 9,018 gradients per second, 83.0× JAX's best in float32.</li>
+    <li><strong>The public batch function.</strong> It evaluated 1024 random binaries on LAL's grids, at 4096 Hz from the start of the surrogate (9,210 samples each on average), in 56.60 ms. That is 18,093 waveforms per second, against 548 for JAX's <code>batch_td_polarizations</code> (33.0×).</li>
+    <li><strong>One binary.</strong> <code>td_polarizations</code> takes 3.41 ms (JAX 3.11 ms), and <code>simulate_fd</code> takes 5.62 ms (JAX 3.69 ms).</li>
+  </ul>
+  <p>In a new process, reading the data and preparing its float64 operators takes 1.9 s. The first waveform then takes 35.19 ms and the first gradient 13.73 ms. MLX builds its kernels as they are first used, which costs little here. JAX, by comparison, takes 2.6 s for its first waveform and 9.3 s to compile the gradient.</p>
 </section>
 
 <section id="conversions">
@@ -416,7 +1518,7 @@ h = wf.simulate_td("IMRPhenomXPNR", 1 / 4096, 20.0, mass_1=36.0, mass_2=29.0)</c
 
 <section id="testing">
   <h2>How the package is tested</h2>
-  <p class="lede">452 pytest tests (452 passed, 0 failed, 0 skipped in the run below) compare every layer of the models with LALSimulation 6.2.0, through its Python API or, for internal functions, through ctypes. They also reuse waveformrs's reference suites, which cover each regime switch and fallback of the models.</p>
+  <p class="lede">476 pytest tests (476 passed, 0 failed, 0 skipped in the run below) compare every layer of the models with LALSimulation 6.2.0, through its Python API or, for internal functions, through ctypes. They also reuse waveformrs's reference suites, which cover each regime switch and fallback of the models.</p>
   <div class="table-wrap wide">
     <table>
       <thead><tr><th>Test file</th><th class="num">Tests</th><th>Result</th><th class="num">Time</th></tr></thead>
@@ -434,10 +1536,11 @@ h = wf.simulate_td("IMRPhenomXPNR", 1 / 4096, 20.0, mass_1=36.0, mass_2=29.0)</c
 <tr><td><code>test_nrsur7dq4_random.py</code><br>NRSur7dq4, 64 random binaries against LAL (slow)</td><td class="num">1</td><td><span class="chip good">1 passed</span></td><td class="num">9.1 s</td></tr>
 <tr><td><code>test_transforms_nrsur7dq4.py</code><br>NRSur7dq4 under <code>jit</code>, <code>vmap</code> and <code>grad</code>, removable singularities</td><td class="num">11</td><td><span class="chip good">11 passed</span></td><td class="num">79.1 s</td></tr>
 <tr><td><code>test_nrsur7dq4_float32.py</code><br>NRSur7dq4 in float32 (no float64 operation, accuracy, <code>jit</code>, <code>vmap</code>, <code>grad</code>) and the scale of its output</td><td class="num">–</td><td><span class="chip warn">not in the last run</span></td><td class="num">–</td></tr>
+<tr><td><code>test_nrsur7dq4_mlx.py</code><br>NRSur7dq4 in MLX against JAX: waveform, modes, batches, gradients, the Metal kernels, LAL's grids and the conditioned waveforms</td><td class="num">24</td><td><span class="chip good">24 passed</span></td><td class="num">41.5 s</td></tr>
 <tr><td><code>test_conversions.py</code><br><code>simulate_td</code> and <code>simulate_fd</code>: lengths, epochs, filters, tapers against LAL</td><td class="num">31</td><td><span class="chip good">31 passed</span></td><td class="num">80.0 s</td></tr>
 <tr><td><code>test_transforms_conversions.py</code><br>The conversions as pure functions under <code>jit</code>, <code>vmap</code> and <code>grad</code></td><td class="num">6</td><td><span class="chip good">6 passed</span></td><td class="num">181.2 s</td></tr>
       </tbody>
-      <caption>The full run with <code>WAVEFORMJAX_SLOW=1</code> (the random-draw tests) on the merged <code>main</code>, with <code>OMP_NUM_THREADS=1</code> for LALSimulation. Data: <code>report/data/pytest.xml</code>.</caption>
+      <caption>The full run with <code>WAVEFORMJAX_SLOW=1</code> (the random-draw tests) on the merged <code>main</code>, with <code>OMP_NUM_THREADS=1</code> for LALSimulation. The MLX tests, which need MLX, come from their own run in a Python with MLX. Data: <code>report/data/pytest.xml</code> and <code>report/data/pytest_mlx.xml</code>.</caption>
     </table>
   </div>
   <p>The tests are layered as the model was built: the (2,2) mode, then the higher modes, the angles, the PNR helpers, the polarizations and the modes. Each layer is compared at a tolerance set by what LAL itself can resolve there. The MSA angles, for example, are ill-conditioned for nearly aligned spins, where LAL's own output changes by ~5e-8 for a change of the inputs in the last bit. Every model also has a transform test. It checks that <code>jax.jit</code> and <code>jax.vmap</code> give the plain call, that gradients agree with central finite differences for every parameter, and that they are finite at removable singularities such as aligned, vanishing or single spins.</p>
@@ -2972,7 +4075,7 @@ L 592.56 173.770709
 
 <section id="performance">
   <h2>Performance</h2>
-  <p class="lede">All timings are on the CPU (Apple M2 Ultra, 24 cores), with JAX's default settings and LALSimulation single-threaded. The binaries and grids are those of waveformrs's Python benchmark: IMRPhenomXPNR for 36 + 29 M<sub>☉</sub> on 8033 frequencies (20–1024 Hz, Δf = 1/8 Hz), and NRSur7dq4 for 40 + 20 M<sub>☉</sub> at 4096 Hz from 20 Hz. IMRPhenomXPNR is timed without the parity fix, which costs the same.</p>
+  <p class="lede">All timings are on the CPU (Apple M2 Ultra, 24 cores), with JAX's default settings and LALSimulation single-threaded, except those of NRSur7dq4 in MLX (<a href="#nrsur">section 4</a>). The binaries and grids are those of waveformrs's Python benchmark: IMRPhenomXPNR for 36 + 29 M<sub>☉</sub> on 8033 frequencies (20–1024 Hz, Δf = 1/8 Hz), and NRSur7dq4 for 40 + 20 M<sub>☉</sub> at 4096 Hz from 20 Hz. IMRPhenomXPNR is timed without the parity fix, which costs the same.</p>
   <div class="table-wrap wide">
     <table>
       <thead><tr><th>Waveform</th><th class="num">First call</th><th class="num">Public function</th><th class="num">Compiled function</th><th class="num">waveformrs</th><th class="num">LAL</th><th class="num">LAL / compiled</th></tr></thead>
@@ -3984,7 +5087,11 @@ L 480.508828 165.109844
   <ul>
     <li><strong>Two approximants.</strong> Only IMRPhenomXPNR and NRSur7dq4 are public. IMRPhenomXAS and the 122019 higher modes exist as parts of IMRPhenomXPNR, but IMRPhenomXHM, XP and XPHM with their own flags, TaylorF2 and IMRPhenomD are not exposed.</li>
     <li><strong>Compilation time.</strong> IMRPhenomXPNR takes tens of seconds to compile, its gradient minutes, and every array shape and batch size compiles separately. JAX's persistent compilation cache (<code>jax_compilation_cache_dir</code>) would make the cost one-off per machine; it is not set up by the package.</li>
-    <li><strong>Accelerators untested.</strong> Everything here ran on the CPU. IMRPhenomXPNR uses float64 JAX operations, which are slow on consumer GPUs. NRSur7dq4 also runs in float32, but only through its pure functions, since the public functions and the conversions are float64. Neither model's accuracy or speed has been measured on a GPU.</li>
+    <li><strong>Accelerators.</strong> The JAX versions ran on the CPU only. IMRPhenomXPNR uses float64 JAX operations, which are slow on consumer GPUs. In JAX, NRSur7dq4 runs in float32 only through its pure functions, since the public functions and the conversions are float64. Neither model has been measured on a GPU through JAX. NRSur7dq4 runs on Apple GPUs through its MLX version (<a href="#nrsur">section 4</a>), which has limits of its own:
+      <ul>
+        <li>it is float32 only, since MLX has no float64 on the GPU;</li>
+        <li>it cannot be differentiated in forward mode (<code>mx.jvp</code>) or mapped with <code>mx.vmap</code>, which MLX does not carry through custom Metal kernels. It takes batches itself, and its gradients are reverse mode.</li>
+      </ul></li>
     <li><strong>Forward-mode derivatives of IMRPhenomXPNR.</strong> A gradient costs one Jacobian column per parameter with a non-zero tangent, evaluated together. That is affordable for the twelve parameters of a binary (<a href="#gradients">section 8</a>), but it does not scale to derivatives with respect to the frequencies or to many other inputs. A reverse-mode path would need the loops with traced lengths rewritten with fixed bounds.</li>
     <li><strong>Discontinuities.</strong> The waveform inherits LAL's discrete choices. Gradient-based samplers near a regime boundary, such as in-plane spins near 1e-6, or a SpinTaylor integration that just fails, see the derivative of one side only.</li>
     <li><strong>Long waveforms.</strong> For light binaries from low frequencies the SpinTaylor splines have millions of knots and the conversions' Fourier transforms millions of samples. These are fixed-shape arrays held in memory, and both cost and compilation grow with them.</li>
@@ -3999,6 +5106,7 @@ mamba create -n waveformjax -c conda-forge python=3.12 python-lalsimulation jax 
 conda activate waveformjax
 pip install -e .
 (cd ../waveformrs/python &amp;&amp; maturin develop --release)       # optional: the waveformrs comparisons
+pip install -e ".[mlx]"                                         # optional: NRSur7dq4 in MLX (Apple silicon)
 
 # the tests (the data file NRSur7dq4_v1.0.h5 from zenodo.org/records/14999310,
 # found through NRSUR7DQ4_DATA, LAL_DATA_PATH or ../waveformrs/lal_data)
@@ -4008,13 +5116,16 @@ WAVEFORMJAX_SLOW=1 python -m pytest
 CC=/path/to/conda-forge/clang-19 bash ../waveformrs/scripts/build_patched_lalsimulation.sh ../lalsuite build/lal-2593
 export PATCHED_LALSIMULATION=$PWD/build/lal-2593/liblalsimulation.37.dylib
 
-# every measurement and this report, on an idle machine
+# every measurement and this report, on an idle machine (MLX_PYTHON: a Python
+# with MLX, if not the same)
 bash report/measure_all.sh
 
 # or one at a time
 python report/validate_xpnr.py --n-draws 200
 python report/validate_nrsur7dq4.py --n-draws 200
 python report/float32_nrsur7dq4.py
+python report/mlx_nrsur7dq4.py                               # needs MLX
+python -m pytest tests/test_nrsur7dq4_mlx.py --junitxml=report/data/pytest_mlx.xml
 python report/validate_conversions.py
 python report/gradients.py
 python report/benchmark.py
@@ -4071,6 +5182,12 @@ python report/build_report.py</code></pre>
 <tr><td class="mono">c31b9c3</td><td><span class="chip info">FEAT</span></td><td>NRSur7dq4 in float32, with the strain times 1e21 by default</td></tr>
 <tr><td class="mono">366535e</td><td><span class="chip info">FEAT</span></td><td>smoother extended XPNR angles where LAL samples a step or a branch</td></tr>
 <tr><td class="mono">321ebea</td><td><span class="chip ">DOC</span></td><td>the smoothness study of the extended XPNR model (measurement and draft section)</td></tr>
+<tr><td class="mono">26c400e</td><td><span class="chip bad">FIX</span></td><td>finite gradients of the extended XPNR at aligned and vanishing spins</td></tr>
+<tr><td class="mono">aa32207</td><td><span class="chip info">FEAT</span></td><td>NRSur7dq4 in MLX (float32, Apple GPUs), as a separate module</td></tr>
+<tr><td class="mono">157fd2e</td><td><span class="chip bad">FIX</span></td><td>the smooth XPNR angles where L is close to -J</td></tr>
+<tr><td class="mono">d78a40c</td><td><span class="chip info">FEAT</span></td><td>the MLX NRSur7dq4 dynamics in one Metal kernel, with its Jacobian</td></tr>
+<tr><td class="mono">7632c48</td><td><span class="chip good">PERF</span></td><td>the MLX NRSur7dq4 rotation to the inertial frame in Metal kernels</td></tr>
+<tr><td class="mono">a315b13</td><td><span class="chip good">PERF</span></td><td>tune the MLX NRSur7dq4 dynamics kernel</td></tr>
       </tbody>
     </table>
   </div>

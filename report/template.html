@@ -67,6 +67,7 @@
     <li><strong>Implementation.</strong> {{n_files}} Python modules ({{n_lines}} lines, of which {{n_lines_generated}} are parameter-space fits generated from waveformrs's Rust by a translator) cover the two models, their checks and the conversions (<a href="#design">sections {{sec:design}}</a>–<a href="#conversions">{{sec:conversions}}</a>).</li>
     <li><strong>Accuracy.</strong> NRSur7dq4 agrees with LAL at rounding level. IMRPhenomXPNR's (2,2) mode agrees to ~1e-9. Its higher modes agree to ~1e-5, because LAL takes derivatives by finite differences whose rounding noise JAX's different, but valid, arithmetic changes (<a href="#accuracy">section {{sec:accuracy}}</a>).</li>
     <li><strong>Single precision.</strong> NRSur7dq4 runs in float32 when the binary's parameters are float32, and returns the strain times 10<sup>21</sup> by default. In float32, an inner product between two different waveforms changes by {{f32_eps_median}} of the product of their norms (median; at most {{f32_eps_max}}). Derivatives agree with float64 to {{f32_grad_median}} (<a href="#nrsur">section {{sec:nrsur}}</a>).</li>
+    <li><strong>Apple GPUs.</strong> NRSur7dq4 also runs in MLX on Apple GPUs, in float32, with its derivatives, LAL's grids and the conditioned waveforms. It is as accurate as JAX's float32 version: the overlap of two binaries changes by {{mlx_do_median}} (median). In batches it evaluates {{mlx_best_rate}} waveforms per second, {{mlx_best_speedup}} JAX's best on this machine's CPU (<a href="#nrsur">section {{sec:nrsur}}</a>).</li>
     <li><strong>Derivatives.</strong> IMRPhenomXPNR is differentiated in forward mode, and its reverse-mode gradient is the transpose of that forward-mode Jacobian. NRSur7dq4 is differentiated directly in either mode. NRSur7dq4's derivatives agree with finite differences to ~1e-8. For IMRPhenomXPNR, finite differences of the full waveform disagree with the derivatives by up to {{xpnr_gradient_worst}}, most in the in-plane spins; the transform tests, which use the (2,2) mode, agree to ~1e-7. This is still being investigated (<a href="#gradients">section {{sec:gradients}}</a>).</li>
     <li><strong>Cost.</strong> A compiled IMRPhenomXPNR waveform costs about as much as LALSimulation's, and a few times as much as waveformrs's. <code>jax.vmap</code> over many binaries is how JAX code would use it. Compilation takes tens of seconds for the model and minutes for its gradient (<a href="#performance">section {{sec:performance}}</a>).</li>
   </ul>
@@ -168,7 +169,72 @@ h = wf.simulate_td("IMRPhenomXPNR", 1 / 4096, 20.0, mass_1=36.0, mass_2=29.0)</c
   </div>
   <p>An inner product between two different waveforms changes by {{f32_eps_median}} of the product of their norms (median), and by at most {{f32_eps_max}}. Doing the inner products themselves in float32 adds at most {{f32_inner_only_max}} to the overlap. The error of a single waveform, {{f32_dh_median}} (median, noise-weighted), is mostly rounding noise from the final resampling onto the float32 time grid: with everything up to the polarizations on the surrogate's own times in float64, it is still {{f32_dh_coorb_median}}. That noise is almost uncorrelated with another waveform, so it barely moves their inner product. The ODE integrated in float32 is what does. With the dynamics in float64 and the rest in float32, the change of the overlap falls from {{f32_do_median}} to {{f32_dyn_median}} (median), and from {{f32_do_p90}} to {{f32_dyn_p90}} at the 90th percentile.</p>
   <p>Between nearby binaries the log-likelihood changes by {{f32_lnl_median}} ρ² (median; {{f32_lnl_p90}} ρ² at the 90th percentile), where ρ is the signal-to-noise ratio. That is {{f32_lnl_20}} at ρ = 20 and {{f32_lnl_100}} at ρ = 100 ({{f32_lnl_100_p90}} at the 90th percentile). With noise in the data, a further ⟨n, δh⟩ of about ρ ‖δh‖ / ‖h‖ is added. The float32 derivatives agree with the float64 ones to {{f32_grad_median}} (median relative error), or {{f32_grad_p90}} at the 90th percentile. The largest relative errors are in components whose derivative almost vanishes; measured against the typical size of each component, no error exceeds {{f32_grad_typical_max}}.</p>
-  <p>On this CPU, float32 is {{f32_speed_single}} as fast for one waveform ({{f32_single}} against {{f64_single}} on 8192 samples). It is {{f32_speed_batch}} as fast for a batch of 64 under <code>jax.vmap</code> ({{f32_batch}} against {{f64_batch}}), and {{f32_speed_grad}} for a gradient. The dynamics, a sequence of 230 small steps, take {{f32_dyn_share}} of a float64 batch. Keeping them in float64 would make the inner products about ten times more accurate, at the cost of part of the speed-up on the CPU; the package does not do this. float32 matters most on accelerators, where float64 is much slower, and there it has not been measured.</p>
+  <p>On this CPU, float32 is {{f32_speed_single}} as fast for one waveform ({{f32_single}} against {{f64_single}} on 8192 samples). It is {{f32_speed_batch}} as fast for a batch of 64 under <code>jax.vmap</code> ({{f32_batch}} against {{f64_batch}}), and {{f32_speed_grad}} for a gradient. The dynamics, a sequence of 230 small steps, take {{f32_dyn_share}} of a float64 batch. Keeping them in float64 would make the inner products about ten times more accurate, at the cost of part of the speed-up on the CPU; the package does not do this. float32 matters most on accelerators, where float64 is much slower or, as on Apple GPUs, missing. The MLX version below runs there.</p>
+
+  <h3>On Apple GPUs with MLX</h3>
+  <p><code>waveformjax.models.nrsur7dq4.mlx</code> is NRSur7dq4 in <a href="https://github.com/ml-explore/mlx">MLX</a>, Apple's array library, which runs on the GPU of Apple silicon. It is an optional dependency (<code>pip install waveformjax[mlx]</code>). The module is separate from the JAX code, which it leaves unchanged, and reads the same data through the JAX loader. It provides:</p>
+  <ul>
+    <li>the pure functions <code>polarizations_at</code> and <code>modes_at</code>;</li>
+    <li>LAL's waveforms on its grid: <code>td_polarizations</code>, <code>td_modes</code> and <code>batch_td_polarizations</code>;</li>
+    <li>the conditioned waveforms: <code>simulate_td</code>, <code>simulate_fd</code> and their pure functions.</li>
+  </ul>
+  <p>Everything is float32 and differentiable with <code>mx.grad</code>. The pure functions take one binary or a batch along a leading axis. MLX has no float64 on the GPU and no <code>scan</code>, <code>while_loop</code> or <code>cond</code>. Its <code>vmap</code> and forward-mode derivatives do not pass through custom kernels. So:</p>
+  <ul>
+    <li><strong>Splines as matrices.</strong> The JAX version fits its splines with two substitution sweeps (a <code>lax.scan</code>). The knots are fixed, so each spline is a fixed linear map, computed in float64 when the data are read:
+      <ul>
+        <li>the spline of the dynamics states, evaluated at the waveform's times, is one 2000 × 230 matrix;</li>
+        <li>the second derivatives of the spline through the polarizations are the inverse of its tridiagonal system applied to the right-hand side.</li>
+      </ul>
+      For a batch, each map is one matrix product over all the binaries.</li>
+    <li><strong>The dynamics in one Metal kernel.</strong> The 230 sequential RK4 and Adams–Bashforth steps run in a hand-written Metal kernel, with one SIMD group per binary and one state component per lane. A second kernel carries dual numbers through the same steps. It gives the Jacobian of the states with respect to the mass ratio, the spins and the reference time, and the kernel's VJP contracts that Jacobian.</li>
+    <li><strong>The frame rotation in Metal kernels.</strong> The Wigner rotation of every mode sample is a generated kernel. Its VJP is a kernel too: it differentiates with respect to the quaternion through the generators of the rotation, using D(pq) = D(p) D(q).</li>
+    <li><strong>Harmonics as Fourier series.</strong> The spin-weighted harmonics are trigonometric series in the inclination, with coefficients computed once in float64. Evaluated directly, the powers of cos(θ/2) and sin(θ/2) in the gradient were fused by <code>mx.compile</code> into a kernel with more arguments than Metal allows.</li>
+    <li><strong>LAL's grids on the host.</strong> The lengths and epochs are computed in float64, as the JAX driver computes them. A batch is set up all at once: the frequency fits of every binary in one call, then LAL's search in numpy over the batch. This takes {{mlx_batch_grids}} for {{mlx_batch_n}} binaries, against ~0.15 ms per binary one by one. A binary that LAL refuses is set up again on its own, which raises LAL's error. For {{mlx_grid_n}} binaries the grids agree with the JAX driver's:
+      <ul>
+{{mlx_grid_items}}
+        <li>the start times differ by at most {{mlx_grid_t0}} M, the rounding of the fits summed in another order.</li>
+      </ul>
+      The binaries of a batch are sorted by length and evaluated in chunks of a power-of-two size.</li>
+    <li><strong>Conditioning.</strong> LAL does not high-pass filter NRSur7dq4, so <code>SimInspiralTD</code> and <code>SimInspiralFD</code> need only its start taper, the padding and an FFT. The end of the taper depends on the samples, so it is found on the host from the float32 samples.</li>
+  </ul>
+  <p>The accuracy was measured on the same {{mlx_pairs}} pairs as JAX's float32 above, in the same way (<code>report/mlx_nrsur7dq4.py</code>). The MLX waveform is evaluated by <code>polarizations_at</code> at the float32 times.</p>
+  <div class="table-wrap wide">
+    <table>
+      <thead>
+        <tr><th rowspan="2">Change from float64 JAX</th><th class="num" colspan="3">MLX, float32</th><th class="num" colspan="3">JAX, float32</th></tr>
+        <tr><th class="num">Median</th><th class="num">90th pct.</th><th class="num">Largest</th><th class="num">Median</th><th class="num">90th pct.</th><th class="num">Largest</th></tr>
+      </thead>
+      <tbody>
+{{mlx_accuracy_rows}}
+      </tbody>
+      <caption>NRSur7dq4 in MLX on the GPU and in JAX on the CPU, both in float32, against JAX in float64, on the pairs of the table above. The inner products are computed in float64. JAX's derivatives are those of the table above. Data: <code>report/data/mlx_nrsur7dq4.json</code>.</caption>
+    </table>
+  </div>
+  <p>The MLX waveform is as accurate as JAX's float32 one. The overlap of two binaries changes by {{mlx_do_median}} (median; {{mlx_do_p90}} at the 90th percentile), against {{jax32_do_median}} ({{jax32_do_p90}}) in JAX. The derivatives agree with float64 to {{mlx_grad_median}} (median relative error). Against the typical size of each component, no error exceeds {{mlx_grad_typical_max}}. The conditioned waveforms of {{mlx_conditioned_n}} cases agree with the JAX conversions to {{mlx_conditioned_max}} of the peak, with the same lengths, epochs and sampling in {{mlx_conditioned_same}}.</p>
+  <figure class="wide">
+    <div class="plot">{{mlx_svg}}</div>
+    <figcaption>NRSur7dq4 waveforms (left) and gradients of their power (right) per second, against the number of binaries per call. MLX is on the {{mlx_device}} GPU, compiled with <code>mx.compile</code>. JAX is on the CPU under <code>jax.jit(jax.vmap(...))</code>. Each waveform is h<sub>+</sub> on 8192 samples at 4096 Hz, for random binaries.</figcaption>
+  </figure>
+  <div class="table-wrap wide">
+    <table>
+      <thead>
+        <tr><th class="num" rowspan="2">Binaries per call</th><th class="num" rowspan="2">MLX, per call</th><th class="num" colspan="3">Waveform, per binary</th><th class="num" colspan="3">Gradient, per binary</th></tr>
+        <tr><th class="num">MLX</th><th class="num">JAX float32</th><th class="num">JAX float64</th><th class="num">MLX</th><th class="num">JAX float32</th><th class="num">JAX float64</th></tr>
+      </thead>
+      <tbody>
+{{mlx_timing_rows}}
+      </tbody>
+      <caption>Median times of the figure's calls. MLX {{mlx_version}} runs on the {{mlx_device}} GPU ({{mlx_memory}} of unified memory); JAX runs on its CPU. The larger JAX batches were not timed.</caption>
+    </table>
+  </div>
+  <p>One waveform takes {{mlx_single}} in MLX, against {{jax32_single}} in float32 JAX on the CPU. A single small waveform is dominated by the sequential dynamics and by launching kernels, so the GPU does not help. It pays off in batches:</p>
+  <ul>
+    <li><strong>Waveforms.</strong> MLX evaluates {{mlx_best_rate}} waveforms per second at {{mlx_best_size}} binaries per call. JAX manages at best {{jax32_best_rate}} in float32, so MLX is {{mlx_best_speedup}} faster.</li>
+    <li><strong>Gradients.</strong> One gradient takes {{mlx_grad_single}}, against {{jax32_grad_single}} in JAX. In batches MLX computes {{mlx_grad_best_rate}} gradients per second, {{mlx_grad_speedup}} JAX's best in float32.</li>
+    <li><strong>The public batch function.</strong> It evaluated {{mlx_batch_n}} random binaries on LAL's grids, at 4096 Hz from the start of the surrogate ({{mlx_batch_samples}} samples each on average), in {{mlx_batch_time}}. That is {{mlx_batch_rate}} waveforms per second, against {{jax_batch_rate}} for JAX's <code>batch_td_polarizations</code> ({{mlx_batch_speedup}}).</li>
+    <li><strong>One binary.</strong> <code>td_polarizations</code> takes {{mlx_td_single}} (JAX {{jax_td_single}}), and <code>simulate_fd</code> takes {{mlx_fd_single}} (JAX {{jax_fd_single}}).</li>
+  </ul>
+  <p>In a new process, reading the data and preparing its float64 operators takes {{mlx_first_data}}. The first waveform then takes {{mlx_first_value}} and the first gradient {{mlx_first_grad}}. MLX builds its kernels as they are first used, which costs little here. JAX, by comparison, takes {{nrsur_compile}} for its first waveform and {{nrsur_grad_compile}} to compile the gradient.</p>
 </section>
 
 <section id="conversions">
@@ -191,7 +257,7 @@ h = wf.simulate_td("IMRPhenomXPNR", 1 / 4096, 20.0, mass_1=36.0, mass_2=29.0)</c
       <tbody>
 {{test_rows}}
       </tbody>
-      <caption>The full run with <code>WAVEFORMJAX_SLOW=1</code> (the random-draw tests) on the merged <code>main</code>, with <code>OMP_NUM_THREADS=1</code> for LALSimulation. Data: <code>report/data/pytest.xml</code>.</caption>
+      <caption>The full run with <code>WAVEFORMJAX_SLOW=1</code> (the random-draw tests) on the merged <code>main</code>, with <code>OMP_NUM_THREADS=1</code> for LALSimulation. The MLX tests, which need MLX, come from their own run in a Python with MLX. Data: <code>report/data/pytest.xml</code> and <code>report/data/pytest_mlx.xml</code>.</caption>
     </table>
   </div>
   <p>The tests are layered as the model was built: the (2,2) mode, then the higher modes, the angles, the PNR helpers, the polarizations and the modes. Each layer is compared at a tolerance set by what LAL itself can resolve there. The MSA angles, for example, are ill-conditioned for nearly aligned spins, where LAL's own output changes by ~5e-8 for a change of the inputs in the last bit. Every model also has a transform test. It checks that <code>jax.jit</code> and <code>jax.vmap</code> give the plain call, that gradients agree with central finite differences for every parameter, and that they are finite at removable singularities such as aligned, vanishing or single spins.</p>
@@ -243,7 +309,7 @@ h = wf.simulate_td("IMRPhenomXPNR", 1 / 4096, 20.0, mass_1=36.0, mass_2=29.0)</c
 
 <section id="performance">
   <h2>Performance</h2>
-  <p class="lede">All timings are on the CPU ({{machine}}), with JAX's default settings and LALSimulation single-threaded. The binaries and grids are those of waveformrs's Python benchmark: IMRPhenomXPNR for 36 + 29 M<sub>☉</sub> on 8033 frequencies (20–1024 Hz, Δf = 1/8 Hz), and NRSur7dq4 for 40 + 20 M<sub>☉</sub> at 4096 Hz from 20 Hz. IMRPhenomXPNR is timed without the parity fix, which costs the same.</p>
+  <p class="lede">All timings are on the CPU ({{machine}}), with JAX's default settings and LALSimulation single-threaded, except those of NRSur7dq4 in MLX (<a href="#nrsur">section {{sec:nrsur}}</a>). The binaries and grids are those of waveformrs's Python benchmark: IMRPhenomXPNR for 36 + 29 M<sub>☉</sub> on 8033 frequencies (20–1024 Hz, Δf = 1/8 Hz), and NRSur7dq4 for 40 + 20 M<sub>☉</sub> at 4096 Hz from 20 Hz. IMRPhenomXPNR is timed without the parity fix, which costs the same.</p>
   <div class="table-wrap wide">
     <table>
       <thead><tr><th>Waveform</th><th class="num">First call</th><th class="num">Public function</th><th class="num">Compiled function</th><th class="num">waveformrs</th><th class="num">LAL</th><th class="num">LAL / compiled</th></tr></thead>
@@ -298,7 +364,11 @@ h = wf.simulate_td("IMRPhenomXPNR", 1 / 4096, 20.0, mass_1=36.0, mass_2=29.0)</c
   <ul>
     <li><strong>Two approximants.</strong> Only IMRPhenomXPNR and NRSur7dq4 are public. IMRPhenomXAS and the 122019 higher modes exist as parts of IMRPhenomXPNR, but IMRPhenomXHM, XP and XPHM with their own flags, TaylorF2 and IMRPhenomD are not exposed.</li>
     <li><strong>Compilation time.</strong> IMRPhenomXPNR takes tens of seconds to compile, its gradient minutes, and every array shape and batch size compiles separately. JAX's persistent compilation cache (<code>jax_compilation_cache_dir</code>) would make the cost one-off per machine; it is not set up by the package.</li>
-    <li><strong>Accelerators untested.</strong> Everything here ran on the CPU. IMRPhenomXPNR uses float64 JAX operations, which are slow on consumer GPUs. NRSur7dq4 also runs in float32, but only through its pure functions, since the public functions and the conversions are float64. Neither model's accuracy or speed has been measured on a GPU.</li>
+    <li><strong>Accelerators.</strong> The JAX versions ran on the CPU only. IMRPhenomXPNR uses float64 JAX operations, which are slow on consumer GPUs. In JAX, NRSur7dq4 runs in float32 only through its pure functions, since the public functions and the conversions are float64. Neither model has been measured on a GPU through JAX. NRSur7dq4 runs on Apple GPUs through its MLX version (<a href="#nrsur">section {{sec:nrsur}}</a>), which has limits of its own:
+      <ul>
+        <li>it is float32 only, since MLX has no float64 on the GPU;</li>
+        <li>it cannot be differentiated in forward mode (<code>mx.jvp</code>) or mapped with <code>mx.vmap</code>, which MLX does not carry through custom Metal kernels. It takes batches itself, and its gradients are reverse mode.</li>
+      </ul></li>
     <li><strong>Forward-mode derivatives of IMRPhenomXPNR.</strong> A gradient costs one Jacobian column per parameter with a non-zero tangent, evaluated together. That is affordable for the twelve parameters of a binary (<a href="#gradients">section {{sec:gradients}}</a>), but it does not scale to derivatives with respect to the frequencies or to many other inputs. A reverse-mode path would need the loops with traced lengths rewritten with fixed bounds.</li>
     <li><strong>Discontinuities.</strong> The waveform inherits LAL's discrete choices. Gradient-based samplers near a regime boundary, such as in-plane spins near 1e-6, or a SpinTaylor integration that just fails, see the derivative of one side only.</li>
     <li><strong>Long waveforms.</strong> For light binaries from low frequencies the SpinTaylor splines have millions of knots and the conversions' Fourier transforms millions of samples. These are fixed-shape arrays held in memory, and both cost and compilation grow with them.</li>
@@ -313,6 +383,7 @@ mamba create -n waveformjax -c conda-forge python=3.12 python-lalsimulation jax 
 conda activate waveformjax
 pip install -e .
 (cd ../waveformrs/python &amp;&amp; maturin develop --release)       # optional: the waveformrs comparisons
+pip install -e ".[mlx]"                                         # optional: NRSur7dq4 in MLX (Apple silicon)
 
 # the tests (the data file NRSur7dq4_v1.0.h5 from zenodo.org/records/14999310,
 # found through NRSUR7DQ4_DATA, LAL_DATA_PATH or ../waveformrs/lal_data)
@@ -322,13 +393,16 @@ WAVEFORMJAX_SLOW=1 python -m pytest
 CC=/path/to/conda-forge/clang-19 bash ../waveformrs/scripts/build_patched_lalsimulation.sh ../lalsuite build/lal-2593
 export PATCHED_LALSIMULATION=$PWD/build/lal-2593/liblalsimulation.37.dylib
 
-# every measurement and this report, on an idle machine
+# every measurement and this report, on an idle machine (MLX_PYTHON: a Python
+# with MLX, if not the same)
 bash report/measure_all.sh
 
 # or one at a time
 python report/validate_xpnr.py --n-draws 200
 python report/validate_nrsur7dq4.py --n-draws 200
 python report/float32_nrsur7dq4.py
+python report/mlx_nrsur7dq4.py                               # needs MLX
+python -m pytest tests/test_nrsur7dq4_mlx.py --junitxml=report/data/pytest_mlx.xml
 python report/validate_conversions.py
 python report/gradients.py
 python report/benchmark.py
