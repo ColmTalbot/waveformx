@@ -38,7 +38,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from ..xpnr._generated import qnm as _qnm
-from ..xpnr._math import MTSUN_SI, PI, lean, powers, real
+from ..xpnr._math import MTSUN_SI, PI, Struct, lean, powers, real
 from ..xpnr.amp22 import amp_coefficients
 from ..xpnr.internals import errors, waveform_struct
 from ..xpnr.phase22 import phase_coefficients, time_shift_22
@@ -106,41 +106,109 @@ OFFSETS, SIZE = _offsets()
 YLM = 2.0 * float(np.sqrt(5.0 / (64.0 * np.pi)))
 
 
-def _about_one(constant, coefficients, exponents):
-    """The coefficients of ``constant + sum_i c_i a^(k_i)`` as a polynomial
-    in ``u = 1 - a`` (from the lowest power), in float64."""
-    degree = max(exponents)
-    poly = np.zeros(degree + 1)
-    poly[0] = constant
-    for c, k in zip(coefficients, exponents):
-        poly[k] += c
-    # a = 1 - u: sum_k p_k (1 - u)^k
-    out = np.zeros(degree + 1)
-    for k, c in enumerate(poly):
+class _Poly:
+    """A polynomial with float64 coefficients (from the lowest power), for
+    evaluating the generated fits symbolically (they are rational functions
+    written with ``+``, ``-``, ``*``, ``/`` and :func:`..xpnr._math.fma`)."""
+
+    def __init__(self, c):
+        self.c = np.trim_zeros(np.asarray(c, dtype=float), "b") if np.any(c) else np.zeros(1)
+
+    @staticmethod
+    def of(x):
+        return x if isinstance(x, (_Poly, _Ratio)) else _Poly([float(x)])
+
+    def __add__(self, other):
+        if isinstance(other, _Ratio):
+            return other + self
+        return _Poly(np.polynomial.polynomial.polyadd(self.c, _Poly.of(other).c))
+
+    __radd__ = __add__
+
+    def __neg__(self):
+        return _Poly(-self.c)
+
+    def __sub__(self, other):
+        return self + (-_Poly.of(other))
+
+    def __rsub__(self, other):
+        return _Poly.of(other) - self
+
+    def __mul__(self, other):
+        if isinstance(other, _Ratio):
+            return other * self
+        return _Poly(np.polynomial.polynomial.polymul(self.c, _Poly.of(other).c))
+
+    __rmul__ = __mul__
+
+    def __truediv__(self, other):
+        return _Ratio(self, _Poly.of(other))
+
+    def __rtruediv__(self, other):
+        return _Ratio(_Poly.of(other), self)
+
+
+class _Ratio:
+    """A ratio of :class:`_Poly`."""
+
+    def __init__(self, num, den):
+        self.num, self.den = num, den
+
+    def __add__(self, other):
+        other = other if isinstance(other, _Ratio) else _Ratio(_Poly.of(other), _Poly([1.0]))
+        return _Ratio(self.num * other.den + other.num * self.den, self.den * other.den)
+
+    __radd__ = __add__
+
+    def __neg__(self):
+        return _Ratio(-self.num, self.den)
+
+    def __sub__(self, other):
+        return self + (-other)
+
+    def __rsub__(self, other):
+        return (-self) + other
+
+    def __mul__(self, other):
+        other = other if isinstance(other, _Ratio) else _Ratio(_Poly.of(other), _Poly([1.0]))
+        return _Ratio(self.num * other.num, self.den * other.den)
+
+    __rmul__ = __mul__
+
+    def __truediv__(self, other):
+        other = other if isinstance(other, _Ratio) else _Ratio(_Poly.of(other), _Poly([1.0]))
+        return _Ratio(self.num * other.den, self.den * other.num)
+
+
+def _about_one(poly):
+    """The coefficients of ``poly(a)`` as a polynomial in ``u = 1 - a``."""
+    out = np.zeros(len(poly.c))
+    for k, c in enumerate(poly.c):
         out[:k + 1] += c * np.polynomial.polynomial.polypow([1.0, -1.0], k)
     return tuple(float(x) for x in out)
 
 
-def _qnm_fit(function):
-    """The numerator and denominator of a QNM fit of :mod:`..xpnr._generated.qnm`
-    about ``a = 1``, read from the generated source."""
-    import inspect
-    import re
+def about_one(fit):
+    """A fit of the final spin (a ratio of polynomials in ``a``, from
+    :mod:`..xpnr._generated`) as a function of ``a`` evaluated in powers of
+    ``u = 1 - a``, coefficients re-expanded in float64 (the fits nearly
+    cancel near ``a = 1``, which float32 cannot resolve in powers of
+    ``a``)."""
+    ratio = fit(_Poly([0.0, 1.0]))
+    if not isinstance(ratio, _Ratio):
+        ratio = _Ratio(_Poly.of(ratio), _Poly([1.0]))
+    num, den = _about_one(ratio.num), _about_one(ratio.den)
 
-    source = inspect.getsource(function)
-    names = {"af": 1, "x2": 2, "x3": 3, "x4": 4, "x5": 5, "x6": 6, "x7": 7}
-    out = []
-    for part in ("numerator", "denominator"):
-        match = re.search(part + r" = fma_sum\(([^,]+), \[([^\]]*)\], \[([^\]]*)\]\)", source)
-        constant = float(match.group(1))
-        coefficients = [float(x) for x in match.group(2).split(",")]
-        exponents = [names[x.strip()] for x in match.group(3).split(",")]
-        out.append(_about_one(constant, coefficients, exponents))
-    return tuple(out)
+    def evaluate(a):
+        u = 1.0 - a
+        return _horner(num, u) / _horner(den, u)
+
+    evaluate.__doc__ = f"``{fit.__name__}`` in powers of ``1 - a`` (:func:`about_one`)."
+    return evaluate
 
 
-_FRING = _qnm_fit(_qnm.fring22)
-_FDAMP = _qnm_fit(_qnm.fdamp22)
+_FRING = about_one(_qnm.fring22)
+_FDAMP = about_one(_qnm.fdamp22)
 
 
 def _horner(coefficients, x):
@@ -158,8 +226,7 @@ def qnm_22(a_final):
     ``a_final = 1``; in powers of ``a_final`` they lose a part in 10^4 of
     their value to rounding in float32 at ``a_final = 0.9`` and one in 100
     near 1, in powers of ``1 - a_final`` they do not."""
-    u = 1.0 - a_final
-    return (_horner(_FRING[0], u) / _horner(_FRING[1], u), _horner(_FDAMP[0], u) / _horner(_FDAMP[1], u))
+    return _FRING(a_final), _FDAMP(a_final)
 
 
 #: ``T0 = K0 M^(1/3) / (m1 m2)``: the coefficient of ``f^(-5/3)`` in the
@@ -201,12 +268,27 @@ def table(params, f_min, amp_scale=1.0):
         return _table(params, f_min, amp_scale)
 
 
-def _table(params, f_min, amp_scale):
+def waveform_variables(params, f_min, amp_scale):
+    """``IMRPhenomXSetWaveformVariables`` as :func:`table` makes it (in
+    :func:`..xpnr._math.lean` mode: masses in solar masses)."""
     m1, m2, chi1, chi2, distance, inclination, phi_ref, f_ref = params
     wf = waveform_struct(m1, m2, chi1, chi2, 0.0, f_ref, phi_ref, f_min, 0.0, distance, inclination, amp_scale)
     f_ring, f_damp = qnm_22(wf.a_final)
     wf.f_ring = f_ring / wf.m_final
     wf.f_damp = f_damp / wf.m_final
+    return wf
+
+
+def _table(params, f_min, amp_scale):
+    m1, m2, _, _, _, inclination, _, _ = params
+    return table_of(waveform_variables(params, f_min, amp_scale), m1, m2, inclination)[0]
+
+
+def table_of(wf, m1, m2, inclination):
+    """The table (flat) of the waveform variables ``wf``
+    (:func:`waveform_variables`) of the binary of masses ``m1``, ``m2``
+    (either order) and the coefficients it came from (``amp``, ``phase``,
+    ``linb``: :mod:`..xpnr.amp22`, :mod:`..xpnr.phase22`)."""
     amp = amp_coefficients(wf)
     phase = phase_coefficients(wf)
     linb = time_shift_22(phase, wf)
@@ -295,7 +377,7 @@ def _table(params, f_min, amp_scale):
         value = fields[name]
         value = jnp.stack([jnp.asarray(v, real()) for v in value]) if isinstance(value, list) else value
         flat.append(jnp.asarray(value, real()).reshape(-1))
-    return jnp.concatenate(flat)
+    return jnp.concatenate(flat), Struct(amp=amp, phase=phase, linb=linb)
 
 
 def frequency_powers(f):
@@ -361,7 +443,7 @@ def _phase_rest(fields, fp):
     return rest, past_inspiral
 
 
-def phase(fields, fp):
+def phase(fields, fp, anchor=True):
     """The phase at the frequencies, reduced to ``[-pi, pi]``.
 
     The leading term of the inspiral, ``T0 f^(-5/3) - A`` (about ``10^4``
@@ -369,23 +451,27 @@ def phase(fields, fp):
     ``10^-3`` radians), and the sum with the rest are in float64 (the other
     terms are at most ``10^3`` radians), so that the phase of a float32
     evaluation is as accurate as its rounding to float32 allows. The
-    derivatives are those of the working precision."""
+    derivatives are those of the working precision. Without ``anchor`` the
+    phase lacks ``-A`` (the higher modes of IMRPhenomXHM add theirs)."""
     rest, past_inspiral = _phase_rest(fields, fp)
     t0 = (_col(fields, "big", 0).astype(jnp.float64)
           + jax.lax.stop_gradient(_col(fields, "big_lo", 0)).astype(jnp.float64))
-    anchor = (_col(fields, "big", 1).astype(jnp.float64)
-              + jax.lax.stop_gradient(_col(fields, "big_lo", 1)).astype(jnp.float64))
-    phi = jnp.where(past_inspiral, 0.0, t0 * fp[5]) - anchor + rest.astype(jnp.float64)
+    phi = jnp.where(past_inspiral, 0.0, t0 * fp[5]) + rest.astype(jnp.float64)
+    if anchor:
+        phi = phi - (_col(fields, "big", 1).astype(jnp.float64)
+                     + jax.lax.stop_gradient(_col(fields, "big_lo", 1)).astype(jnp.float64))
+    return reduce(phi).astype(rest.dtype)
+
+
+def reduce(phi):
+    """``phi`` (float64) reduced to ``[-pi, pi]``."""
     turns = jax.lax.stop_gradient(jnp.round(phi / (2.0 * np.pi)))
-    return (phi - turns * (2.0 * np.pi)).astype(rest.dtype)
+    return phi - turns * (2.0 * np.pi)
 
 
-def evaluate(fields, fp):
-    """``(h_+, h_x)`` at the frequencies (powers ``fp`` from
-    :func:`frequency_powers`) for a table (:func:`unpack`; the fields of
-    one binary, or of a batch with a trailing axis for the frequencies to
-    broadcast against). One elementwise expression: the three regions are
-    evaluated at every frequency and selected."""
+def amplitude(fields, fp):
+    """The amplitude of the (2,2) mode at the frequencies (zero above the
+    cutoff), ``h22 = amplitude exp(i phase)``."""
     f, t, m1, log_f, m76, _ = fp
 
     def col(name, *index):
@@ -393,9 +479,7 @@ def evaluate(fields, fp):
 
     in_amp = f >= col("f_amp_in")
     rd_amp = f > col("f_amp_rd")
-    phi = phase(fields, fp)
     y = f - col("shift")
-
     poly = col("amp_ins", 9)
     for k in range(8, -1, -1):
         poly = poly * t + col("amp_ins", k)
@@ -407,8 +491,18 @@ def evaluate(fields, fp):
     u = col("amp_rd_s") * y
     amp_rd = col("amp_rd_n") * m76 * jnp.exp(-col("amp_rd_gr") * u) / (u * u + col("amp_rd_g"))
     amp = jnp.where(rd_amp, amp_rd, jnp.where(in_amp, amp_int, amp_ins))
-    amp = jnp.where(f <= col("f_cut"), amp, 0.0)
+    return jnp.where(f <= col("f_cut"), amp, 0.0)
+
+
+def evaluate(fields, fp):
+    """``(h_+, h_x)`` at the frequencies (powers ``fp`` from
+    :func:`frequency_powers`) for a table (:func:`unpack`; the fields of
+    one binary, or of a batch with a trailing axis for the frequencies to
+    broadcast against). One elementwise expression: the three regions are
+    evaluated at every frequency and selected."""
+    amp = amplitude(fields, fp)
+    phi = phase(fields, fp)
     c, s = jnp.cos(phi), jnp.sin(phi)
-    ap = col("kp") * amp
-    ac = col("kc") * amp
+    ap = _col(fields, "kp") * amp
+    ac = _col(fields, "kc") * amp
     return jax.lax.complex(ap * c, ap * s), jax.lax.complex(-ac * s, ac * c)

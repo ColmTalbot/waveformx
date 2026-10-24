@@ -1,14 +1,17 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
-"""Generated modules of the IMRPhenomXHM higher modes of release 122019
-(see generate_fits.py): the quasi-normal-mode fits, the parameter-space fits
-of the 122019 amplitude (fits version 122018) and of the phase, the
+"""Generated modules of the IMRPhenomXHM higher modes (see
+generate_fits.py): the quasi-normal-mode fits, the parameter-space fits of
+the 122019 amplitude (fits version 122018) and of the phase, the
 coefficients of the intermediate amplitude polynomial and the straight-line
-pieces of the 122019 amplitude. The control flow lives in
-``src/waveformjax/models/xpnr/hm/``."""
+pieces of the 122019 amplitude, whose control flow lives in
+``src/waveformjax/models/xpnr/hm/``; and the parameter-space fits of the
+amplitude of the 122022 release (``hm_amp_fits_*``), whose control flow
+lives in ``src/waveformjax/models/xhm/``."""
 
 _PHASE_FITS = [f"phase_{mode}_p{i}" for mode in (21, 33, 32, 44) for i in range(1, 7)]
+_MODES = (21, 33, 32, 44)
 
 MODULES = {
     "hm_qnm": (
@@ -151,5 +154,46 @@ def phase_32_fit(i, wf):
     collocation fit ``p(i+1)`` of the (3,2) mode."""
     return globals()[f"phase_32_p{i + 1}"](wf)
 ''',
+    ),
+    "hm_amp_fits_inspiral": (
+        "imrphenomx/hm_inspiral.rs",
+        "Inspiral amplitude collocation fits of the IMRPhenomXHM higher modes, release 122022\n"
+        "(``LALSimIMRPhenomXHM_inspiral.c``): ``iv1`` ... ``iv3`` of each mode.",
+        [f"amp_{mode}_iv{i}" for mode in _MODES for i in (1, 2, 3)],
+        [], [],
+        '''
+
+def amp_fit(mode_int, i, wf):
+    """``pAmp->InspiralAmpFits``: the collocation fit ``iv(i+1)`` of mode
+    ``mode_int`` (index of (2,1), (3,3), (3,2), (4,4))."""
+    mode = ("21", "33", "32", "44")[mode_int]
+    return globals()[f"amp_{mode}_iv{i + 1}"](wf)
+''',
+    ),
+    "hm_amp_fits_intermediate": (
+        "imrphenomx/hm_intermediate.rs",
+        "Intermediate amplitude collocation fits of the IMRPhenomXHM higher modes, release 122022\n"
+        "(``LALSimIMRPhenomXHM_intermediate.c``): ``int1`` ... ``int4`` of each mode.",
+        [f"amp_{mode}_int{i}" for mode in _MODES for i in (1, 2, 3, 4)],
+        [], [],
+        '''
+
+def amp_fit(mode_int, k, wf):
+    """``pAmp->IntermediateAmpFits``: the collocation fit ``int(k+1)`` of
+    mode ``mode_int``."""
+    mode = ("21", "33", "32", "44")[mode_int]
+    return globals()[f"amp_{mode}_int{k + 1}"](wf)
+''',
+    ),
+    "hm_amp_fits_ringdown": (
+        "imrphenomx/hm_ringdown.rs",
+        "Ringdown amplitude fits of the IMRPhenomXHM higher modes, release 122022\n"
+        "(``LALSimIMRPhenomXHM_ringdown.c``): the collocation fits ``rdcp1`` ... ``rdcp3`` of the\n"
+        "(2,1), (3,3) and (4,4) modes, the coefficient fits of the spheroidal (3,2) and the\n"
+        "collocation fits of its auxiliary region.",
+        [f"amp_{mode}_rdcp{i}" for mode in (21, 33, 44) for i in (1, 2, 3)]
+        + ["amp_32_alambda", "amp_32_lambda", "amp_32_sigma", "amp_32_rdaux1", "amp_32_rdaux2"],
+        [], [],
+        "",
     ),
 }

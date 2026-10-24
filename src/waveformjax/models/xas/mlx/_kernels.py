@@ -182,7 +182,18 @@ struct XasPoint {
     float z, at;
     float poly, den, u, e, s;
     float amp, phi, c, sn;
+    // the phase without the anchor -A (reduced) and f^(-5/3), for the
+    // higher modes of IMRPhenomXHM
+    float phi_p;
+    DF b0;
 };
+
+// a double-float phase reduced to [-pi, pi] (2 pi in two parts)
+inline float xas_reduce(DF phi) {
+    float k = metal::rint(phi.hi * INV_TWO_PI);
+    float r = metal::fma(-k, TWO_PI_HI, phi.hi);
+    return metal::fma(-k, TWO_PI_LO, r) + phi.lo;
+}
 
 // sum_k row[k stride] basis[k] over the terms of region r (and the
 // constant)
@@ -230,11 +241,14 @@ inline void xas_point(float f, const device float* T, thread XasPoint& p) {
         p.at = metal::precise::atan(p.z);
         rest = metal::fma(T[O_ATAN_A + rp], p.at, rest);
     }
-    DF big = DF{-T[O_BIG + 1], -T[O_BIG_LO + 1]};
+    p.b0 = df_m53(f);
+    DF big = DF{0.0f, 0.0f};
     if (rp == 0) {
-        big = df_add(df_mul(DF{T[O_BIG], T[O_BIG_LO]}, df_m53(f)), big);
+        big = df_mul(DF{T[O_BIG], T[O_BIG_LO]}, p.b0);
     }
-    DF phi = df_add(big, DF{rest, 0.0f});
+    DF phi_p = df_add(big, DF{rest, 0.0f});
+    p.phi_p = xas_reduce(phi_p);
+    DF phi = df_add(phi_p, DF{-T[O_BIG + 1], -T[O_BIG_LO + 1]});
     float amp;
     if (ra == 0) {
         float poly = T[O_AMP_INS + 9];
@@ -262,10 +276,7 @@ inline void xas_point(float f, const device float* T, thread XasPoint& p) {
     if (f > T[O_F_CUT]) {
         amp = 0.0f;
     }
-    // (the phase reduced to [-pi, pi] with 2 pi in two parts)
-    float k = metal::rint(phi.hi * INV_TWO_PI);
-    float r = metal::fma(-k, TWO_PI_HI, phi.hi);
-    r = metal::fma(-k, TWO_PI_LO, r) + phi.lo;
+    float r = xas_reduce(phi);
     p.amp = amp;
     p.phi = r;
     p.c = metal::precise::cos(r);
@@ -274,11 +285,13 @@ inline void xas_point(float f, const device float* T, thread XasPoint& p) {
 
 // The derivatives of h_+ and h_x (re, im) along one direction, from the
 // derivatives dT of the table (stride ND).
-inline float4 xas_tangent(thread const XasPoint& p, const device float* T, const device float* dT) {
+// The derivatives of the amplitude and of the phase without the anchor
+// along one direction.
+inline void xas_amp_phase_tangent(thread const XasPoint& p, const device float* T, const device float* dT,
+                                  thread float& damp_out, thread float& dphi_out) {
     int rp = p.rp;
     const device float* drow = dT + (O_PHASE + rp * NB) * ND;
     float dphi = xas_phase_sum(rp, drow, p.basis, ND);
-    dphi -= dT[(O_BIG + 1) * ND];
     if (rp == 0) {
         dphi = metal::fma(dT[O_BIG * ND], p.basis[0], dphi);
     }
@@ -314,6 +327,14 @@ inline float4 xas_tangent(thread const XasPoint& p, const device float* T, const
     if (p.f > T[O_F_CUT]) {
         damp = 0.0f;
     }
+    damp_out = damp;
+    dphi_out = dphi;
+}
+
+inline float4 xas_tangent(thread const XasPoint& p, const device float* T, const device float* dT) {
+    float damp, dphi;
+    xas_amp_phase_tangent(p, T, dT, damp, dphi);
+    dphi -= dT[(O_BIG + 1) * ND];
     float kp = T[O_KP];
     float kc = T[O_KC];
     float dkp = dT[O_KP * ND];

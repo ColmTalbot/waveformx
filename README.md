@@ -31,6 +31,29 @@ The package has the same interface as the Python bindings of
     their Jacobian and derivatives for `mx.grad`.
   - Its modes and the conversions between the time and frequency domains
     are not implemented.
+- **IMRPhenomXHM** (frequency domain): binaries with aligned spins and
+  higher modes, (2,±2), (2,±1), (3,±3), (3,±2) and (4,±4), written for speed
+  in the same way as IMRPhenomXAS, whose (2,2) mode it shares. It follows
+  LALSimulation's current release of the model with its default settings
+  only (one code path), without multibanding.
+  - It returns the spherical-harmonic modes as well as the polarizations
+    (`modes`, and `choose_fd_modes` on LALSimulation's uniform grid): the
+    modes whose sum is the polarizations. Mode arrays are not supported;
+    select modes from the output instead.
+  - Where LALSimulation takes derivatives of the waveform by finite
+    differences to fix its coefficients, it uses exact derivatives, which
+    changes the (3,2) mode slightly.
+  - It runs in single precision (float32) when the binary's parameters are
+    float32, including its derivatives, with the same arithmetic as in
+    double precision and the extra precision of the inspiral phase of
+    IMRPhenomXAS, so that binary neutron stars stay accurate.
+  - Its output is the strain multiplied by 10^21 unless
+    `scaled_strain=False`.
+  - It is also available in MLX, in single precision on Apple GPUs: the
+    polarizations and the modes for one binary or a batch, with their
+    Jacobian and derivatives for `mx.grad`.
+  - The conversions between the time and frequency domains are not
+    implemented.
 - **IMRPhenomXPNR** (frequency domain): precessing spins with higher modes,
   tuned to numerical relativity. By default it includes the parity fix from
   the development version of LALSuite; the behaviour of the LALSimulation

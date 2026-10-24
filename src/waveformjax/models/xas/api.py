@@ -25,7 +25,7 @@ from ..xpnr._math import lean
 from ..xpnr.internals import waveform_struct
 from . import model
 
-__all__ = ["MODEL", "XASModel"]
+__all__ = ["MODEL", "XASModel", "check"]
 
 
 @jax.jit
@@ -38,6 +38,29 @@ def _flags(binary, f_min):
                     final_spin=wf.error_final_spin, meco=wf.error_meco)
 
 
+def check(binary, frequencies, approximant):
+    """LALSimulation's checks of the aligned-spin IMRPhenomX models for
+    concrete values (``approximant`` names the model in the errors)."""
+    frequencies = np.asarray(frequencies, dtype=float)
+    for name in ("spin_1", "spin_2"):
+        spin = np.asarray(getattr(binary, name), dtype=float)
+        if np.any(spin[:2] != 0.0):
+            raise InvalidParameterError(
+                f"non-zero in-plane spins were given, but {approximant} is a non-precessing approximant")
+    if frequencies.size == 0:
+        return
+    binary = type(binary)(*(jnp.asarray(value, jnp.float64) for value in binary))
+    flags = {k: bool(v) for k, v in _flags(binary, jnp.float64(frequencies[0])).items()}
+    if flags["mass_ratio"]:
+        raise InvalidParameterError(f"{approximant} is not valid at mass ratios beyond 1000")
+    if flags["final_mass"]:
+        raise InvalidParameterError("the fitted final mass is not physical")
+    if flags["final_spin"]:
+        raise InvalidParameterError("the fitted final spin exceeds one")
+    if flags["meco"]:
+        raise InvalidParameterError("f_MECO cannot be greater than f_ISCO")
+
+
 class XASModel:
     """IMRPhenomXAS (``SimInspiralChooseFDWaveformSequence``)."""
 
@@ -46,24 +69,7 @@ class XASModel:
 
     def validate(self, binary, frequencies, options):
         """LALSimulation's checks of IMRPhenomXAS for concrete values."""
-        frequencies = np.asarray(frequencies, dtype=float)
-        for name in ("spin_1", "spin_2"):
-            spin = np.asarray(getattr(binary, name), dtype=float)
-            if np.any(spin[:2] != 0.0):
-                raise InvalidParameterError(
-                    "non-zero in-plane spins were given, but IMRPhenomXAS is a non-precessing approximant")
-        if frequencies.size == 0:
-            return
-        binary = type(binary)(*(jnp.asarray(value, jnp.float64) for value in binary))
-        flags = {k: bool(v) for k, v in _flags(binary, jnp.float64(frequencies[0])).items()}
-        if flags["mass_ratio"]:
-            raise InvalidParameterError("IMRPhenomXAS is not valid at mass ratios beyond 1000")
-        if flags["final_mass"]:
-            raise InvalidParameterError("the fitted final mass is not physical")
-        if flags["final_spin"]:
-            raise InvalidParameterError("the fitted final spin exceeds one")
-        if flags["meco"]:
-            raise InvalidParameterError("f_MECO cannot be greater than f_ISCO")
+        check(binary, frequencies, "IMRPhenomXAS")
 
     def polarizations(self, binary, frequencies, options):
         """``SimInspiralChooseFDWaveformSequence`` (see :func:`.model.polarizations`)."""
