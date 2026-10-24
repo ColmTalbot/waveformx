@@ -37,8 +37,9 @@ from .._math import Struct, fma, powers
 from . import roots
 from .finite_differences import value_and_nd_derivative
 from .inspiral import pn21_coefficients, pn_amp_rescaled, pn_amplitude_coefficients
+from .variables import both, is_mode, where_mode
 
-__all__ = ["amplitude_coefficients", "amplitude", "choose_polynomial", "finish_amplitude"]
+__all__ = ["amplitude_coefficients", "amplitude_fits", "amplitude", "choose_polynomial", "finish_amplitude"]
 
 def select(condition, a, b):
     """``a`` where ``condition`` else ``b``, leaf by leaf."""
@@ -220,32 +221,54 @@ def _rho(version, iv, p_cut, p, p_orig):
     ]
 
 
+def amplitude_fits(wf, hm):
+    """The fits of the amplitude of the mode of ``hm`` (a static mode): the
+    ends of the inspiral and the start of the ringdown, the PN coefficients
+    and the collocation fits of the three regions
+    (:func:`amplitude_coefficients` reads them from ``hm.fits``)."""
+    mode_int = hm.mode_int
+    alambda, lambda_, sigma = fits.ringdown_fits(mode_int)
+    int1, int2, int0, dint0 = fits.intermediate_fits(mode_int)
+    return Struct(
+        f_amp_in=amplitude_fcut_insp(hm, wf),
+        f_amp_rd=amplitude_fcut_rd(hm, wf),
+        pn=lax.optimization_barrier(pn_amplitude_coefficients(wf, hm)),
+        colloc=[jnp.abs(fit(wf)) for fit in fits.inspiral_fits(mode_int)],
+        rd=[jnp.abs(alambda(wf)), lambda_(wf), sigma(wf)],
+        inter=[int1(wf), int2(wf), int0(wf), dint0(wf)],
+    )
+
+
 def amplitude_coefficients(wf, hm, rotate=None, defer=False):
     """``IMRPhenomXHM_GetAmplitudeCoefficients`` for the 122019 release.
 
-    ``hm`` is :func:`~.variables.hm_waveform_struct`; for the (3,2) mode
+    ``hm`` is :func:`~.variables.hm_waveform_struct` with the mode's fits
+    (``hm.fits``, :func:`amplitude_fits`); its mode may be one of several
+    computed together (see :func:`~.variables.is_mode`). For the (3,2) mode
     ``rotate(mf, rd)`` is the spherical ringdown (``SpheroidalToSpherical``,
     ``(re, im)`` rescaled by the leading order of the 22) for the ringdown
     coefficients ``rd``, at the frequencies ``mf``. With ``defer`` the
     intermediate polynomial is left to :func:`choose_polynomial` and
     :func:`finish_amplitude`."""
-    tag = hm.mode_tag
-    mode_int = hm.mode_int
+    fit = hm.fits
     amp_norm = wf.amp_norm
     q, eta, chi1l, chi2l = wf.q, wf.eta, wf.chi1l, wf.chi2l
-    if tag in (44, 33):
-        use_insp_rd = (q > 7.0) & (chi1l > 0.95)
-    else:
-        use_insp_rd = jnp.asarray(False)
+    is21, is32, is33 = is_mode(hm, 21), is_mode(hm, 32), is_mode(hm, 33)
+    is33_44 = is_mode(hm, 44, 33)
+    is21_32 = is_mode(hm, 21, 32)
+    use_insp_rd = jnp.asarray(both(is33_44, (q > 7.0) & (chi1l > 0.95)))
 
-    f_in = amplitude_fcut_insp(hm, wf)
-    f_im = amplitude_fcut_rd(hm, wf)
+    f_in = fit.f_amp_in
+    f_im = fit.f_amp_rd
     df = f_im - f_in
     freqs_inter = [f_in + df / 3.0, f_in + df * 2.0 / 3.0]
 
     # ------------------------------ inspiral ------------------------------
-    pn = lax.optimization_barrier(pn_amplitude_coefficients(wf, hm))
-    pn21 = lax.optimization_barrier(pn21_coefficients(wf)) if tag == 21 else None
+    pn = fit.pn
+    if "pn21" in hm:
+        pn21 = hm.pn21
+    else:
+        pn21 = lax.optimization_barrier(pn21_coefficients(wf)) if is21 is True else None
     use_famp_pn = jnp.asarray(hm.use_famp_pn)
     amp = Struct(
         amp_norm=amp_norm, pn=pn, pn21=pn21, use_famp_pn=use_famp_pn, f_ring=hm.f_ring, f_damp=hm.f_damp,
@@ -256,14 +279,15 @@ def amplitude_coefficients(wf, hm, rotate=None, defer=False):
     p1, p2, p3 = _part(p123, 0), _part(p123, 1), _part(p123, 2)
     p_cut = p1
     pn_insp = pn_amp_rescaled(p123, pn, amp_norm, pn21, use_famp_pn)
-    colloc = [jnp.abs(fit(wf)) for fit in fits.inspiral_fits(mode_int)]
+    colloc = fit.colloc
     iv1 = colloc[0] - pn_insp[0]
     iv2 = colloc[1] - pn_insp[1]
     iv3 = colloc[2] - pn_insp[2]
 
     # vetoes of the collocation points outside the calibration region
     version = jnp.asarray(3)
-    if tag == 21:
+    if is21 is not False:
+        # (hm.inspiral_amp_veto is false for the other modes)
         veto = hm.inspiral_amp_veto
         threshold = 0.2 / hm.amp_norm
         c = veto & (colloc[0] < threshold * p1.seven_sixths)
@@ -275,20 +299,20 @@ def amplitude_coefficients(wf, hm, rotate=None, defer=False):
         c = veto & (colloc[2] < threshold * p3.seven_sixths)
         iv3 = jnp.where(c, 0.0, iv3)
         version = jnp.where(c, version - 1, version)
-    if tag == 32:
+    if is32 is not False:
         # only the PN amplitude in this corner
-        version = jnp.where((q > 2.5) & (chi1l < -0.9) & (chi2l < -0.9), 0, version)
-        c = (q > 2.5) & (chi1l < -0.6) & (chi2l > 0.0) & (iv1 != 0.0)
+        version = jnp.where(both(is32, (q > 2.5) & (chi1l < -0.9) & (chi2l < -0.9)), 0, version)
+        c = both(is32, (q > 2.5) & (chi1l < -0.6) & (chi2l > 0.0) & (iv1 != 0.0))
         version = jnp.where(c, version - 1, version)
         iv1 = jnp.where(c, 0.0, iv1)
-    if tag == 33:
-        c = (1.2 > q) & (q > 1.0) & (chi1l < -0.1) & (chi2l > 0.0) & (iv1 != 0.0)
+    if is33 is not False:
+        c = both(is33, (1.2 > q) & (q > 1.0) & (chi1l < -0.1) & (chi2l > 0.0) & (iv1 != 0.0))
         version = jnp.where(c, version - 1, version)
         iv1 = jnp.where(c, 0.0, iv1)
-    if tag in (21, 32):
-        c = (version == 3) & wavy_points(
+    if is21_32 is not False:
+        c = both(is21_32, (version == 3) & wavy_points(
             colloc[0] * p1.m_seven_sixths, colloc[1] * p2.m_seven_sixths, colloc[2] * p3.m_seven_sixths
-        )
+        ))
         iv2 = jnp.where(c, 0.0, iv2)
         version = jnp.where(c, version - 1, version)
     # rename the remaining collocation points and frequencies
@@ -319,17 +343,17 @@ def amplitude_coefficients(wf, hm, rotate=None, defer=False):
     insp_f1, d1 = value_and_nd_derivative(f1, lambda x: inspiral_rescaled(powers(x), amp), exact)
 
     # ------------------------------ ringdown ------------------------------
-    alambda, lambda_, sigma = fits.ringdown_fits(mode_int)
-    amp.rd = [jnp.abs(alambda(wf)), lambda_(wf), sigma(wf), 1.0 / 12.0]
-    if tag in (44, 33):
+    amp.rd = list(fit.rd) + [1.0 / 12.0]
+    if is33_44 is not False:
         # the ringdown at fAmpMatchIM is 0.9 times the inspiral at its end
+        # (use_insp_rd is false for the other modes)
         ringdown = rd_amp_ansatz(f_im, amp)
         rd0 = jnp.where(use_insp_rd, 0.9 * jnp.abs(insp_f1 / (ringdown / amp.rd[0])), amp.rd[0])
         amp.rd = [rd0] + amp.rd[1:]
     amp.use_insp_ansatz_ringdown = use_insp_rd
 
     # ---------------------------- intermediate ----------------------------
-    int1, int2, int0, dint0 = fits.intermediate_fits(mode_int)
+    int1, int2, int0, dint0 = fit.inter
     f2 = freqs_inter[0]
     f3 = freqs_inter[1]
     f4 = f_im
@@ -350,8 +374,8 @@ def amplitude_coefficients(wf, hm, rotate=None, defer=False):
     # by default a fifth order polynomial
     version = jnp.where(use_insp_rd, 101, 105)
     v1 = p_cut.m_seven_sixths * insp_f1
-    v2 = jnp.where(use_insp_rd, 1.0, jnp.abs(int1(wf)))
-    v3 = jnp.where(use_insp_rd, 1.0, jnp.abs(int2(wf)))
+    v2 = jnp.where(use_insp_rd, 1.0, jnp.abs(int1))
+    v3 = jnp.where(use_insp_rd, 1.0, jnp.abs(int2))
     v4 = p4.m_seven_sixths * rd_f4
     # the reconstruction is for the inverse of the amplitude
     v1 = 1.0 / v1
@@ -362,8 +386,8 @@ def amplitude_coefficients(wf, hm, rotate=None, defer=False):
     # AmpEMR: a fourth order polynomial from fcutInsp to F0 (value and
     # derivative from fits) and the usual reconstruction from F0
     f0 = f1 + (f2 - f1) / 3.0
-    v0 = int0(wf)
-    d0 = dint0(wf)
+    v0 = int0
+    d0 = dint0
     d0 = 7.0 / 6.0 / (v0 * f0) - d0 / (v0 * v0 * jnp.power(f0, 7.0 / 6.0))
     v0 = 1.0 / v0
     first = Struct(d1=d1, d4=d0, v1=v1, v2=v2, v3=v3, v4=v0, f1=f1, f2=f2, f3=f3, f4=f0)
@@ -371,7 +395,8 @@ def amplitude_coefficients(wf, hm, rotate=None, defer=False):
 
     # otherwise vetoes of the intermediate collocation points
     nv2, nv3, nf3, nversion = v2, v3, f3, version
-    if tag == 21:
+    if is21 is not False:
+        # (hm.intermediate_amp_veto is false for the other modes)
         on = hm.intermediate_amp_veto & (nversion == 105)
         threshold = 0.2 / amp_norm
         a = on & (1.0 / nv2 < threshold)
@@ -380,25 +405,25 @@ def amplitude_coefficients(wf, hm, rotate=None, defer=False):
         nv2 = jnp.where(a, 1.0, nv2)
         nv3 = jnp.where(ab | b, 1.0, nv3)
         nversion = jnp.where(ab, 1032, jnp.where(a | b, 1042, nversion))
-    if tag in (21, 32):
+    if is21_32 is not False:
         # IMRPhenomXHM_Ringdown_Amplitude_Veto
-        threshold = (0.1 if tag == 32 else 0.01) / hm.amp_norm
-        c = 1.0 / v4 < threshold
+        threshold = where_mode(is32, 0.1, 0.01) / hm.amp_norm
+        c = both(is21_32, 1.0 / v4 < threshold)
         nv2 = jnp.where(c, 1.0, nv2)
         nv3 = jnp.where(c, 1.0, nv3)
-        nversion = jnp.where(c, 101 if tag == 32 else 1032, nversion)
-    if tag == 21:
-        c = (nversion == 105) & wavy_points(nv2, nv3, v4)
+        nversion = jnp.where(c, where_mode(is32, 101, 1032), nversion)
+    if is21 is not False:
+        c = both(is21, (nversion == 105) & wavy_points(nv2, nv3, v4))
         nv3 = jnp.where(c, nv2, nv3)
         nf3 = jnp.where(c, f2, nf3)
         nv2 = jnp.where(c, 1.0, nv2)
         nversion = jnp.where(c, 1042, nversion)
     corner = (q > 40.0) & (chi1l > 0.9) & (nv2 != 1.0) & (nv3 != 1.0)
-    if tag == 32:
-        corner = corner | ((nversion != 101) & (((q > 2.5) & (chi1l < -0.6) & (chi2l > 0.0))
-                                                | ((chi1l < -0.9) & (chi2l < -0.9))))
-    if tag == 21:
-        corner = corner | ((eta < 0.23) & (chi1l > 0.7) & (chi2l < -0.5))
+    if is32 is not False:
+        corner = corner | both(is32, (nversion != 101) & (((q > 2.5) & (chi1l < -0.6) & (chi2l > 0.0))
+                                                          | ((chi1l < -0.9) & (chi2l < -0.9))))
+    if is21 is not False:
+        corner = corner | both(is21, (eta < 0.23) & (chi1l > 0.7) & (chi2l < -0.5))
     nv2 = jnp.where(corner, 1.0, nv2)
     nv3 = jnp.where(corner, 1.0, nv3)
     nversion = jnp.where(corner, 1032, nversion)

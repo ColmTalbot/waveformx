@@ -33,11 +33,13 @@ from .._generated import ringdown as ringdown22
 from .._math import FRAC_PI_4, PI, Struct, fma, powers
 from . import inspiral
 from .finite_differences import phase_derivatives
+from .variables import both, is_mode, where_mode
 
 __all__ = [
     "spheroidal_coefficients",
     "spheroidal_to_spherical",
     "phase_coefficients",
+    "phase_fits",
     "phase",
 ]
 
@@ -89,7 +91,7 @@ def intermediate_phase_ansatz(ff, p, hm, ph):
     dphase = fma(ph.c1, p.m_one, ph.c0)
     dphase = fma(ph.c2, p.m_two, dphase)
     dphase = fma(ph.c4, p.m_four, dphase)
-    if hm.mode_tag == 32:
+    if is_mode(hm, 32) is True:
         dphase = fma(ph.c3, p.m_three, dphase)
     return dphase + lorentzian
 
@@ -101,7 +103,7 @@ def intermediate_phase_ansatz_int(ff, p, hm, ph):
     phase_ir = fma(ph.c0, ff, ph.c1 * p.log)
     phase_ir = fma(-ph.c2, p.m_one, phase_ir)
     phase_ir = fma(-(1.0 / 3.0 * ph.c4), p.m_three, phase_ir)
-    if hm.mode_tag == 32:
+    if is_mode(hm, 32) is True:
         phase_ir = fma(-(0.5 * ph.c3), p.m_two, phase_ir)
     return fma(ph.c_l, jnp.arctan((ff - frd) / fda), phase_ir)
 
@@ -204,7 +206,7 @@ def spheroidal_to_spherical(mf, p, mix, rd):
 def get_fcut_insp(wf, hm):
     """``GetfcutInsp``: the end of the inspiral phase region."""
     eta_factor = fma(0.001, 0.25 / wf.eta - 1.0, 1.0)
-    return eta_factor * float(hm.emm) * 0.5 * wf.f_meco
+    return eta_factor * (hm.emm * 1.0) * 0.5 * wf.f_meco
 
 
 def pn21_amp_sign(ff, wf):
@@ -223,18 +225,41 @@ def pn21_amp_sign(ff, wf):
     return output >= 0.0
 
 
+def phase_fits(wf, hm):
+    """The fits of the phase of the mode of ``hm`` (a static mode): the
+    intermediate collocation values and ``lambda`` of the inspiral
+    (:func:`phase_coefficients` reads them from ``hm.fits``)."""
+    return Struct(
+        phase_values=[hm_intermediate.phase_fit(hm.mode_int, i, wf) for i in range(6)],
+        lambda_pn=jnp.where(wf.eta > 0.01, hm_inspiral.lambda_pn(wf.eta, hm.mode_tag),
+                            hm_inspiral.phase_lambda_fit(hm.mode_int, wf)),
+    )
+
+
+def _power(x, exponent):
+    """``x ** exponent`` (Python floats while tracing for a static mode)."""
+    return x ** exponent if isinstance(x, float) else jnp.power(x, exponent)
+
+
+def _log(x):
+    return math.log(x) if isinstance(x, float) else jnp.log(x)
+
+
 def phase_coefficients(wf, hm, phase22, mix=None):
     """``IMRPhenomXHM_GetPhaseCoefficients`` (version 122019): the
     coefficients of the phase of the mode and the 22 time shift and phase
     offset used to align it (``timeshift``, ``phiref22``).
 
     ``phase22`` is :func:`~..phase22.phase_coefficients` (with the 22
-    connection coefficients). For the (3,2) mode ``mix`` holds the
+    connection coefficients); ``hm`` holds the mode's fits (``hm.fits``,
+    :func:`phase_fits`), and its mode may be one of several computed together
+    (see :func:`~.variables.is_mode`). For the (3,2) mode ``mix`` holds the
     spheroidal coefficients, the 22 data and the ringdown amplitude
     coefficients ``mix.rd`` (:func:`spheroidal_to_spherical`)."""
     ell = hm.ell
     emm = hm.emm
-    tag = hm.mode_tag
+    is21, is32, is33 = is_mode(hm, 21), is_mode(hm, 32), is_mode(hm, 33)
+    diagonal = ell == emm
     eta = wf.eta
     eta_m1 = 1.0 / eta
     n_inter = hm.n_colloc_pts_inter_phase
@@ -244,9 +269,9 @@ def phase_coefficients(wf, hm, phase22, mix=None):
     fdamp = hm.f_damp
     fcut = get_fcut_insp(wf, hm)
     sqrt3 = math.sqrt(3.0)
-    if tag == 32:
+    if is32 is not False:
         f_end = fma(-0.5, wf.f_damp, wf.f_ring)
-        freqs = [
+        freqs32 = [
             fcut,
             fma(sqrt3, fcut - f_end, 2.0 * (fcut + f_end)) / 4.0,
             fma(3.0, fcut, f_end) / 4.0,
@@ -255,8 +280,8 @@ def phase_coefficients(wf, hm, phase22, mix=None):
             f_end,
         ]
         # correct the cutting frequency for EMR with negative spins
-        f_phase_match_im = jnp.where((eta < 0.01) & (wf.chi1l < 0.0), f_end * fma(-0.25, wf.chi1l, 1.2), f_end)
-    else:
+        match32 = jnp.where((eta < 0.01) & (wf.chi1l < 0.0), f_end * fma(-0.25, wf.chi1l, 1.2), f_end)
+    if is32 is not True:
         freqs = [
             fcut,
             fma(sqrt3, fcut - fring, 2.0 * (fcut + fring)) / 4.0,
@@ -266,8 +291,13 @@ def phase_coefficients(wf, hm, phase22, mix=None):
             fma(7.0, fring, fcut) / 8.0,
         ]
         f_phase_match_im = fring - fdamp
+    if is32 is True:
+        freqs, f_phase_match_im = freqs32, match32
+    elif is32 is not False:
+        freqs = [jnp.where(is32, a, b) for a, b in zip(freqs32, freqs)]
+        f_phase_match_im = jnp.where(is32, match32, f_phase_match_im)
     f_phase_match_in = hm.f_meco_lm
-    values = [hm_intermediate.phase_fit(hm.mode_int, i, wf) + hm.delta_t for i in range(6)]
+    values = [value + hm.delta_t for value in hm.fits.phase_values]
     fcut_rd = f_phase_match_im
     fcut_insp = f_phase_match_in
 
@@ -281,17 +311,17 @@ def phase_coefficients(wf, hm, phase22, mix=None):
     m_over_2 = emm * 0.5
     two_over_m = 1.0 / m_over_2
     fact = phase22.phi_norm / eta
-    log_m_over_2 = math.log(m_over_2)
+    log_m_over_2 = _log(m_over_2)
     phi = []
     phi_l = []
     for i in range(13):
         nl = non_log[i] * fact
         lg = log_terms[i] * fact
         ps = pseudo_pn[i] * fact
-        scale = m_over_2 ** ((8 - i) / 3.0)
+        scale = _power(m_over_2, (8 - i) / 3.0)
         phi.append(fma(-lg, log_m_over_2, nl + ps) * scale)
         phi_l.append(lg * scale)
-    lambda_pn = jnp.where(eta > 0.01, hm_inspiral.lambda_pn(eta, tag), hm_inspiral.phase_lambda_fit(hm.mode_int, wf))
+    lambda_pn = hm.fits.lambda_pn
     phi[8] = phi[8] + lambda_pn
     ph = Struct(phi=phi, phi_l=phi_l, lambda_pn=lambda_pn, alpha0=0.0, alpha2=0.0, alpha_l=0.0,
                 c0=0.0, c1=0.0, c2=0.0, c3=0.0, c4=0.0, c_l=0.0)
@@ -299,13 +329,13 @@ def phase_coefficients(wf, hm, phase22, mix=None):
     # intermediate-ringdown: for high spins extend the inspiral of the 21
     # into the intermediate region (with the 22 phase derivative before the
     # 22 connection coefficients are computed, as LAL does)
-    if tag == 21:
+    if is21 is not False:
         unconnected = phase22.replace(c1_int=0.0, c2_int=0.0, c1_mrd=0.0, c2_mrd=0.0)
         ff = two_over_m * jnp.stack(freqs[:3])
         insp_vals = 1.0 / eta * phase22_module.dphase_22(ff, powers(ff), unconnected)
         diff12 = insp_vals[0] - insp_vals[1]
         diff23 = insp_vals[1] - insp_vals[2]
-        high = wf.s_tot_r >= 0.8
+        high = both(is21, wf.s_tot_r >= 0.8)
         v1 = values[2] + diff23
         v0 = v1 + diff12
         values[1] = jnp.where(high, v1, values[1])
@@ -320,11 +350,11 @@ def phase_coefficients(wf, hm, phase22, mix=None):
     if not hm.mixing_on:
         # the collocation points according to spin and mass ratio
         cond_a = eta < hm.eta_emr
-        if emm == ell:
-            cond_a = cond_a | (wf.s_tot_r >= 0.8)
-        if tag == 33:
-            cond_a = cond_a | (wf.s_tot_r < 0.0)
-        cond_b = (wf.s_tot_r >= 0.8) if tag == 21 else jnp.asarray(False)
+        if diagonal is not False:
+            cond_a = cond_a | both(diagonal, wf.s_tot_r >= 0.8)
+        if is33 is not False:
+            cond_a = cond_a | both(is33, wf.s_tot_r < 0.0)
+        cond_b = jnp.asarray(both(is21, wf.s_tot_r >= 0.8))
         idx2 = jnp.where(cond_a, 3, 2)
         idx3 = jnp.where(cond_a, 4, jnp.where(cond_b, 4, 3))
         freqs_arr = jnp.stack(freqs)
@@ -333,7 +363,7 @@ def phase_coefficients(wf, hm, phase22, mix=None):
                   (freqs_arr[idx2], values_arr[idx2]), (freqs_arr[idx3], values_arr[idx3]),
                   (freqs[5], values[5])]
         # rescale the 22 ringdown: alpha0 + fRD^2 alpha2 / f^2 + alphaL fdamp / (fdamp^2 + (f - fRD)^2)
-        wlm = 2.0 if ell == emm else emm / 3.0
+        wlm = where_mode(diagonal, 2.0, emm / 3.0)
         ph.alpha2 = 1.0 / (fring * fring) * wlm * hm_ringdown.phase_22_alpha2(wf)
         ph.alpha_l = eta_m1 * hm_ringdown.phase_22_alpha_l(wf)
         p_rd = powers(fcut_rd)
@@ -371,7 +401,8 @@ def phase_coefficients(wf, hm, phase22, mix=None):
     ph.c1 = x[2]
     ph.c2 = x[3]
     ph.c4 = x[4]
-    if tag == 32:
+    if is32 is not False:
+        assert is32 is True, "the (3,2) mode is computed on its own"
         ph.c3 = x[5]
         # for extreme mass ratios glue the intermediate and ringdown regions
         p_rd = powers(fcut_rd)
@@ -404,9 +435,9 @@ def phase_coefficients(wf, hm, phase22, mix=None):
     phi_lm = fma(ph.c1_insp, falign, inspiral.phase_ansatz_int(falign, p_falign, ph)) + ph.c_insp
     deltaphi_lm = fma(-(3.0 * FRAC_PI_4), 1.0 - m_over_2, fma(m_over_2, phi22, timeshift * falign)) - phi_lm
     deltaphi_lm = jnp.fmod(deltaphi_lm, 2.0 * PI)
-    if tag == 21:
+    if is21 is not False:
         # the 21 amplitude changes sign across the parameter space
-        deltaphi_lm = deltaphi_lm + jnp.where(pn21_amp_sign(0.008, wf), PI, 0.0)
+        deltaphi_lm = deltaphi_lm + jnp.where(both(is21, pn21_amp_sign(0.008, wf)), PI, 0.0)
     ph.deltaphi_lm = deltaphi_lm
     ph.f_phase_match_in = f_phase_match_in
     ph.f_phase_match_im = f_phase_match_im

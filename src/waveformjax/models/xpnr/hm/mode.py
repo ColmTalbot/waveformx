@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax import lax
 
 from .. import amp22 as amp22_module
@@ -18,8 +19,9 @@ from .. import phase22 as phase22_module
 from .. import xas
 from .._math import MPC_SI, MSUN_SI, Struct, powers
 from ..internals import waveform_struct
-from .amplitude import amplitude, amplitude_coefficients, choose_polynomial, finish_amplitude
-from .phase import phase, phase_coefficients, spheroidal_coefficients, spheroidal_to_spherical
+from .amplitude import amplitude, amplitude_coefficients, amplitude_fits, choose_polynomial, finish_amplitude
+from .inspiral import pn21_coefficients
+from .phase import phase, phase_coefficients, phase_fits, spheroidal_coefficients, spheroidal_to_spherical
 from .variables import HIGHER_MODES, hm_waveform_struct
 
 __all__ = ["ModeCoefficients", "mode_coefficients", "modes_coefficients", "mode_h", "frequency_sequence_one_mode"]
@@ -86,6 +88,14 @@ def mode_coefficients(wf, phase22, ell, emm, defer=False):
     ``amp.f_amp_match_im``, ``phase.f_phase_match_in``,
     ``phase.f_phase_match_im``.
     """
+    wf, phase22, hm = _prepare(wf, phase22, ell, emm)
+    return _coefficients(wf, phase22, hm, defer)
+
+
+def _prepare(wf, phase22, ell, emm):
+    """The inputs of :func:`_coefficients` for the mode ``(ell, emm)``: the
+    waveform variables and 22 phase coefficients (detached where the mode
+    vanishes) and the mode's struct with its fits."""
     release = wf.hm_release if "hm_release" in wf else RELEASE
     if isinstance(release, int) and release != RELEASE:
         raise ValueError(f"mode_coefficients implements PhenomXHMReleaseVersion {RELEASE}, not {release}")
@@ -109,6 +119,15 @@ def mode_coefficients(wf, phase22, ell, emm, defer=False):
         phase22 = detach(phase22)
         hm = hm_waveform_struct(wf, ell, emm)
         hm.amp_zero = amp_zero
+    hm.fits = Struct(**dict(amplitude_fits(wf, hm).items()), **dict(phase_fits(wf, hm).items()))
+    return wf, phase22, hm
+
+
+def _coefficients(wf, phase22, hm, defer=False):
+    """The amplitude and phase coefficients of the mode of ``hm``
+    (:func:`_prepare`): a :class:`ModeCoefficients` for a static mode, else
+    the pair ``(amp, phase)`` (:func:`modes_coefficients`)."""
+    static = isinstance(hm.ell, int)
     if hm.mixing_on:
         spheroidal, timeshift, phiref22 = spheroidal_coefficients(wf, hm, phase22)
         mix = Struct(
@@ -136,10 +155,16 @@ def mode_coefficients(wf, phase22, ell, emm, defer=False):
     if mix is not None:
         mix.rd = amp.rd
     ph = lax.optimization_barrier(phase_coefficients(wf, hm, phase22, mix))
-    sign = -1.0 if ell % 2 else 1.0
+    if not static:
+        return amp, ph
+    return _finish(wf, hm, amp, ph, mix, defer)
+
+
+def _finish(wf, hm, amp, ph, mix, defer):
+    sign = -1.0 if hm.ell % 2 else 1.0
     coefficients = ModeCoefficients(
-        ell,
-        emm,
+        hm.ell,
+        hm.emm,
         amp=amp,
         phase=ph,
         mix=mix,
@@ -153,12 +178,86 @@ def mode_coefficients(wf, phase22, ell, emm, defer=False):
     return lax.optimization_barrier(coefficients)
 
 
+def _split(trees):
+    """The leaves of ``trees`` (pytrees of one structure) that differ or are
+    traced, stacked along a new leading axis, and what rebuilds a tree from
+    one slice of them (the other leaves, equal Python values, kept)."""
+    flat = [jax.tree_util.tree_flatten(tree) for tree in trees]
+    treedef = flat[0][1]
+    for _, other in flat[1:]:
+        if other != treedef:
+            raise ValueError("the modes computed together differ in structure")
+    columns = list(zip(*[leaves for leaves, _ in flat]))
+    def equal(x, y):
+        return not isinstance(x, (jax.Array, np.ndarray)) and x == y
+
+    dynamic = [not all(equal(x, column[0]) for x in column) for column in columns]
+    stacked = [jnp.stack([jnp.asarray(x) for x in column]) for column, d in zip(columns, dynamic) if d]
+    static = [None if d else column[0] for column, d in zip(columns, dynamic)]
+
+    def rebuild(values):
+        values = iter(values)
+        return jax.tree_util.tree_unflatten(treedef, [next(values) if d else s for s, d in zip(static, dynamic)])
+
+    return stacked, rebuild
+
+
+#: The higher modes whose coefficients are computed together (one copy of
+#: the code under ``jax.vmap``): those without mode mixing.
+SHARED = ((2, 1), (3, 3), (4, 4))
+
+
 def modes_coefficients(wf, phase22, modes):
     """:func:`mode_coefficients` of the higher modes ``modes`` (pairs
     ``(ell, emm)``), with the intermediate polynomials of their amplitudes
     chosen together (:func:`~.amplitude.choose_polynomial` under
-    ``jax.vmap``: GSL's root finder and the polynomials compiled once)."""
-    partial = [mode_coefficients(wf, phase22, ell, emm, defer=True) for ell, emm in modes]
+    ``jax.vmap``: GSL's root finder and the polynomials compiled once).
+
+    The modes without mode mixing (:data:`SHARED`) are computed together:
+    their fits for each, the rest of their coefficients under ``jax.vmap``
+    with the mode a traced value (:func:`~.variables.is_mode`), which
+    compiles that code once rather than once per mode."""
+    shared = [mode for mode in modes if mode in SHARED]
+    if len(shared) < 2:
+        shared = []
+    partial = {}
+    if shared:
+        prepared = [_prepare(wf, phase22, ell, emm) for ell, emm in shared]
+        tags = tuple(10 * ell + emm for ell, emm in shared)
+        hms = []
+        for _, _, hm in prepared:
+            hm = hm.copy()
+            hm.tags = tags
+            hm.ell = float(hm.ell)
+            hm.emm = float(hm.emm)
+            # (the TaylorT4 inspiral of the (2,1), selected by use_famp_pn)
+            hm.use_famp_pn = jnp.asarray(hm.use_famp_pn)
+            hm.inspiral_amp_veto = jnp.asarray(hm.inspiral_amp_veto)
+            hm.intermediate_amp_veto = jnp.asarray(hm.intermediate_amp_veto)
+            hm.ringdown_amp_veto = jnp.asarray(hm.ringdown_amp_veto)
+            hm.mode_int = None
+            hms.append(hm)
+        # (from the detached inputs of the (2,1), as mode_coefficients)
+        pn21 = None
+        if (2, 1) in shared:
+            pn21 = lax.optimization_barrier(pn21_coefficients(prepared[shared.index((2, 1))][0]))
+        inputs, rebuild = _split([(w, p, h) for (w, p, _), h in zip(prepared, hms)])
+
+        def one(values):
+            w, p, h = rebuild(values)
+            if pn21 is not None:
+                h.pn21 = pn21
+            amp, ph = _coefficients(w, p, h, defer=True)
+            return jax.tree_util.tree_map(jnp.asarray, (amp, ph))
+
+        amps, phs = jax.vmap(one)(inputs)
+        for k, ((ell, emm), (w, _, hm)) in enumerate(zip(shared, prepared)):
+            amp, ph = jax.tree_util.tree_map(lambda x: x[k], (amps, phs))
+            partial[(ell, emm)] = _finish(w, hm, amp, ph, None, True)
+    for ell, emm in modes:
+        if (ell, emm) not in partial:
+            partial[(ell, emm)] = mode_coefficients(wf, phase22, ell, emm, defer=True)
+    partial = [partial[mode] for mode in modes]
     if not partial:
         return []
     choices = jax.tree_util.tree_map(lambda *xs: jnp.stack(xs), *[c.amp.choice for c in partial])

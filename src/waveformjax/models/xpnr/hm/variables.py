@@ -21,7 +21,7 @@ import jax.numpy as jnp
 from .._generated import hm_qnm, utilities
 from .._math import PI, Struct, fnms
 
-__all__ = ["HIGHER_MODES", "hm_waveform_struct", "qnm_fits", "mixing_coefficients"]
+__all__ = ["HIGHER_MODES", "hm_waveform_struct", "qnm_fits", "mixing_coefficients", "is_mode", "both", "where_mode"]
 
 # the higher modes of IMRPhenomXHM in the order of LAL's modeInt
 HIGHER_MODES = ((2, 1), (3, 3), (3, 2), (4, 4))
@@ -30,6 +30,44 @@ HIGHER_MODES = ((2, 1), (3, 3), (3, 2), (4, 4))
 # ratios of the phase
 ETA_AMP_EMR = 0.013886133703630232
 ETA_EMR = 0.05
+
+
+def is_mode(hm, *tags):
+    """Whether the mode of ``hm`` (a :func:`hm_waveform_struct`, or a view
+    of one) is one of ``tags`` (``10 l + m``): a Python bool for a mode
+    known when tracing, a traced bool for a mode that is one of several
+    (``hm.tags``, the modes computed together under ``jax.vmap``, see
+    :func:`.mode.modes_coefficients`)."""
+    possible = hm.tags if "tags" in hm else (hm.mode_tag,)
+    inside = [tag for tag in possible if tag in tags]
+    if len(inside) == len(possible):
+        return True
+    if not inside:
+        return False
+    hit = hm.mode_tag == inside[0]
+    for tag in inside[1:]:
+        hit = hit | (hm.mode_tag == tag)
+    return hit
+
+
+def both(condition, value):
+    """``condition & value`` for a condition of :func:`is_mode` (``value``
+    or ``False`` where it is a Python bool)."""
+    if condition is True:
+        return value
+    if condition is False:
+        return False
+    return condition & value
+
+
+def where_mode(condition, a, b):
+    """``a`` where the condition of :func:`is_mode` holds, else ``b`` (a
+    choice while tracing where it is a Python bool)."""
+    if condition is True:
+        return a
+    if condition is False:
+        return b
+    return jnp.where(condition, a, b)
 
 
 def qnm_fits(ell, emm):
