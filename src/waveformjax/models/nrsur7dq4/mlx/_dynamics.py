@@ -2,7 +2,11 @@
 # Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """The dynamics surrogate in MLX (as :mod:`.._dynamics`, whose docstring
-describes the integration).
+describes the integration), written with MLX operations. The waveform
+integrates the dynamics with the Metal kernel of :mod:`._kernel`, which
+takes the reference time from :func:`reference_time` here; the integration
+written here (:func:`states_from_reference`) is its reference, in the
+tests.
 
 Every function takes a batch of binaries along the leading axis: the mass
 ratio ``q`` of shape ``(B,)`` and states ``y`` of shape ``(B, 11)``. MLX has
@@ -42,7 +46,16 @@ from .._dynamics import (
 )
 from ._fits import monomials_at
 
-__all__ = ["index", "safe_norm", "normalize_y", "derivatives", "reference_omegas", "reference_time", "integrate"]
+__all__ = [
+    "index",
+    "safe_norm",
+    "normalize_y",
+    "derivatives",
+    "reference_omegas",
+    "reference_time",
+    "states_from_reference",
+    "integrate",
+]
 
 _GROUP_M = mx.array(_GROUP.astype("int32"))
 _FIT = (mx.array(_FIT_PARTNER.astype("int32")), mx.array(_FIT_FIRST), mx.array(_FIT_SECOND))
@@ -282,16 +295,24 @@ def _ab4(data, q, i_start, states, derivs, norm_a, norm_b):
     return mx.where(from_rk4[..., None], rk4, stepped)
 
 
+def states_from_reference(data, q, chi_a, chi_b, t_ref):
+    """The ODE states at every dynamics node (``(B, n_ds, 11)``) from the
+    reference time ``t_ref``: the Euler step to the nearest node, the RK4
+    start and the Adams-Bashforth steps (what :mod:`._kernel` computes in
+    one kernel)."""
+    norm_a = safe_norm(chi_a)
+    norm_b = safe_norm(chi_b)
+    y_ref = reference_state(chi_a, chi_b)
+    i0, y0 = _initialize_at_node(data, q, t_ref, y_ref, norm_a, norm_b)
+    i_start, states, derivs = _rk4_start(data, q, i0, y0, norm_a, norm_b)
+    return _ab4(data, q, i_start, states, derivs, norm_a, norm_b)
+
+
 def integrate(data, q, chi_a, chi_b, omega_ref, omegas=None):
     """The ODE states at every dynamics node (``(B, n_ds, 11)``) and whether
     each evaluation is valid (``(B,)``), as
     :func:`.._dynamics.integrate`."""
     if omegas is None:
         omegas = reference_omegas(data, q, chi_a, chi_b)
-    norm_a = safe_norm(chi_a)
-    norm_b = safe_norm(chi_b)
     t_ref, valid = reference_time(data, omegas, omega_ref)
-    y_ref = reference_state(chi_a, chi_b)
-    i0, y0 = _initialize_at_node(data, q, t_ref, y_ref, norm_a, norm_b)
-    i_start, states, derivs = _rk4_start(data, q, i0, y0, norm_a, norm_b)
-    return _ab4(data, q, i_start, states, derivs, norm_a, norm_b), valid
+    return states_from_reference(data, q, chi_a, chi_b, t_ref), valid

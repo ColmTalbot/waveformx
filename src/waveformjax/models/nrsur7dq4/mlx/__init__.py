@@ -14,7 +14,10 @@ module             contents
 ``_data``          the data as float32 MLX arrays, with the spline
                    operators that replace JAX's ``lax.scan``
 ``_fits``          the parameter-space fits
-``_dynamics``      the dynamics ODE, its steps unrolled
+``_dynamics``      the dynamics ODE in MLX operations: the reference time,
+                   and the integration that the kernel replaces
+``_kernel``        the integration of the dynamics in one Metal kernel,
+                   with its Jacobian for the derivatives
 ``_frames``        coorbital -> coprecessing -> inertial frame
 ``_waveform``      the modes and polarizations of a batch of binaries
 =================  ==========================================================
@@ -23,15 +26,13 @@ The functions take a :class:`~waveformjax.Binary` of numbers or arrays
 (converted to float32 MLX arrays), either one binary or a batch along a
 leading axis of its fields (``mass_1`` of shape ``(B,)``, ``spin_1`` of shape
 ``(B, 3)``; fields without the axis are shared), and return MLX arrays
-with the same leading axis. They work under ``mx.grad`` with respect to
-every parameter of the binary (as MLX arrays), and the waveform under
-``mx.compile``; compiling the gradient fails in MLX 0.32.4, which fuses
-more arguments into one Metal kernel than Metal allows. MLX has no
-``scan``, so the dynamics ODE is unrolled into the graph: its thousands of
-small operations, launched one after the other, take most of the time of
-an evaluation, about the same whatever the size of the batch. Every output is
-the strain multiplied by ``1e21`` unless the option ``scaled_strain`` is
-false. Where LAL would fail to find the reference time the result is NaN.
+with the same leading axis. They work under ``mx.grad`` (and ``mx.vjp``)
+with respect to every parameter of the binary (as MLX arrays) and under
+``mx.compile``, the gradient included; MLX cannot differentiate the kernel
+in forward mode, so ``mx.jvp`` fails, and ``mx.vmap`` does not apply to it
+(the functions take the batch themselves). Every output is the strain
+multiplied by ``1e21`` unless the option ``scaled_strain`` is false. Where
+LAL would fail to find the reference time the result is NaN.
 """
 
 from __future__ import annotations

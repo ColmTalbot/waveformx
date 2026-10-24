@@ -155,9 +155,7 @@ def test_invalid_reference_frequency(nrsur):
 def test_gradient(nrsur, reference, name):
     """``mx.grad`` of a noise-free log-likelihood agrees with the float64
     JAX gradient (the bound of test_nrsur7dq4_float32.py); face-on tests
-    the derivative of the harmonics at zero inclination. (Compiling the
-    gradient with ``mx.compile`` fails in MLX 0.32.4: it fuses more
-    arguments into a Metal kernel than Metal allows.)"""
+    the derivative of the harmonics at zero inclination."""
     binary = BINARIES[name]
     data = reference(binary._replace(mass_1=binary.mass_1 * 1.01))
     data_mx = [mx.array(x.astype(np.float32)) for x in data]
@@ -190,13 +188,76 @@ def test_distance_derivative(nrsur):
 
 
 def test_compile(nrsur):
-    """``mx.compile`` gives the eager result (fused in another order)."""
+    """``mx.compile`` gives the eager waveform and gradient (fused in another
+    order)."""
     times = mx.array(TIMES.astype(np.float32))
     binary = as_mlx(BINARIES["precessing"])
     compiled = mx.compile(lambda b: nrsur.polarizations_at(b, times, OPTIONS))
     for a, b in zip(compiled(binary), nrsur.polarizations_at(binary, times, OPTIONS)):
         a, b = np.array(a), np.array(b)
         assert np.max(np.abs(a - b)) < 1e-5 * np.max(np.abs(b))
+
+    def power(b):
+        hp, hc = nrsur.polarizations_at(b, times, OPTIONS)
+        return mx.sum(hp * hp + hc * hc)
+
+    eager = np.concatenate([np.ravel(np.array(x)) for x in mx.grad(power)(binary)])
+    fused = np.concatenate([np.ravel(np.array(x)) for x in mx.compile(mx.grad(power))(binary)])
+    assert np.max(np.abs(fused - eager)) < 1e-4 * np.max(np.abs(eager))
+
+
+#: ``(q, chi_a, chi_b, t_ref)``: precessing; aligned from the start of the
+#: surrogate (the half nodes); without spins and with the largest spins,
+#: starting forwards from nodes 1 to 3; late, starting backwards.
+DYNAMICS = np.array([
+    [2.0, 0.4, -0.3, 0.2, 0.1, 0.5, -0.3, -2500.0],
+    [1.2, 0.0, 0.0, 0.6, 0.0, 0.0, -0.4, -4299.99999999],
+    [3.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -4280.0],
+    [1.0, 0.7, 0.0, 0.7, 0.0, -0.9, 0.0, -4250.0],
+    [3.9, 0.0, 0.5, -0.5, 0.3, 0.3, 0.3, -600.0],
+], dtype=np.float32)
+
+
+def test_dynamics_kernel(nrsur):
+    """The Metal kernel integrates the dynamics as the MLX operations do,
+    close to JAX in float64, and its Jacobian with respect to ``(q, chi_a,
+    chi_b, t_ref)`` agrees with JAX's float64 forward-mode derivatives;
+    ``mx.grad`` contracts it."""
+    from waveformjax.models.nrsur7dq4 import _dynamics, default_data
+    from waveformjax.models.nrsur7dq4.mlx import _dynamics as mlx_dynamics
+    from waveformjax.models.nrsur7dq4.mlx import _kernel
+
+    data = nrsur.default_data()
+    jax_data = default_data()
+
+    def jax_states(p):
+        q, chi_a, chi_b, t_ref = p[0], p[1:4], p[4:7], p[7]
+        norm_a, norm_b = _dynamics.safe_norm(chi_a), _dynamics.safe_norm(chi_b)
+        i0, y0 = _dynamics._initialize_at_node(jax_data, q, t_ref, _dynamics.reference_state(chi_a, chi_b), norm_a, norm_b)
+        i_start, states, derivs = _dynamics._rk4_start(jax_data, q, i0, y0, norm_a, norm_b)
+        return _dynamics._ab4(jax_data, q, i_start, states, derivs, norm_a, norm_b)
+
+    params = mx.array(DYNAMICS)
+    states, jacobian = (np.array(x) for x in _kernel.states_and_jacobian(data, params))
+    value, _ = _kernel.states_and_jacobian(data, params, 1)
+    np.testing.assert_array_equal(np.array(value), states)
+    p = params
+    ops = np.array(mlx_dynamics.states_from_reference(data, p[:, 0], p[:, 1:4], p[:, 4:7], p[:, 7]))
+    wide = jnp.asarray(DYNAMICS.astype(np.float64))
+    reference = np.asarray(jax.jit(jax.vmap(jax_states))(wide))
+    jac_reference = np.asarray(jax.jit(jax.vmap(jax.jacfwd(jax_states)))(wide))
+    for b in range(len(DYNAMICS)):
+        scale = np.max(np.abs(reference[b]), axis=0)
+        for test in (states[b], ops[b]):
+            assert np.all(np.abs(test - reference[b]) <= 2e-4 * scale)
+        column = np.max(np.abs(jac_reference[b]), axis=0)
+        error = np.max(np.abs(jacobian[b] - jac_reference[b]), axis=0)
+        assert np.all(np.isfinite(jacobian[b]))
+        assert np.all(error <= 3e-3 * column + 1e-6 * column.max())
+    weights = mx.array(np.random.default_rng(0).standard_normal(states.shape).astype(np.float32))
+    gradient = mx.grad(lambda x: mx.sum(_kernel.states_function(data)(x) * weights))(params)
+    expected = np.einsum("bisk,bis->bk", jacobian, np.array(weights))
+    assert np.max(np.abs(np.array(gradient) - expected)) < 1e-5 * np.max(np.abs(expected))
 
 
 def test_scaled_strain(nrsur):

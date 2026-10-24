@@ -12,6 +12,7 @@ along a leading axis (``mass_1`` of shape ``(B,)``, ``spin_1`` of shape
 
 from __future__ import annotations
 
+import functools
 from math import factorial, sqrt
 from typing import NamedTuple, Tuple
 
@@ -21,9 +22,10 @@ import numpy as np
 from .._data import LMAX, MODES, PIECES
 from .._waveform import C_PER_MPC, MTSUN_SI, STRAIN_SCALE, active_modes, output_ells
 from ._data import NRSurData
-from ._dynamics import index, integrate, reference_omegas, safe_norm
+from ._dynamics import index, reference_omegas, safe_norm
 from ._fits import fit_parameters, fold_mass_ratio, q_fit, spin_monomials
 from ._frames import coorbital_to_coprecessing, coprecessing_to_inertial
+from ._kernel import integrate
 
 __all__ = [
     "batched",
@@ -94,23 +96,35 @@ def _coorbital_modes(data: NRSurData, q, chi_a, chi_b):
     )
     values = mx.sum(coefs * spins, axis=-1)
     bounds = data.ei_bounds
-    pieces = {
-        piece: values[:, bounds[p] : bounds[p + 1]] @ data.ei_basis[bounds[p] : bounds[p + 1]]
-        for p, piece in enumerate(PIECES)
-    }
-    re, im = {}, {}
+    pieces = mx.stack(
+        [values[:, bounds[p] : bounds[p + 1]] @ data.ei_basis[bounds[p] : bounds[p + 1]] for p in range(len(PIECES))],
+        axis=1,
+    )
+    to_re, to_im = _PIECES_TO_MODES
+    return to_re @ pieces, to_im @ pieces
+
+
+def _pieces_to_modes():
+    """The real and imaginary parts of the coorbital modes as combinations
+    of the data pieces (``(n_modes, n_pieces)`` each): ``h^{l,m} = X_+ +
+    X_-``, ``h^{l,-m} = conj(X_+ - X_-)`` (``PrecessingNRSur_core``)."""
+    to_re = np.zeros((len(MODES), len(PIECES)), dtype=np.float32)
+    to_im = np.zeros_like(to_re)
+    piece = {key: p for p, key in enumerate(PIECES)}
+    row = {mode: i for i, mode in enumerate(MODES)}
     for ell in range(2, LMAX + 1):
-        re[ell, 0] = pieces[ell, 0, "real"]
-        im[ell, 0] = pieces[ell, 0, "imag"]
+        to_re[row[ell, 0], piece[ell, 0, "real"]] = 1.0
+        to_im[row[ell, 0], piece[ell, 0, "imag"]] = 1.0
         for m in range(1, ell + 1):
-            re_plus, re_minus = pieces[ell, m, "Re+"], pieces[ell, m, "Re-"]
-            im_plus, im_minus = pieces[ell, m, "Im+"], pieces[ell, m, "Im-"]
-            # h^{l,m} = X_+ + X_-, h^{l,-m} = conj(X_+ - X_-)
-            re[ell, m] = re_plus + re_minus
-            re[ell, -m] = re_plus - re_minus
-            im[ell, m] = im_plus + im_minus
-            im[ell, -m] = -im_plus + im_minus
-    return mx.stack([re[mode] for mode in MODES], axis=1), mx.stack([im[mode] for mode in MODES], axis=1)
+            for sign, mode in ((1.0, (ell, m)), (-1.0, (ell, -m))):
+                to_re[row[mode], piece[ell, m, "Re+"]] = 1.0
+                to_re[row[mode], piece[ell, m, "Re-"]] = sign
+                to_im[row[mode], piece[ell, m, "Im+"]] = sign
+                to_im[row[mode], piece[ell, m, "Im-"]] = 1.0
+    return mx.array(to_re), mx.array(to_im)
+
+
+_PIECES_TO_MODES = _pieces_to_modes()
 
 
 def _coorbital_dynamics(data: NRSurData, states, chi_a0, chi_b0):
@@ -180,35 +194,63 @@ def _amplitude(binary, labels: Labelled, scale):
     return labels.m_tot_sec * (C_PER_MPC * scale) / binary.luminosity_distance
 
 
-def _power(x, k: int):
-    """``x^k`` by multiplication (``x ** 0`` has a NaN derivative at 0 in
-    MLX)."""
-    value = 1.0
-    for _ in range(k):
-        value = value * x
-    return value
-
-
-def _wigner_small_d(ell: int, mp: int, m: int, beta):
-    """Wigner's ``d^l_{m' m}(beta)`` (as :func:`waveformjax._harmonics.wigner_small_d`)."""
-    cos_half = mx.cos(beta / 2)
-    sin_half = mx.sin(beta / 2)
+def _small_d(ell: int, mp: int, m: int, beta):
+    """Wigner's ``d^l_{m' m}(beta)`` in float64 (as
+    :func:`waveformjax._harmonics.wigner_small_d`)."""
+    cos_half = np.cos(beta / 2)
+    sin_half = np.sin(beta / 2)
     total = 0.0
     prefactor = sqrt(factorial(ell + mp) * factorial(ell - mp) * factorial(ell + m) * factorial(ell - m))
     for k in range(max(0, m - mp), min(ell + m, ell - mp) + 1):
         coefficient = (-1) ** (k - m + mp) * prefactor / (
             factorial(ell + m - k) * factorial(k) * factorial(ell - k - mp) * factorial(k - m + mp)
         )
-        total = total + coefficient * _power(cos_half, 2 * ell - 2 * k + m - mp) * _power(sin_half, 2 * k - m + mp)
+        total = total + coefficient * cos_half ** (2 * ell - 2 * k + m - mp) * sin_half ** (2 * k - m + mp)
     return total
 
 
-def _harmonic(theta, phi, ell: int, m: int):
-    """The real and imaginary parts of ``{}_{-2}Y_{lm}(theta, phi)`` (as
-    :func:`waveformjax._harmonics.spin_weighted_spherical_harmonic`)."""
-    norm = float(np.sqrt((2 * ell + 1) / (4 * np.pi)))
-    d = norm * _wigner_small_d(ell, m, 2, theta)
-    return d * mx.cos(m * phi), d * mx.sin(m * phi)
+@functools.lru_cache(maxsize=None)
+def _harmonic_series(keep: Tuple[int, ...]):
+    """``sqrt((2l + 1) / 4 pi) d^l_{m,2}(theta)`` of the modes ``keep``
+    (indices into :data:`MODES`) as trigonometric polynomials (products of
+    ``2 l`` powers of ``cos(theta / 2)`` and ``sin(theta / 2)``, of degree
+    ``l`` in ``theta``): the coefficients of ``cos(j theta)`` and ``sin(j
+    theta)``, ``j = 0 .. LMAX`` (``(LMAX + 1, n_modes)`` each), from their
+    discrete Fourier transform in float64, and the ``m`` of the modes."""
+    n = 8 * LMAX
+    theta = 2 * np.pi * np.arange(n) / n
+    values = np.stack(
+        [np.sqrt((2 * MODES[i][0] + 1) / (4 * np.pi)) * _small_d(MODES[i][0], MODES[i][1], 2, theta) for i in keep],
+        axis=1,
+    )
+    spectrum = np.fft.rfft(values, axis=0)[: LMAX + 1] / n
+    cos_coefficients = 2 * spectrum.real
+    cos_coefficients[0] /= 2
+    sin_coefficients = -2 * spectrum.imag
+    j = np.arange(LMAX + 1)[:, None]
+    series = np.cos(j * theta).T @ cos_coefficients + np.sin(j * theta).T @ sin_coefficients
+    assert np.max(np.abs(series - values)) < 1e-12
+    orders = np.array([MODES[i][1] for i in keep], dtype=np.float32)
+    return (mx.array(cos_coefficients.astype(np.float32)), mx.array(sin_coefficients.astype(np.float32)),
+            mx.array(orders))
+
+
+_HARMONIC_ORDERS = mx.array(np.arange(LMAX + 1, dtype=np.float32))
+
+
+def _harmonics(theta, phi, keep: Tuple[int, ...]):
+    """The real and imaginary parts of ``{}_{-2}Y_{lm}(theta, phi)`` for the
+    modes ``keep`` (each ``(B, n_modes)``; as
+    :func:`waveformjax._harmonics.spin_weighted_spherical_harmonic`), from
+    their trigonometric series in ``theta``: a few operations on all the
+    modes at once, whose derivatives MLX can compile (the powers of
+    ``cos(theta / 2)`` and ``sin(theta / 2)`` fuse into a kernel with more
+    arguments than Metal allows)."""
+    cos_coefficients, sin_coefficients, orders = _harmonic_series(keep)
+    angle = theta[:, None] * _HARMONIC_ORDERS
+    d = mx.cos(angle) @ cos_coefficients + mx.sin(angle) @ sin_coefficients
+    angle = phi[:, None] * orders
+    return d * mx.cos(angle), d * mx.sin(angle)
 
 
 def _resample(data: NRSurData, values, tau):
@@ -254,12 +296,12 @@ def polarizations_from_modes(binary, h, labels: Labelled, mode_array=None, scale
     _, ells = active_modes(mode_array)
     theta = binary.inclination
     phi = 0.5 * np.pi - binary.phi_ref
-    keep = [i for i, (ell, _) in enumerate(MODES) if ell in ells]
-    harmonics = [_harmonic(theta, phi, *MODES[i]) for i in keep]
+    keep = tuple(i for i, (ell, _) in enumerate(MODES) if ell in ells)
+    y_re, y_im = _harmonics(theta, phi, keep)
     rows = mx.array(keep)
     signs = mx.take(_mode_signs(labels), rows, axis=1)
-    c_re = (mx.stack([y[0] for y in harmonics], axis=1) * signs)[..., None]
-    c_im = (mx.stack([y[1] for y in harmonics], axis=1) * signs)[..., None]
+    c_re = (y_re * signs)[..., None]
+    c_im = (y_im * signs)[..., None]
     re, im = mx.take(h[0], rows, axis=1), mx.take(h[1], rows, axis=1)
     hp = mx.sum(c_re * re - c_im * im, axis=1)
     hc = -mx.sum(c_im * re + c_re * im, axis=1)

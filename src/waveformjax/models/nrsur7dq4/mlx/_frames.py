@@ -9,6 +9,7 @@ shape ``(B, n_modes, n)``, the phase ``(B, n)`` and the quaternion ``(B, n,
 from __future__ import annotations
 
 import mlx.core as mx
+import numpy as np
 
 from .._data import LMAX, MODES
 from .._frames import _TERMS, _ComplexPowers, _Powers
@@ -16,21 +17,16 @@ from .._frames import _TERMS, _ComplexPowers, _Powers
 __all__ = ["coorbital_to_coprecessing", "coprecessing_to_inertial"]
 
 
+#: The ``m`` of :data:`MODES`, ``(n_modes, 1)``.
+_ORDERS = mx.array(np.array([m for _, m in MODES], dtype=np.float32))[:, None]
+
+
 def coorbital_to_coprecessing(re, im, phase):
-    """``h_copr^{l,m} = exp(-i m phi) h_coorb^{l,m}``."""
-    cos = {k: mx.cos(k * phase) for k in range(1, LMAX + 1)}
-    sin = {k: mx.sin(k * phase) for k in range(1, LMAX + 1)}
-    out_re, out_im = [], []
-    for i, (_, m) in enumerate(MODES):
-        if m == 0:
-            out_re.append(re[:, i])
-            out_im.append(im[:, i])
-            continue
-        c = cos[abs(m)]
-        s = sin[abs(m)] if m > 0 else -sin[abs(m)]
-        out_re.append(re[:, i] * c + im[:, i] * s)
-        out_im.append(-(re[:, i] * s) + im[:, i] * c)
-    return mx.stack(out_re, axis=1), mx.stack(out_im, axis=1)
+    """``h_copr^{l,m} = exp(-i m phi) h_coorb^{l,m}``, for all the modes at
+    once."""
+    angle = _ORDERS * phase[:, None, :]
+    cos, sin = mx.cos(angle), mx.sin(angle)
+    return re * cos + im * sin, -(re * sin) + im * cos
 
 
 def coprecessing_to_inertial(re, im, quat):
