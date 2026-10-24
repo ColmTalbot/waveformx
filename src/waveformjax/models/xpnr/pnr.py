@@ -43,7 +43,7 @@ from ._math import (
     rotate_y, rotate_z, safe_div, safe_sqrt,
 )
 from .hm import qnm as _hm_qnm
-from ._transforms import switch
+from ._transforms import cond
 from .spintaylor import angles as st_angles
 
 __all__ = ["common_setup", "finish_setup"]
@@ -1383,10 +1383,11 @@ def pnr_beta_at(prec, wf, mf, bp, version, use_mr_beta):
     return value, error & below
 
 
-def merged_beta_at(prec, wf, mf, bp, version, smooth=False):
+def merged_beta_at(prec, wf, mf, bp, version, smooth=False, beyond=None):
     """``IMRPhenomX_PNR_GenerateMergedPNRBetaAtMf``; with ``smooth``
     (static), blended into LAL's ``beta`` beyond the transition region
-    (:func:`beta_no_mr`) with ``prec.q12_weight`` (between q = 12 and 12 +
+    (:func:`beta_no_mr`, or ``beyond``, its value and error flag if
+    computed already) with ``prec.q12_weight`` (between q = 12 and 12 +
     :data:`Q_SMOOTH_WIDTH`)."""
     pnr_window = pa.angles_window(wf.q, prec.chi_single_spin)
     msa_window = 1.0 - pnr_window
@@ -1415,7 +1416,9 @@ def merged_beta_at(prec, wf, mf, bp, version, smooth=False):
     high = pa.arctan_window(fma(pnr_window, mr, msa_window * beta_waveform_high))
     value, error = jnp.where(below, low, high), jnp.where(below, error, error_high)
     if smooth:
-        beyond, error_beyond = beta_no_mr(prec, wf, mf, bp, version, jnp.asarray(False))
+        if beyond is None:
+            beyond = beta_no_mr(prec, wf, mf, bp, version, jnp.asarray(False))
+        beyond, error_beyond = beyond
         u = prec.q12_weight
         value = jnp.where(u > 0.0, fma(u, beyond - value, value), value)
         error = error | ((u > 0.0) & error_beyond)
@@ -1456,41 +1459,48 @@ def uniform_angles(prec, wf, mf, version, st_values=None, smooth=False):
     error_alpha = jnp.where(cal, ea_cal, jnp.where(tra, ea_tra, ea_pn))
 
     # beta: in the calibration region with the MR beta attached, in the
-    # transition region with it attached, else without
+    # transition region with it attached, else without (for the smooth
+    # angles, also blends of the first two with the last). Each of the
+    # three is computed only where the binary needs it
+    # (:func:`._transforms.cond`; under jax.vmap, where some binary of the
+    # batch does): one copy of each to compile.
     fallback = isinstance(version, Fallback)
-
-    def variant(beta_of):
-        def run(operands):
-            prec, wf, mf, bp, attach, msa, st_values = operands
-            v = Fallback(msa) if fallback else version
-            if st_values is not None:
-                _st_spline_put(prec, wf, mf, st_values)
-            return beta_of(prec, wf, mf, bp, v, attach)
-        return run
-
-    def attached_cal(prec, wf, mf, bp, v, attach):
-        return pnr_beta_at(prec, wf, mf, bp, v, attach)
-
-    def attached_tra(prec, wf, mf, bp, v, attach):
-        return merged_beta_at(prec, wf, mf, bp, v, smooth)
-
-    def detached(prec, wf, mf, bp, v, attach):
-        return beta_no_mr(prec, wf, mf, bp, v, jnp.asarray(False))
-
-    def blended(attached):
-        def beta_of(prec, wf, mf, bp, v, attach):
-            b1, e1 = attached(prec, wf, mf, bp, v, jnp.asarray(True))
-            b0, e0 = detached(prec, wf, mf, bp, v, attach)
-            return fma(bp.attach_weight, b1 - b0, b0), e1 | e0
-        return beta_of
-
     case = jnp.where(attach & cal, 0, jnp.where(attach & tra, 1, 2))
-    variants = [variant(attached_cal), variant(attached_tra), variant(detached)]
     if smooth:
         partial = (weight > 0.0) & (weight < 1.0)
         case = jnp.where(partial & cal, 3, jnp.where(partial & tra, 4, case))
-        variants += [variant(blended(attached_cal)), variant(blended(attached_tra))]
-    beta, error_beta = switch(case, variants, (prec, wf, mf, bp, attach, version.msa if fallback else None, st_values))
+    in_tra = (case == 1) | (case == 4)
+    need_detached = (case >= 2) | (in_tra & (prec.q12_weight > 0.0)) if smooth else case == 2
+
+    def guarded(beta_of, needed, extra=None):
+        def run(operands):
+            prec, wf, mf, bp, msa, st_values, extra = operands
+            v = Fallback(msa) if fallback else version
+            if st_values is not None:
+                _st_spline_put(prec, wf, mf, st_values)
+            return beta_of(prec, wf, mf, bp, v, extra)
+
+        def skip(operands):
+            mf = operands[2]
+            return jnp.zeros(mf.shape), jnp.zeros(mf.shape, bool)
+
+        return cond(needed, run, skip, (prec, wf, mf, bp, version.msa if fallback else None, st_values, extra))
+
+    detached = guarded(lambda prec, wf, mf, bp, v, _: beta_no_mr(prec, wf, mf, bp, v, jnp.asarray(False)),
+                       need_detached)
+    calibration = guarded(lambda prec, wf, mf, bp, v, _: pnr_beta_at(prec, wf, mf, bp, v, jnp.asarray(True)),
+                          (case == 0) | (case == 3))
+    transition = guarded(lambda prec, wf, mf, bp, v, beyond: merged_beta_at(prec, wf, mf, bp, v, smooth, beyond),
+                         in_tra, detached if smooth else None)
+
+    def blend(attached):
+        return fma(bp.attach_weight, attached[0] - detached[0], detached[0]), attached[1] | detached[1]
+
+    choices = [calibration, transition, detached]
+    if smooth:
+        choices += [blend(calibration), blend(transition)]
+    beta = jnp.select([case == i for i in range(len(choices))], [c[0] for c in choices])
+    error_beta = jnp.select([case == i for i in range(len(choices))], [c[1] for c in choices])
     return alpha, beta, error_alpha | error_beta
 
 
