@@ -365,9 +365,11 @@ def _spintaylor_setup(base, wf0, m1_si, m2_si, modes, needs_st):
 
 
 def _lean_setup(base, wf0, m1, m2, modes, needs_st):
-    """:func:`_spintaylor_setup` of the lean model: one integration (the
-    lean solution reaches the start of the grid of the PNR interpolants,
-    which is where LAL's integration starts; an error if it does not)."""
+    """:func:`_spintaylor_setup` of the lean model: one integration, from
+    low enough a frequency (:func:`.pnr.common_setup`) that LAL's second
+    integration from the start of the grid of the PNR interpolants is not
+    needed (an error where it would be). The two passes of
+    :func:`_spintaylor_setup` compile to ~8% more instructions."""
     st = pnr.spintaylor_solution(base, wf0, m1, m2, active=needs_st)
     prec, wf = pnr.finish_setup(base, wf0, 330, st)
     prec = pnr.st_bank(prec, wf)

@@ -139,9 +139,8 @@ def common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, parity_fix, extended
     model (:mod:`.spintaylor.lean`), which implies the other three; for it
     ``grid_range`` (static, :func:`mode_range` of the modes of the grid of
     the PNR interpolants) lowers the start of its one integration by the
-    ratio of the largest ``m``, where LAL integrates again from the start
-    of the grid, which reaches lower than ``mode_range_`` (the J-frame
-    modes).
+    ratio of the largest ``m``, where the grid reaches lower than
+    ``mode_range_`` (the J-frame modes; LAL integrates again there).
     Returns ``(prec, wf)``; ``wf`` gets the tuned co-precessing flag as LAL
     sets it.
     """
@@ -250,14 +249,27 @@ def common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, parity_fix, extended
         flow = jnp.floor(flow / delta_f_int) * delta_f_int
     prec.integration_buffer = integration_buffer
     prec.st_flow = flow
-    if lean and grid_range is not None:
-        # (the frequency maps of the modes scale as 2 / m)
-        prec.st_flow_lean = flow * m_max / grid_range[1]
+    if lean:
+        # one integration (see model._lean_setup): lower by the ratio of the
+        # largest m of the grid's modes (the frequency maps of the modes scale
+        # as 2 / m: the J-frame modes), and by half for heavy binaries, whose
+        # grid can start lower still where the frequency maps of the higher
+        # modes approach their ringdown maps (LAL integrates again there; of
+        # 1400 random binaries, one, of 450 solar masses at Mf = 0.006, needed
+        # a factor 0.66). Heavy binaries take few steps.
+        m_grid = m_max if grid_range is None else grid_range[1]
+        heavy = hz_to_mf(flow, wf.m_tot) > LEAN_HEAVY_MF
+        prec.st_flow_lean = flow * m_max / m_grid * jnp.where(heavy, 0.5, 1.0)
     prec.st_flow_ok = ~jnp.isnan(flow) & (flow > 0.0)
     # the end of the integration: fRING + 8 fDAMP of the aligned-spin struct
     prec.st_fcut = mf_to_hz(wf.f_ring + 8.0 * wf.f_damp, wf.m_tot)
     prec.m_min, prec.m_max, prec.l_max_pnr = m_min, m_max, l_max
     return prec, wf
+
+
+#: Above this ``Mf`` of the start of the SpinTaylor integration, the lean
+#: model integrates from half of it (:func:`common_setup`).
+LEAN_HEAVY_MF = 0.004
 
 
 def spintaylor_solution(prec, wf, m1_si, m2_si, flow=None, fcut=None, active=True):
@@ -267,14 +279,12 @@ def spintaylor_solution(prec, wf, m1_si, m2_si, flow=None, fcut=None, active=Tru
     at the call, which the PNR set-up has changed when it integrates
     again)."""
     if flow is None:
-        flow = prec.st_flow
+        flow = prec.st_flow_lean if "st_flow_lean" in prec else prec.st_flow
     if fcut is None:
         fcut = prec.st_fcut
     flow_safe = jnp.where(prec.st_flow_ok, flow, wf.f_min)
     if prec.lean:
         from .spintaylor import lean as st_lean
-        if "st_flow_lean" in prec:
-            flow_safe = jnp.where(prec.st_flow_ok, prec.st_flow_lean, wf.f_min)
         sol = st_lean.solution(m1_si, m2_si, prec.chi1, prec.chi2, wf.f_ref, flow_safe, fcut, active)
         sol.failed = sol.failed | ~prec.st_flow_ok
         return sol

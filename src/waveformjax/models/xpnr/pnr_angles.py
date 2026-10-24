@@ -206,6 +206,9 @@ def _raw_and_safe(function, *args):
     coefficients, into the many kernels of both evaluations and their
     derivatives, which multiplies the compilation time."""
     args = lax.optimization_barrier(args)
+    if is_lean():
+        # (the lean model: the decisions of the finite evaluation)
+        return function(*args, safe=True, branch=_Branches())
     branches = _Branches()
     raw = function(*jax.tree_util.tree_map(lax.stop_gradient, args), safe=False, branch=branches)
     safe = function(*args, safe=True, branch=_Branches(branches.recorded))
