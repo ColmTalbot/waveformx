@@ -147,6 +147,9 @@ def clean(code: str) -> str:
     code = code.replace("jnp.sqrt(fnms(4.0, eta, 1.0))", "sqrt_nonneg(fnms(4.0, eta, 1.0))")
     # sqrt(eta (1 - 4 eta)), which also vanishes at equal masses
     code = code.replace("jnp.sqrt(fma(-4.0, eta2, eta))", "sqrt_nonneg(fma(-4.0, eta2, eta))")
+    # sqrt(1 - gamma2^2) of the peak of the ringdown amplitude, in the branch
+    # not taken for gamma2 > 1 (a NaN there gives NaN reverse-mode gradients)
+    code = code.replace("jnp.sqrt(fma(-gamma2, gamma2, 1.0))", "sqrt_nonneg(fma(-gamma2, gamma2, 1.0))")
     code = re.sub(r"\bcrate\.[a-z_]+\.(?:[a-z_]+\.)*", "", code)
     code = re.sub(r"\bsuper\.(?:[a-z_]+\.)*", "", code)
     return code

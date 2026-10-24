@@ -78,7 +78,7 @@ def amp_22_dansatz(mf, f_ring, f_damp, amp):
 
 def amp_22_peak_frequency(gamma2, gamma3, frd, fda):
     """`IMRPhenomX_Ringdown_Amp_22_PeakFrequency`: frequency of the peak of the ringdown amplitude, Eq. 5.14 of arXiv:2001.11412."""
-    return jnp.where(gamma2 <= 1.0, jnp.abs((frd + fda * gamma3 * (jnp.sqrt(fma(-gamma2, gamma2, 1.0)) - 1.0) / gamma2)), jnp.abs((frd + fda * (-1.0) * gamma3 / gamma2)))
+    return jnp.where(gamma2 <= 1.0, jnp.abs((frd + fda * gamma3 * (sqrt_nonneg(fma(-gamma2, gamma2, 1.0)) - 1.0) / gamma2)), jnp.abs((frd + fda * (-1.0) * gamma3 / gamma2)))
 
 
 def phase_22_v4(eta, s, dchi, delta):
