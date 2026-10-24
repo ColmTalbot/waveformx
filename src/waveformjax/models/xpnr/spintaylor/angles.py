@@ -464,6 +464,9 @@ def spline_context(sol, rotation, mf_scale, geometric=False, direct=False):
     than from LAL's spline of ``alpha``; with ``direct`` too, the angles are
     evaluated from the solutions themselves (:func:`direct_spline`), without
     splines."""
+    if "lean" in sol:
+        from . import lean
+        return lean.context(sol, rotation, mf_scale)
     phi_j, theta_j, kappa = rotation
     tables = _alpha_tables(sol, rotation)
     state0 = knot_states(sol, jnp.zeros((), real()))
@@ -493,6 +496,9 @@ def spline(sol, rotation, mf, mf_scale, context=None):
     Returns ``(alpha, dalpha, cosbeta, dcosbeta, inside)``."""
     if context is None:
         context = spline_context(sol, rotation, mf_scale)
+    if "lean" in context:
+        from . import lean
+        return lean.angles(sol, rotation, mf, mf_scale, context)
     if "direct" in context:
         return direct_spline(sol, rotation, mf, mf_scale, context)
     return _spline_either(mf, (sol, rotation, mf_scale, context))
@@ -505,6 +511,10 @@ def spline_many(sol, rotation, mf, n, chunk, mf_scale, context=None):
     :func:`spline_table`."""
     if context is None:
         context = spline_context(sol, rotation, mf_scale)
+    if "lean" in context:
+        from . import lean
+        return chunked_map(lambda mf, args: lean.angles(args[0], args[1], mf, args[2], args[3]), mf, n, chunk,
+                           (sol, rotation, mf_scale, context))
     if "direct" in context:
         return chunked_map(lambda mf, args: direct_spline(args[0], args[1], mf, args[2], args[3]), mf, n, chunk,
                            (sol, rotation, mf_scale, context))
@@ -765,7 +775,7 @@ def direct_spline(sol, rotation, mf, mf_scale, context):
     # d/dMf = (d/dt) / (dMf/dt)
     dmf_dt = mf_scale * dydt[..., 0]
     r2 = lx * lx + ly * ly
-    dalpha_dt = jnp.where(r2 > SMALL_SQUARE, lx * dly - ly * dlx, 0.0) / jnp.where(r2 > SMALL_SQUARE, r2, 1.0)
+    dalpha_dt = jnp.where(r2 > small_square(), lx * dly - ly * dlx, 0.0) / jnp.where(r2 > small_square(), r2, 1.0)
     inside = (mf >= context.first_mf) & (mf <= context.last_mf)
     return alpha, safe_div(dalpha_dt, dmf_dt), lz, safe_div(dlz, dmf_dt), inside
 
@@ -782,7 +792,7 @@ def _geometric_alpha(alpha, lx, dlx, ly, dly):
     d = raw - alpha
     value = alpha + d - 2 * PI * jnp.round(d / (2 * PI))
     r2 = lx * lx + ly * ly
-    return value, jnp.where(r2 > SMALL_SQUARE, lx * dly - ly * dlx, 0.0) / jnp.where(r2 > SMALL_SQUARE, r2, 1.0)
+    return value, jnp.where(r2 > small_square(), lx * dly - ly * dlx, 0.0) / jnp.where(r2 > small_square(), r2, 1.0)
 
 
 def _atan2(y, x):
@@ -793,14 +803,20 @@ def _atan2(y, x):
 
 
 #: Below this ``x^2 + y^2``, the derivative of ``atan2(y, x)`` would divide
-#: by an underflowing square.
+#: by an underflowing square (float64; :func:`small_square` in float32).
 SMALL_SQUARE = 1e-280
+
+
+def small_square():
+    """:data:`SMALL_SQUARE` in the precision of the evaluation (``1e-30`` in
+    float32, where ``1e-280`` is zero)."""
+    return 1e-30 if real().itemsize == 4 else SMALL_SQUARE
 
 
 def small_atan2(y, x):
     """:func:`_atan2`, also zero (with a zero derivative) where ``x^2 +
     y^2 < SMALL_SQUARE``."""
-    small = x * x + y * y < SMALL_SQUARE
+    small = x * x + y * y < small_square()
     return jnp.arctan2(jnp.where(small, 0.0, y), jnp.where(small, 1.0, x))
 
 

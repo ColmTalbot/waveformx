@@ -101,6 +101,15 @@ class WaveformOptions:
       (default ``False``), rather than on LAL's uniform grid: far fewer
       points for light binaries, at the cost of a larger difference from
       LAL.
+    * ``lean``: the lean IMRPhenomXPNR (default ``False``): the extended
+      model with the direct angles and the parity fix, without the layers
+      that reproduce LAL's numerics: the precession equations integrated
+      once with a high-order method rather than step by step as LAL does
+      (and without LAL's finer re-run of the end of the inspiral), masses
+      in solar masses, no rounding to single precision of stored values.
+      LAL's physics (fits, ansatzes, the discrete choices of the higher
+      modes) is kept. It agrees with the extended model to its
+      integration error; the other precession options are ignored.
     * ``scaled_strain``: whether the models return the strain multiplied by
       ``1e21`` (default ``True``), which keeps the strain, its square and
       its derivatives within the range of float32; ``False`` gives the
@@ -114,6 +123,7 @@ class WaveformOptions:
     extended_spintaylor: bool = False
     extended_direct_angles: bool = True
     extended_phase_grid: bool = False
+    lean: bool = False
     scaled_strain: bool = True
 
     def __post_init__(self):
@@ -124,6 +134,7 @@ class WaveformOptions:
         _bool(self.extended_spintaylor, "extended_spintaylor")
         _bool(self.extended_direct_angles, "extended_direct_angles")
         _bool(self.extended_phase_grid, "extended_phase_grid")
+        _bool(self.lean, "lean")
         _bool(self.scaled_strain, "scaled_strain")
 
     @staticmethod

@@ -10,8 +10,8 @@ The modules follow LAL's files: :mod:`.internals`, :mod:`.phase22`,
 of release 122019), :mod:`.precession`, :mod:`.nnlo`, :mod:`.msa`,
 :mod:`.spintaylor` (the Euler angles of versions 102, 223 and 330),
 :mod:`.pnr_angles`, :mod:`.pnr` (the PNR machinery),
-:mod:`.antisymmetric`, :mod:`.model` (the polarizations and J-frame modes)
-and :mod:`.api` (``MODEL``). The fits are generated from waveformrs into
+:mod:`.antisymmetric`, :mod:`.model` (the polarizations and J-frame modes),
+:mod:`.lean` (the lean model) and :mod:`.api` (``MODEL``). The fits are generated from waveformrs into
 :mod:`._generated`.
 """
 

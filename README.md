@@ -42,6 +42,15 @@ The package has the same interface as the Python bindings of
     samples of it (`extended_direct_angles`), which is much faster for
     light binaries; a coarser grid for interpolating the angles
     (`extended_phase_grid`) makes light binaries faster still.
+  - A lean variant (`lean=True`): the extended variant with the parity fix,
+    without the parts that only reproduce LALSimulation's numerical
+    procedure. It solves the precession equations once with an accurate
+    integrator instead of repeating LALSimulation's integration step by
+    step, takes the derivatives in the higher modes exactly, and keeps
+    masses and stored coefficients at full precision. LALSimulation's
+    physics is unchanged, and the waveform is the extended variant's up
+    to the accuracy of the integration. It compiles and runs faster than
+    the other variants, and works in single precision.
   - Its output is the strain multiplied by 10^21, so that it can be used in
     single precision; the option `scaled_strain=False` gives the strain
     itself, as LALSimulation does.

@@ -16,6 +16,9 @@ IMRPhenomXPNR takes ~20-30 s, its derivatives more):
   public one adds the rule that assembles the full Jacobian, whose
   compilation is much slower): finite, and close to LAL where LAL uses the
   SpinTaylor angles;
+* the lean IMRPhenomXPNR (all modes) and its forward-mode derivative along
+  an in-plane spin, at that binary (close to the stored LAL polarizations)
+  and at an aligned and a non-spinning one, in one compilation;
 * NRSur7dq4 against LAL at one binary (if its data file is found).
 """
 
@@ -68,6 +71,21 @@ def extended_with_derivative():
     return jax.jit(along_spin)
 
 
+@functools.lru_cache(maxsize=None)
+def lean_with_derivative():
+    """The lean model and its derivative along ``chi_1x`` (one
+    compilation)."""
+    def along_spin(b):
+        tangent = jax.tree_util.tree_map(jnp.zeros_like, b)
+        tangent = tangent._replace(spin_1=tangent.spin_1.at[0].set(1.0))
+        return jax.jvp(lambda b: model._polarizations(b, FREQUENCIES, LEAN), (b,), (tangent,))
+
+    return jax.jit(along_spin)
+
+
+LEAN = WaveformOptions(lean=True, scaled_strain=False)
+
+
 def test_xpnr_matches_lal():
     hp, hc = default_model()(binary_of(CASE))
     for ours, name in ((hp, "hplus"), (hc, "hcross")):
@@ -88,6 +106,19 @@ def test_extended_xpnr_and_its_derivative(lal, spins):
 
         for ours, reference in zip((hp, hc), lal_polarizations(lal, CASE, DOMINANT)):
             assert compare(np.asarray(ours), reference)[1] < 1e-6
+
+
+@pytest.mark.parametrize("spins", ["generic", "aligned", "non-spinning"])
+def test_lean_xpnr_and_its_derivative(spins):
+    changes = {"generic": {}, "aligned": dict(spin_1=[0.0, 0.0, 0.3], spin_2=[0.0, 0.0, -0.1]),
+               "non-spinning": dict(spin_1=[0.0, 0.0, 0.0], spin_2=[0.0, 0.0, 0.0])}[spins]
+    (hp, hc), (dhp, dhc) = lean_with_derivative()(binary_of(CASE, **changes))
+    for x in (hp, hc, dhp, dhc):
+        assert np.all(np.isfinite(np.asarray(x)))
+    if spins == "generic":
+        for ours, name in ((hp, "hplus"), (hc, "hcross")):
+            reference = np.asarray(CASE[f"{name}_real"]) + 1j * np.asarray(CASE[f"{name}_imag"])
+            assert compare(np.asarray(ours), reference)[1] < 1e-5
 
 
 @requires_nrsur

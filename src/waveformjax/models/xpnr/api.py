@@ -28,19 +28,27 @@ from ...exceptions import InvalidParameterError, ModelError, PrecessionVersionUn
 from ..._results import FrequencyModes
 from . import model, pnr
 from ._math import MSUN_SI, MTSUN_SI
+from ._math import lean as lean_mode
 
 __all__ = ["MODEL", "XPNRModel"]
 
 
-@functools.partial(jax.jit, static_argnums=(3, 4, 5))
-def _prescription(binary, f_min, f_max, modes, parity_fix, extended=False):
+@functools.partial(jax.jit, static_argnums=(3, 4, 5, 6))
+def _prescription(binary, f_min, f_max, modes, parity_fix, extended=False, lean=False):
     """The flags deciding LAL's prescription and LAL's errors, for
     :meth:`XPNRModel.validate` (``f_min``, ``f_max`` the first and last
-    frequencies; ``extended``: those of the extended SpinTaylor angles)."""
+    frequencies; ``extended``: those of the extended SpinTaylor angles,
+    ``lean``: of the lean model)."""
+    with lean_mode(lean):
+        return _prescription_in(binary, f_min, f_max, modes, parity_fix or lean, extended or lean, lean)
+
+
+def _prescription_in(binary, f_min, f_max, modes, parity_fix, extended, lean):
     pnr.clear_cache()
     wf, m1_si, m2_si, chi1, chi2 = model.setup_waveform(binary, 0.0, f_min, f_max)
     wf.hm_release = 122019
-    base, wf0 = pnr.common_setup(wf, m1_si, m2_si, chi1, chi2, pnr.mode_range(modes), parity_fix, extended)
+    base, wf0 = pnr.common_setup(wf, m1_si, m2_si, chi1, chi2, pnr.mode_range(modes), parity_fix, extended, lean,
+                                 True, False, lean)
 
     def st_flags(_):
         st = pnr.spintaylor_solution(base, wf0, m1_si, m2_si)
@@ -93,7 +101,7 @@ class XPNRModel:
                 raise InvalidParameterError(f"mode array contains unavailable mode ({ell}, {emm})")
         flags = {k: np.asarray(v) for k, v in _prescription(binary, frequencies[0], frequencies[-1], modes,
                                                              options.pnr_parity_fix,
-                                                             options.extended_spintaylor).items()}
+                                                             options.extended_spintaylor, options.lean).items()}
         if flags["mass_ratio"]:
             raise InvalidParameterError("IMRPhenomXPNR is not valid at mass ratios beyond 1000")
         if flags["final_mass"]:
@@ -109,7 +117,7 @@ class XPNRModel:
             raise InvalidParameterError("the cutoff frequency lies below f_min")
         if flags["st_incomplete"] and not flags["st_failed"]:
             raise ModelError("the SpinTaylor integration exceeds the capacities of waveformjax")
-        if options.extended_spintaylor:
+        if options.extended_spintaylor or options.lean:
             if flags["st_failed"]:
                 raise ModelError("the extended SpinTaylor angles cannot be computed")
         elif not options.version_fallback:

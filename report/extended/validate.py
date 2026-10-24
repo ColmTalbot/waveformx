@@ -11,7 +11,7 @@ it), and the strict model (LAL's to rounding) as a check.
 
 Usage::
 
-    python report/extended/validate.py [--n 2000] [--widths 0.002,0.005,0.01]
+    python report/extended/validate.py [--n 2000] [--widths 0.002,0.005,0.01] [--variant lean]
 """
 
 import argparse
@@ -32,6 +32,7 @@ def main():
     parser.add_argument("--seed", type=int, default=2)
     parser.add_argument("--widths", default=str(pa.BETA_SOFT_WIDTH))
     parser.add_argument("--output", default="validation.json")
+    parser.add_argument("--variant", default="extended", help="extended or lean")
     args = parser.parse_args()
     import waveformrs as rs
     draws = []
@@ -65,7 +66,7 @@ def main():
         pa.BETA_SOFT_WIDTH = width
         pa.BETA_SOFT_ANGLE = 10.0 * width
         t = time.time()
-        extended = jax.jit(x.polarizations_fn("extended"))
+        extended = jax.jit(x.polarizations_fn(args.variant))
         mismatches = []
         for d, (rp, rc, f) in zip(draws, reference):
             a, b = (np.asarray(v) for v in extended(x.binary(d), jnp.asarray(f)))
@@ -75,7 +76,7 @@ def main():
         mm = np.array([m for m in mismatches if m is not None])
         print(f"width {width}: {time.time() - t:.0f} s, median {np.median(mm):.1e}, 99% {np.percentile(mm, 99):.1e}, "
               f"max {mm.max():.1e}, fraction above 1e-3 {np.mean(mm > 1e-3):.4f}", flush=True)
-    x.write(args.output, dict(n=len(draws), seed=args.seed, strict_vs_waveformrs=checks, draws=draws,
+    x.write(args.output, dict(n=len(draws), seed=args.seed, variant=args.variant, strict_vs_waveformrs=checks, draws=draws,
                                     mismatches=results))
 
 

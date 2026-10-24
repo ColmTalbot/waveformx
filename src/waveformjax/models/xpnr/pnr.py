@@ -40,7 +40,7 @@ from ._generated import qnm as _qnm
 from ._generated import utilities as _utilities
 from ._math import (
     C_SI, FRAC_PI_2, MTSUN_SI, PI, FencedModule, Struct, barrier, blocked_map, blocked_map_extra, blocked_scan,
-    chunked_map, fenced, fma, fnms, g_si, hz_to_mf, integer, mf_to_hz, real, rotate_y, rotate_z, safe_div, safe_sqrt,
+    chunked_map, dbl_epsilon, fenced, fma, fnms, g_si, hz_to_mf, integer, mf_to_hz, real, rotate_y, rotate_z, safe_div, safe_sqrt,
     tiny,
 )
 from .hm import qnm as _hm_qnm
@@ -122,7 +122,7 @@ def mode_range(modes):
 
 
 def common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, parity_fix, extended=False, smooth=False, direct=True,
-                 phase_grid=False):
+                 phase_grid=False, lean=False, grid_range=None):
     """The part of ``IMRPhenomXGetAndSetPrecessionVariables`` before the
     SpinTaylor integration: the spin quantities, the decisions on the
     prescription that do not need the integration, and the start of the
@@ -135,7 +135,13 @@ def common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, parity_fix, extended
     ``smooth`` (static) select the extended SpinTaylor angles and their
     continuous variant, and for it ``direct`` and ``phase_grid`` (static)
     the direct SpinTaylor angles and the phase grid (see
-    :func:`.model._decide`).
+    :func:`.model._decide`); ``lean`` (static) the solution of the lean
+    model (:mod:`.spintaylor.lean`), which implies the other three; for it
+    ``grid_range`` (static, :func:`mode_range` of the modes of the grid of
+    the PNR interpolants) lowers the start of its one integration by the
+    ratio of the largest ``m``, where LAL integrates again from the start
+    of the grid, which reaches lower than ``mode_range_`` (the J-frame
+    modes).
     Returns ``(prec, wf)``; ``wf`` gets the tuned co-precessing flag as LAL
     sets it.
     """
@@ -200,11 +206,12 @@ def common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, parity_fix, extended
         pnr_hm_mflow=jnp.zeros((), real()),
         pnr_hm_mfhigh=jnp.zeros((), real()),
         parity_fix=parity_fix,
+        lean=lean,
         extended=extended,
         smooth=smooth,
         direct_angles=bool(smooth and direct),
         phase_grid=bool(smooth and phase_grid),
-        pole=jnp.asarray(1.0 - 1e-15 if smooth else 1.0),
+        pole=jnp.asarray(1.0 - (1e-15 if real() == np.float64 else dbl_epsilon()) if smooth else 1.0),
         all_two_spin=jnp.asarray(smooth),
         transition_q=jnp.asarray(pa.PNR_Q_WINDOW_UPPER + (Q_SMOOTH_WIDTH if smooth else 0.0)),
         q12_weight=jnp.zeros((), real()),
@@ -243,6 +250,9 @@ def common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, parity_fix, extended
         flow = jnp.floor(flow / delta_f_int) * delta_f_int
     prec.integration_buffer = integration_buffer
     prec.st_flow = flow
+    if lean and grid_range is not None:
+        # (the frequency maps of the modes scale as 2 / m)
+        prec.st_flow_lean = flow * m_max / grid_range[1]
     prec.st_flow_ok = ~jnp.isnan(flow) & (flow > 0.0)
     # the end of the integration: fRING + 8 fDAMP of the aligned-spin struct
     prec.st_fcut = mf_to_hz(wf.f_ring + 8.0 * wf.f_damp, wf.m_tot)
@@ -261,6 +271,13 @@ def spintaylor_solution(prec, wf, m1_si, m2_si, flow=None, fcut=None, active=Tru
     if fcut is None:
         fcut = prec.st_fcut
     flow_safe = jnp.where(prec.st_flow_ok, flow, wf.f_min)
+    if prec.lean:
+        from .spintaylor import lean as st_lean
+        if "st_flow_lean" in prec:
+            flow_safe = jnp.where(prec.st_flow_ok, prec.st_flow_lean, wf.f_min)
+        sol = st_lean.solution(m1_si, m2_si, prec.chi1, prec.chi2, wf.f_ref, flow_safe, fcut, active)
+        sol.failed = sol.failed | ~prec.st_flow_ok
+        return sol
     sol = st_angles.pn_solution(m1_si, m2_si, prec.chi1, prec.chi2, wf.f_ref, flow_safe, fcut, active,
                                 extended=prec.extended, smooth=prec.smooth)
     sol.failed = sol.failed | ~prec.st_flow_ok
@@ -338,7 +355,8 @@ def _off_poles(prec, costheta):
     single-spin system and the PN waveform ``beta`` take ``sqrt(1 -
     costheta^2)`` or ``acos(costheta)``, whose derivatives are infinite for
     aligned spins (a change of their sine below ``5e-8``). ``prec.pole``
-    (traced) is 1, or ``1 - 1e-15`` for the smooth angles."""
+    (traced) is 1, or ``1 - 1e-15`` for the smooth angles (``1 - FLT_EPSILON``
+    in float32)."""
     return jnp.where(prec.pole < 1.0, jnp.clip(costheta, -prec.pole, prec.pole), costheta)
 
 
@@ -505,7 +523,7 @@ def interpolation_delta_f(prec, wf, f_min, version):
             # refine by a factor that goes from 1 to 4 across bands around
             # LAL's thresholds. (For vanishing in-plane spins, the ratio is
             # its limit, whose derivative does not divide by beta_max^2.)
-            tiny = beta_max < 1e-100
+            tiny = beta_max < (1e-100 if real() == np.float64 else 1e-30)
             limit = safe_div(jnp.abs(prec.s1_perp - prec.s2_perp), prec.s1_perp + prec.s2_perp)
             ratio = jnp.where(tiny, limit, safe_div(beta_min, jnp.where(tiny, 1.0, beta_max)))
             w = pa._ramp(0.01 - beta_min, GRID_SOFT_BETA) * pa._ramp(0.55 - ratio, GRID_SOFT_RATIO)
@@ -514,6 +532,11 @@ def interpolation_delta_f(prec, wf, f_min, version):
             dpsi_inv = jnp.where((beta_min < 0.01) & (ratio < 0.55), dpsi_inv / 4.0, dpsi_inv)
         delta_f_twospin = mf_to_hz(dpsi_inv / 4.0, wf.m_tot)
         use_twospin = two_spin(prec, version) & (delta_f_twospin < delta_f_alpha) & ~jnp.isnan(dpsi)
+        if real().itemsize == 4:
+            # (in float32 the MSA system of in-plane spins below 1e-6
+            # underflows, and its derivatives are not finite: the
+            # oscillations it estimates are negligible there)
+            use_twospin = use_twospin & (prec.chi_in_plane >= 1e-6)
         return jnp.where(use_twospin, jnp.maximum(delta_f_twospin, 1e-2), plain)
 
     if not isinstance(version, Fallback) and version // 100 == 3:
@@ -748,7 +771,7 @@ def _st_context(prec, wf):
     rotation = prec.st_rotation if "st_rotation" in prec else _rotation(prec)
     # the solution's arrays determine the J frame of its splines (set once,
     # by initialize_euler_angles) and the scale
-    anchors = (st.back.y, st.fwd.rows, st.fine.rows)
+    anchors = _st_anchors(prec)
     mf_scale = MTSUN_SI * wf.m_tot / prec.pi_gm
     if "st_context" in prec:
         # built once by initialize_euler_angles
@@ -766,6 +789,8 @@ ST_MANY = 1024
 
 def _st_anchors(prec):
     st = prec.st
+    if "lean" in st:
+        return (st.y, st.dense, st.h)
     return (st.back.y, st.fwd.rows, st.fine.rows)
 
 

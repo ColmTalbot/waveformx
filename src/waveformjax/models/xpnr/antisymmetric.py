@@ -25,7 +25,7 @@ from . import pnr
 from ._generated import inspiral as _inspiral
 from ._generated import intermediate as _intermediate
 from ._generated import ringdown as _ringdown
-from ._math import FRAC_PI_2, FRAC_PI_4, FencedModule, PI, Struct, barrier, fenced, fma, fnms, hz_to_mf, powers, real
+from ._math import FRAC_PI_2, FRAC_PI_4, FencedModule, PI, Struct, barrier, dbl_epsilon, fenced, fma, fnms, hz_to_mf, powers, real
 from ._transforms import cond
 from .amp22 import amp_ansatz, amp_coefficients
 from .phase22 import phase_22, phase_coefficients, phase_xas, time_shift_22
@@ -143,9 +143,9 @@ def smooth_amp_ratio(kappa, frequencies):
 
         return jax.lax.scan(block, initial, c)[1]
 
-    # (steps equal to 1e-12: the weights of every window differ by at most as
-    # much from the first window's)
-    equal_steps = jnp.all(jnp.abs(df - df[0]) <= 1e-12 * jnp.abs(df[0]))
+    # (steps equal to 1e-12, or to a few roundings in float32: the weights
+    # of every window differ by at most as much from the first window's)
+    equal_steps = jnp.all(jnp.abs(df - df[0]) <= max(1e-12, 8.0 * dbl_epsilon()) * jnp.abs(df[0]))
     outputs = cond(equal_steps, uniform, general, (df, total_df, rhs, kappa[:half]))
     smoothed = outputs.reshape(-1)[:end]
     return kappa.at[half:half + end].set(smoothed)

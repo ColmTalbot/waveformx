@@ -29,7 +29,7 @@ __all__ = [
     "fma", "fms", "fnms", "Struct", "powers", "POWERS_OF_LALPI", "safe_div", "safe_sqrt",
     "safe_log", "safe_arccos", "where", "dot", "cross", "norm", "rotate_y", "rotate_z",
     "hz_to_mf", "mf_to_hz", "materialized", "real", "integer", "complex_", "precision", "precision_of", "mass_unit",
-    "g_si", "tiny", "dbl_min", "dbl_epsilon", "narrowed",
+    "g_si", "lean", "is_lean", "tiny", "dbl_min", "dbl_epsilon", "narrowed",
 ]
 
 PI = float(np.pi)
@@ -75,17 +75,38 @@ def complex_():
     return np.dtype(np.complex64) if _PRECISION[-1] == np.float32 else np.dtype(np.complex128)
 
 
+# Whether the evaluation being traced is the lean model (see :func:`lean`).
+_LEAN = [False]
+
+
+@contextlib.contextmanager
+def lean(flag=True):
+    """Trace the lean model (:mod:`.lean`): without the emulations of
+    LAL's arithmetic (masses in kg, single-precision storage, guards
+    against fused multiply-adds); :func:`is_lean` tells."""
+    _LEAN.append(bool(flag))
+    try:
+        yield
+    finally:
+        _LEAN.pop()
+
+
+def is_lean():
+    """Whether the lean model is being traced."""
+    return _LEAN[-1]
+
+
 def mass_unit():
     """The unit of the masses LAL gives in kg: kg in float64 (LAL's round
     trips through ``MSUN_SI``, which keep its arithmetic), the solar mass in
     float32, where ``MSUN_SI`` squared (which XLA's constant folding can
-    form) is beyond the range."""
-    return 1.0 if _PRECISION[-1] == np.float32 else MSUN_SI
+    form) is beyond the range, and in the lean model."""
+    return 1.0 if _PRECISION[-1] == np.float32 or _LEAN[-1] else MSUN_SI
 
 
 def g_si():
     """The gravitational constant for masses in :func:`mass_unit`."""
-    return G_SI * MSUN_SI if _PRECISION[-1] == np.float32 else G_SI
+    return G_SI * MSUN_SI if mass_unit() == 1.0 else G_SI
 
 
 def tiny():

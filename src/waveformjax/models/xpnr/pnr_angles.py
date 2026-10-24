@@ -53,7 +53,7 @@ import jax
 import jax.numpy as jnp
 from jax import lax
 
-from ._math import NAN, PI, Struct, fma, fnms, safe_sqrt, tiny, real
+from ._math import NAN, PI, Struct, fma, fnms, is_lean, safe_sqrt, tiny, real
 
 __all__ = [
     "PNR_Q_WINDOW_LOWER", "PNR_CHI_WINDOW_LOWER", "PNR_Q_WINDOW_UPPER", "PNR_CHI_WINDOW_UPPER",
@@ -162,8 +162,10 @@ def _ratio(numerator, denominator):
 def _rounded(*values):
     """The values, rounded: an ``optimization_barrier`` keeps XLA (which
     contracts ``a * b + c`` into fused multiply-adds when it compiles) from
-    fusing a product into the sum or difference that uses it."""
-    values = lax.optimization_barrier(values)
+    fusing a product into the sum or difference that uses it (not in the
+    lean model)."""
+    if not is_lean():
+        values = lax.optimization_barrier(values)
     return values[0] if len(values) == 1 else values
 
 

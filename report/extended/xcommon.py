@@ -7,7 +7,8 @@ fallbacks and with the extended SpinTaylor angles (``report/extended``).
 The model is called through :func:`waveformjax.models.xpnr.model._decide`
 with the static flags of the three variants: LAL's (``fallback=True``),
 LAL's SpinTaylor angles only (``fallback=False``) and the extended, smooth
-angles (``extended=True``), as ``WaveformOptions`` selects them.
+angles (``extended=True``), as ``WaveformOptions`` selects them, and the
+lean model (``lean=True``).
 """
 
 import json
@@ -29,7 +30,8 @@ from waveformjax.models.xpnr import model, pnr  # noqa: E402
 DATA = HERE / "data"
 DATA.mkdir(exist_ok=True)
 MODES = model.DEFAULT_MODES
-VARIANTS = {"lal": dict(fallback=True), "strict": dict(fallback=False), "extended": dict(fallback=False, extended=True)}
+VARIANTS = {"lal": dict(fallback=True), "strict": dict(fallback=False), "extended": dict(fallback=False, extended=True),
+            "lean": dict(fallback=False, lean=True)}
 
 
 def polarizations_fn(variant):
@@ -38,9 +40,10 @@ def polarizations_fn(variant):
     flags = VARIANTS[variant]
 
     def f(b, frequencies):
-        pnr.clear_cache()
-        data = model._decide(b, frequencies, 0.0, frequencies[0], frequencies[-1], MODES, True, **flags)
-        hp, hc = model._twist_polarizations(data, MODES, frequencies)
+        with model.lean_mode(flags.get("lean", False)):
+            pnr.clear_cache()
+            data = model._decide(b, frequencies, 0.0, frequencies[0], frequencies[-1], MODES, True, **flags)
+            hp, hc = model._twist_polarizations(data, MODES, frequencies)
         nan = jnp.asarray(jnp.nan + 1j * jnp.nan, jnp.complex128)
         return jnp.where(data.error, nan, hp), jnp.where(data.error, nan, hc)
 

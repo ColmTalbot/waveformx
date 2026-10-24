@@ -20,7 +20,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from .._generated import spintaylor_coefficients as _pn
-from .._math import MTSUN_SI, PI, REAL4_EPS, FencedModule, Struct, fenced, fma, fnms, mass_unit
+from .._math import MTSUN_SI, PI, REAL4_EPS, FencedModule, Struct, fenced, fma, fnms, mass_unit, tiny
 
 pn = FencedModule(_pn)
 
@@ -223,7 +223,7 @@ def derivatives(c, y, safe=True):
     ``|omega|`` so that they stay finite."""
     omega = y[..., 1]
     ok = omega > 0.0
-    omega_eval = jnp.where(ok, omega, jnp.abs(omega) + 1e-300) if safe else omega
+    omega_eval = jnp.where(ok, omega, jnp.abs(omega) + tiny()) if safe else omega
     lnh = y[..., 2:5]
     s1 = y[..., 5:8]
     s2 = y[..., 8:11]

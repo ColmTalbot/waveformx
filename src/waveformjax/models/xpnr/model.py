@@ -36,7 +36,11 @@ are that branch with the static flags ``extended`` and ``smooth`` of the
 set-up (:func:`.pnr.common_setup`): the SpinTaylor solution goes on where
 LAL's stops (:func:`.spintaylor.angles.pn_solution`), every binary keeps the
 PNR machinery, and LAL's discrete switches are made continuous (see
-``report/extended`` for what changes and by how much).
+``report/extended`` for what changes and by how much). The lean model
+(``WaveformOptions.lean``, :mod:`.lean`) is the extended one with the
+static flag ``lean``: the SpinTaylor solution of :mod:`.spintaylor.lean`
+in one integration (:func:`_lean_setup`) and none of LAL's arithmetic
+emulations.
 """
 
 from __future__ import annotations
@@ -51,7 +55,10 @@ from . import hm, pnr
 from . import pnr_angles as pa
 from ._math import (
     PI, Struct, barrier, complex_, hz_to_mf, mass_unit, materialized, mf_to_hz, narrowed, precision, precision_of, real,
-    safe_sqrt,
+    safe_sqrt, tiny,
+)
+from ._math import (
+    lean as lean_mode,
 )
 from ._transforms import cond, differentiable, switch
 from .antisymmetric import antisymmetric_waveform
@@ -125,7 +132,7 @@ SQRT70 = 70.0 ** 0.5
 
 def half_angles(cos_beta):
     """``cos(beta / 2)`` and ``sin(beta / 2)`` from ``cos(beta)``."""
-    return safe_sqrt(jnp.abs(1.0 + cos_beta) / 2.0, 1e-300), safe_sqrt(jnp.abs(1.0 - cos_beta) / 2.0, 1e-300)
+    return safe_sqrt(jnp.abs(1.0 + cos_beta) / 2.0, tiny()), safe_sqrt(jnp.abs(1.0 - cos_beta) / 2.0, tiny())
 
 
 def wigner_d(ell, mprime, c, s):
@@ -357,6 +364,22 @@ def _spintaylor_setup(base, wf0, m1_si, m2_si, modes, needs_st):
     return _combine(carry, meta)
 
 
+def _lean_setup(base, wf0, m1, m2, modes, needs_st):
+    """:func:`_spintaylor_setup` of the lean model: one integration (the
+    lean solution reaches the start of the grid of the PNR interpolants,
+    which is where LAL's integration starts; an error if it does not)."""
+    st = pnr.spintaylor_solution(base, wf0, m1, m2, active=needs_st)
+    prec, wf = pnr.finish_setup(base, wf0, 330, st)
+    prec = pnr.st_bank(prec, wf)
+    prec = pnr.initialize_euler_angles(prec, wf)
+    prec = pnr.populate_structs(prec, wf, 330)
+    grid = pnr.interpolation_grid(prec, wf, modes, 330)
+    f0 = grid[0] * grid[2]
+    error = prec.error_structs | grid[3] | prec.error_euler | (prec.fmin_integration > f0)
+    flags = Struct(f0=f0, again=jnp.asarray(False), failed=st.failed, incomplete=st.incomplete, error=error)
+    return prec, wf, grid, flags
+
+
 #: The fields of the waveform struct that the co-precessing modes read
 #: after the precession set-up has modified it.
 WF_FIELDS = (
@@ -542,7 +565,7 @@ def _pipeline_330(setup, modes, frequencies, active=True):
 
 
 def _decide(binary, frequencies, delta_f, f_min, f_max, modes, parity_fix, mode_range_=None, check_reference=True,
-            fallback=True, extended=False, smooth=None, direct=True, phase_grid=False, amp_scale=1.0):
+            fallback=True, extended=False, smooth=None, direct=True, phase_grid=False, amp_scale=1.0, lean=False):
     """Set up the binary and compute the angle data of the prescription LAL
     would use. Without ``fallback`` (static), only the SpinTaylor angles
     (version 330) are computed, with the error flag set where LAL would use
@@ -552,7 +575,11 @@ def _decide(binary, frequencies, delta_f, f_min, f_max, modes, parity_fix, mode_
     parameters (:func:`.spintaylor.angles.pn_solution`); for the smooth
     angles, ``direct`` and ``phase_grid`` (static) select the direct
     SpinTaylor angles (:func:`.spintaylor.angles.direct_spline`) and the
-    phase grid of the PNR interpolants (:func:`.pnr.angle_interpolants`)."""
+    phase grid of the PNR interpolants (:func:`.pnr.angle_interpolants`).
+    ``lean`` (static) is the lean model (:mod:`.lean`): the smooth, direct
+    angles with the parity fix and the lean SpinTaylor solution."""
+    if lean:
+        extended, smooth, direct, parity_fix = True, True, True, True
     fallback = fallback and not extended
     smooth = extended if smooth is None else smooth
     wf, m1_si, m2_si, chi1, chi2 = setup_waveform(binary, delta_f, f_min, f_max, amp_scale)
@@ -565,12 +592,12 @@ def _decide(binary, frequencies, delta_f, f_min, f_max, modes, parity_fix, mode_
     if mode_range_ is None:
         mode_range_ = pnr.mode_range(modes)
     base, wf0 = barrier(pnr.common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, parity_fix, extended, smooth,
-                                         direct, phase_grid))
+                                         direct, phase_grid, lean, pnr.mode_range(modes)))
     error = error | base.error_spin | (wf0.f_max_prime <= wf0.f_min)
 
     # the SpinTaylor integration, where LAL attempts it
     needs_st = base.pnr_on & ~base.nnlo_from_start
-    setup = _spintaylor_setup(base, wf0, m1_si, m2_si, modes, needs_st)
+    setup = (_lean_setup if lean else _spintaylor_setup)(base, wf0, m1_si, m2_si, modes, needs_st)
     st_failed = needs_st & setup[3].failed
     if not fallback:
         data = _pipeline_330(setup, modes, frequencies, needs_st & ~st_failed)
@@ -607,7 +634,7 @@ def _decide(binary, frequencies, delta_f, f_min, f_max, modes, parity_fix, mode_
 
 
 def _polarizations(binary, frequencies, options):
-    with precision(precision_of(binary)):
+    with precision(precision_of(binary)), lean_mode(options.lean):
         return _polarizations_in(binary, frequencies, options)
 
 
@@ -618,7 +645,7 @@ def _polarizations_in(binary, frequencies, options):
     data = _decide(binary, frequencies, 0.0, frequencies[0], frequencies[-1], modes, options.pnr_parity_fix,
                    fallback=options.version_fallback, extended=options.extended_spintaylor,
                    direct=options.extended_direct_angles, phase_grid=options.extended_phase_grid,
-                   amp_scale=strain_scale(options))
+                   amp_scale=strain_scale(options), lean=options.lean)
     hp, hc = _twist_polarizations(data, modes, frequencies)
     nan = jnp.asarray(jnp.nan + 1j * jnp.nan, complex_())
     return jnp.where(data.error, nan, hp), jnp.where(data.error, nan, hc)
@@ -678,7 +705,7 @@ def jframe_modes(binary, frequencies, options, delta_f=0.0, f_min=None, f_max=No
 
 
 def _jframe_modes(binary, frequencies, options, delta_f, f_min, f_max):
-    with precision(precision_of(binary)):
+    with precision(precision_of(binary)), lean_mode(options.lean):
         return _jframe_modes_in(binary, frequencies, options, delta_f, f_min, f_max)
 
 
@@ -699,7 +726,7 @@ def _jframe_modes_in(binary, frequencies, options, delta_f, f_min, f_max):
         data = _decide(binary, frequencies, delta_f, f_min, f_max, modes, parity_fix, mode_range_=key,
                        check_reference=False, fallback=options.version_fallback,
                        extended=options.extended_spintaylor, direct=options.extended_direct_angles,
-                       phase_grid=options.extended_phase_grid, amp_scale=strain_scale(options))
+                       phase_grid=options.extended_phase_grid, amp_scale=strain_scale(options), lean=options.lean)
         hs = dict(zip(modes, _coprecessing_modes(data.wf, modes, frequencies, data.xas22)))
         results.append((jmodes, data, hs))
     else:
@@ -722,7 +749,7 @@ def _jframe_modes_in(binary, frequencies, options, delta_f, f_min, f_max):
                            mode_range_=(key[0], key[1], key[2]), check_reference=False,
                            fallback=options.version_fallback, extended=options.extended_spintaylor,
                            direct=options.extended_direct_angles, phase_grid=options.extended_phase_grid,
-                           amp_scale=strain_scale(options))
+                           amp_scale=strain_scale(options), lean=options.lean)
             hs = jax.lax.switch(ell_index, [modes_of(ell) for ell in ells], data.wf)
             return data, hs
 
