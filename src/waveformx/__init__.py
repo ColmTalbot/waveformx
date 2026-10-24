@@ -28,7 +28,7 @@ import jax
 
 jax.config.update("jax_enable_x64", True)
 
-from . import conversions, exceptions  # noqa: E402
+from . import conversions, exceptions, match  # noqa: E402
 from ._api import (  # noqa: E402
     approximants,
     batch_polarizations,
@@ -112,6 +112,7 @@ __all__ = [
     "BatchTimeSeries",
     "spin_weighted_spherical_harmonic",
     "conversions",
+    "match",
     "exceptions",
     "WaveformError",
     "InvalidParameterError",
