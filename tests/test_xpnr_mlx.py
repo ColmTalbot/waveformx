@@ -434,3 +434,111 @@ def test_interpolants():
             assert np.max(np.abs(got[:, j] - want[:, j])) <= max(3 * np.max(np.abs(single[:, j] - want[:, j])),
                                                                   1e-5 * scale), (name, j)
         assert np.array_equal(np.asarray(inside[0]), np.asarray(r64["values"].tree[1]).reshape(-1))
+
+
+# ---------------------------------------------------------------------------
+# stage 6: end to end
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def mlx_model():
+    from waveformjax.models.xpnr import mlx as xpnr_mlx
+
+    return xpnr_mlx
+
+
+@pytest.mark.parametrize("name", list(BINARIES))
+def test_polarizations(mlx_model, name):
+    """As close to float64 as JAX float32."""
+    binary = BINARIES[name]
+    f = frequencies_for(binary)
+    hp, hc = mlx_model.polarizations(binary, f)
+    ref64 = jax_reference(name, "float64")
+    ref32 = jax_reference(name, "float32")
+    for got, key in ((hp, "hp"), (hc, "hc")):
+        got = np.asarray(got)
+        want, single = np.asarray(ref64[key].tree), np.asarray(ref32[key].tree)
+        assert np.all(np.isfinite(got))
+        assert mismatch(got, want) <= max(3 * mismatch(single, want), 1e-8), (mismatch(got, want),
+                                                                                mismatch(single, want))
+
+
+def test_jacobian(mlx_model):
+    """The forward-mode Jacobian, as close to float64 as JAX float32's."""
+    names = ("generic", "light", "beyond")
+    for name in names:
+        binary = BINARIES[name]
+        f = frequencies_for(binary)
+        _, (jp, _) = mlx_model.polarizations_and_jacobian(binary, f)
+        jp = np.asarray(jp, np.complex128).T  # (12, N)
+        want = ref = jax_reference(name, "float64")["hp"].tangents[0]
+        single = jax_reference(name, "float32")["hp"].tangents[0]
+        for p in range(P):
+            scale = np.max(np.abs(want[p]))
+            if scale == 0:
+                continue
+            err = np.max(np.abs(jp[p] - want[p])) / scale
+            err32 = np.max(np.abs(single[p] - want[p])) / scale
+            assert err <= max(3 * err32, 1e-3), (name, p, err, err32)
+        del ref
+
+
+@pytest.mark.parametrize("modes", [((2, 2), (2, -2)), None])
+def test_gradient(mlx_model, modes):
+    """The gradient of a noise-free log-likelihood (as test_xpnr_float32.py,
+    also with all modes) within its bounds of the float64 one."""
+    binary = BINARIES["generic"]
+    f = np.geomspace(20.0, 1024.0, 128)
+    data = lean.polarizations(as_dtype(binary._replace(mass_1=binary.mass_1 * 1.01), jnp.float64), jnp.asarray(f),
+                              mode_array=modes)
+
+    def log_likelihood(b, f):
+        hp, hc = lean.polarizations(b, f, mode_array=modes)
+        overlap = jnp.vdot(data[0], hp) + jnp.vdot(data[1], hc)
+        return jnp.real(overlap) - 0.5 * jnp.sum(jnp.abs(hp) ** 2 + jnp.abs(hc) ** 2)
+
+    double = jax.jit(jax.grad(log_likelihood))(as_dtype(binary, jnp.float64), jnp.asarray(f))
+    double = np.concatenate([np.ravel(np.asarray(x)) for x in double])
+    d = [mx.array(np.asarray(x).astype(np.complex64)) for x in data]
+
+    def mlx_log_likelihood(*fields):
+        hp, hc = mlx_model.polarizations(wf.Binary(*fields), f, mode_array=modes)
+        overlap = mx.sum(mx.conj(d[0]) * hp) + mx.sum(mx.conj(d[1]) * hc)
+        return mx.real(overlap) - 0.5 * mx.sum(mx.abs(hp) ** 2 + mx.abs(hc) ** 2)
+
+    args = [mx.array(np.asarray(v, np.float32)) for v in binary]
+    got = mx.grad(mlx_log_likelihood, argnums=list(range(8)))(*args)
+    got = np.concatenate([np.ravel(np.asarray(x, np.float64)) for x in got])
+    assert np.all(np.isfinite(got))
+    scale = np.max(np.abs(double))
+    assert np.all(np.abs(got - double) <= 1e-2 * np.abs(double) + 1e-3 * scale), (got, double)
+
+
+def test_batch(mlx_model):
+    """A batch gives each binary's values; shared and per-binary
+    frequencies alike."""
+    names = ("generic", "light", "unequal")
+    f = np.linspace(20.0, 512.0, 128)
+    batch = wf.Binary(*(np.stack([np.asarray(getattr(BINARIES[n], k), float) for n in names])
+                        for k in wf.Binary._fields))
+    hp, hc = mlx_model.polarizations(batch, f)
+    hp2, _ = mlx_model.polarizations(batch, np.broadcast_to(f, (3, 128)))
+    for b, name in enumerate(names):
+        single, _ = mlx_model.polarizations(BINARIES[name], f)
+        np.testing.assert_allclose(np.asarray(hp[b]), np.asarray(single), rtol=1e-5,
+                                   atol=1e-5 * np.max(np.abs(np.asarray(single))))
+        np.testing.assert_allclose(np.asarray(hp2[b]), np.asarray(single), rtol=1e-5,
+                                   atol=1e-5 * np.max(np.abs(np.asarray(single))))
+
+
+def test_nan_where_jax_fails(mlx_model):
+    """NaN where the JAX lean model gives NaN: the reference frequency
+    outside the frequencies, a spin above 1."""
+    f = np.linspace(20.0, 512.0, 64)
+    for binary in (BINARIES["generic"]._replace(f_ref=10.0),
+                   BINARIES["generic"]._replace(spin_1=(0.9, 0.5, 0.3))):
+        hp, _ = mlx_model.polarizations(binary, f)
+        expected, _ = lean.polarizations(as_dtype(binary, jnp.float64), jnp.asarray(f))
+        assert np.all(np.isnan(np.asarray(expected)))
+        assert np.all(np.isnan(np.asarray(hp)))
