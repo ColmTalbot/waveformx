@@ -27,6 +27,7 @@ import numpy as np
 
 from ..._results import FrequencyModes
 from ...exceptions import UnsupportedError
+from .. import check_reference_mf
 from ..xas.api import check
 from ..xpnr._math import MTSUN_SI
 from . import core, model
@@ -62,6 +63,7 @@ class XHMModel:
 
     def validate(self, binary, frequencies, options):
         """LALSimulation's checks of IMRPhenomXHM for concrete values."""
+        check_reference_mf(binary, options, "IMRPhenomXHM", supported=False)
         if options.mode_array is not None:
             raise UnsupportedError("IMRPhenomXHM computes every mode: select them from modes()")
         check(binary, frequencies, "IMRPhenomXHM")

@@ -126,8 +126,10 @@ class WaveformOptions:
       LAL's physics (fits, ansatzes, the discrete choices of the higher
       modes) is kept. It agrees with the extended model to its
       integration error; the other precession options are ignored.
-    * ``reference_mf``: with ``lean``, the reference frequency of the
-      binary in units of the total mass, ``M f_ref`` (default ``None``:
+    * ``reference_mf``: for the models that take it (the lean
+      IMRPhenomXPNR, TaylorF2 and IMRPhenomD; the others refuse it in
+      their checks), the reference frequency of the binary in units of the
+      total mass, ``M f_ref`` (default ``None``:
       LAL's convention, ``Binary.f_ref`` in Hz). The spins, the
       inclination and ``phi_ref`` are then given at ``f_ref =
       reference_mf / M``, late in the inspiral for every binary
@@ -173,8 +175,6 @@ class WaveformOptions:
         _bool(self.lean, "lean")
         _bool(self.scaled_strain, "scaled_strain")
         object.__setattr__(self, "reference_mf", _reference_mf(self.reference_mf))
-        if self.reference_mf is not None and not self.lean:
-            raise InvalidParameterError("reference_mf needs the lean IMRPhenomXPNR (lean=True)")
 
     @staticmethod
     def lalsimulation_defaults() -> "WaveformOptions":

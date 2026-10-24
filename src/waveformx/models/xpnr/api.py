@@ -93,6 +93,8 @@ class XPNRModel:
 
     def validate(self, binary, frequencies, options):
         """LALSimulation's checks of IMRPhenomXPNR for concrete values."""
+        if options.reference_mf is not None and not options.lean:
+            raise InvalidParameterError("reference_mf needs the lean IMRPhenomXPNR (lean=True)")
         frequencies = np.asarray(frequencies, dtype=float)
         if frequencies.size == 0:
             return

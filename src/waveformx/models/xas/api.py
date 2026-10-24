@@ -21,6 +21,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from ...exceptions import InvalidParameterError, UnsupportedError
+from .. import check_reference_mf
 from ..xpnr._math import lean
 from ..xpnr.internals import waveform_struct
 from . import model
@@ -69,6 +70,7 @@ class XASModel:
 
     def validate(self, binary, frequencies, options):
         """LALSimulation's checks of IMRPhenomXAS for concrete values."""
+        check_reference_mf(binary, options, "IMRPhenomXAS", supported=False)
         check(binary, frequencies, "IMRPhenomXAS")
 
     def polarizations(self, binary, frequencies, options):
