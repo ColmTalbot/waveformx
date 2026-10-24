@@ -202,7 +202,13 @@ def _rho(version, iv, p_cut, p, p_orig):
     """The pseudo-PN coefficients ``rho1``, ``rho2``, ``rho3`` for
     ``IMRPhenomXHMInspiralAmpVersion = version`` collocation points (the
     other versions are evaluated on the original, distinct frequencies so
-    that they stay finite)."""
+    that they stay finite).
+
+    The frequencies are the powers of the collocation frequencies in units
+    of the end of the inspiral (``rho`` is homogeneous of degree zero in
+    them): in physical units the denominator of ``rho*_3`` is ~1e-19 for
+    ``Mf ~ 0.01``, and its square in the derivative of the quotient falls
+    below the range of float32 (NaN tangents of the higher modes)."""
     iv1, iv2, iv3 = iv
     p1, p2, p3 = p
     o1, o2, o3 = p_orig
@@ -278,6 +284,10 @@ def amplitude_coefficients(wf, hm, rotate=None, defer=False):
     p123 = powers(jnp.stack([fcut, 0.75 * fcut, 0.5 * fcut]))
     p1, p2, p3 = _part(p123, 0), _part(p123, 1), _part(p123, 2)
     p_cut = p1
+    # (the same frequencies in units of fcut, for the coefficients rho)
+    u123 = powers(jnp.asarray([1.0, 0.75, 0.5], real()))
+    u1, u2, u3 = _part(u123, 0), _part(u123, 1), _part(u123, 2)
+    u_cut = u1
     pn_insp = pn_amp_rescaled(p123, pn, amp_norm, pn21, use_famp_pn)
     colloc = fit.colloc
     iv1 = colloc[0] - pn_insp[0]
@@ -316,23 +326,28 @@ def amplitude_coefficients(wf, hm, rotate=None, defer=False):
         iv2 = jnp.where(c, 0.0, iv2)
         version = jnp.where(c, version - 1, version)
     # rename the remaining collocation points and frequencies
-    p_orig = (p1, p2, p3)
+    u_orig = (u1, u2, u3)
     c = iv2 == 0.0
     iv2 = jnp.where(c, iv3, iv2)
     iv3 = jnp.where(c, 0.0, iv3)
     p2 = select(c, p3, p2)
+    u2 = select(c, u3, u2)
     c = iv1 == 0.0
     iv1 = jnp.where(c, iv2, iv1)
     p1 = select(c, p2, p1)
+    u1 = select(c, u2, u1)
     p_cut = select(c, p1, p_cut)
+    u_cut = select(c, u1, u_cut)
     iv2 = jnp.where(c, iv3, iv2)
     iv3 = jnp.where(c, 0.0, iv3)
     p2 = select(c, p3, p2)
+    u2 = select(c, u3, u2)
     # PN only: the inspiral ends at the MECO frequency of the mode
     p_cut = select(version == 0, powers(hm.f_meco_lm), p_cut)
     f_amp_match_in = p_cut.itself
     amp.inspiral_amp_version = version
-    amp.rho = _rho(version, (iv1, iv2, iv3), p_cut, (p1, p2, p3), p_orig)
+    # (with version 0 the rho vanish: u_cut is not the MECO frequency)
+    amp.rho = _rho(version, (iv1, iv2, iv3), u_cut, (u1, u2, u3), u_orig)
     amp.fcut_insp_seven_thirds = p_cut.seven_thirds
     amp.fcut_insp_eight_thirds = p_cut.eight_thirds
     amp.fcut_insp_three = p_cut.three

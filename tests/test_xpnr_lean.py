@@ -48,6 +48,14 @@ SPECIAL = {
     "single": dict(spin_1=(0.5, 0.2, 0.3), spin_2=(0.0, 0.0, 0.0)),
     "non-spinning": dict(spin_1=(0.0, 0.0, 0.0), spin_2=(0.0, 0.0, 0.0)),
 }
+# float32 NaN tangents fixed: the pseudo-PN inspiral amplitude of the (2,1)
+# at q = 18 (a denominator ~1e-19 squared), and the ringdown beta below
+# -0.3 rad (an overflowing power in the arctan window)
+FLOAT32_REGRESSIONS = {
+    "q18": BINARIES["unequal"],
+    "negative_beta_rd": dict(mass_1=137.657, mass_2=7.195, spin_1=(-0.31, -0.824, 0.303),
+                             spin_2=(0.113, 0.336, 0.036)),
+}
 
 
 def binary(mass_1=36.0, mass_2=29.0, spin_1=(0.4, 0.2, 0.3), spin_2=(-0.2, 0.3, -0.1), f_ref=20.0, dtype=jnp.float64):
@@ -120,9 +128,9 @@ def test_lean_close_to_lal():
 
 
 @pytest.mark.parametrize("dtype", [jnp.float64, jnp.float32], ids=["float64", "float32"])
-@pytest.mark.parametrize("which", list(SPECIAL) + ["beyond"])
+@pytest.mark.parametrize("which", list(SPECIAL) + ["beyond"] + list(FLOAT32_REGRESSIONS))
 def test_lean_and_its_derivatives_finite(which, dtype):
-    spins = SPECIAL.get(which, BINARIES.get(which))
+    spins = SPECIAL.get(which, BINARIES.get(which, FLOAT32_REGRESSIONS.get(which)))
     b = binary(**spins, dtype=dtype)
     f = frequencies_for(b, 256, dtype)
     h, dh = with_derivative(LEAN)(b, f)

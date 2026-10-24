@@ -473,8 +473,12 @@ def arctan_window(beta):
     ``FRAC_PI_2``); ``pow(beta - pi / 2, 1 / p)`` of a negative base with
     the even exponent 500 is ``|beta - pi / 2|^500``. LAL's ``atan2(|beta -
     pi / 2|^500, 7.3e97)`` is computed as ``atan((|beta - pi / 2| / 7.3e97^(1 /
-    500))^500)``, whose power stays below 1.5 (both of LAL's overflow in
-    float32)."""
+    500))^500)`` (both of LAL's overflow in float32). That power exceeds 1
+    for ``beta < 0.0014`` and overflows float32 for ``beta < -0.3`` (the
+    ringdown ``beta`` of the PNR fits is negative for large mass ratios and
+    in-plane spins), where the derivative of ``atan`` would be ``inf / inf``:
+    there ``atan(x^500) = pi / 2 - atan(x^-500)`` (the same function, with
+    LAL's constants, to rounding)."""
     window_border = 0.01
     inside = (beta <= window_border) | (beta >= PI - window_border)
     p = 0.002
@@ -483,8 +487,13 @@ def arctan_window(beta):
     pi_by_2_1oq = 7.308338225719002e97
     windowed = jnp.where(inside, beta, 0.0)
     sign = jnp.where(windowed < pi_by_2, -1.0, 1.0)
-    ratio = (jnp.abs(windowed - pi_by_2) / pi_by_2_1oq ** p) ** (1.0 / p)
-    value = fma(sign * pi_by_2_1mp, jnp.arctan(ratio) ** p, pi_by_2)
+    base = jnp.abs(windowed - pi_by_2) / pi_by_2_1oq ** p
+    large = base > 1.0
+    # (both branches finite, with finite derivatives, for jax.grad)
+    small_ratio = jnp.where(large, 1.0, base) ** (1.0 / p)
+    inverse_ratio = (1.0 / jnp.where(large, base, 1.0)) ** (1.0 / p)
+    angle = jnp.where(large, 0.5 * PI - jnp.arctan(inverse_ratio), jnp.arctan(small_ratio))
+    value = fma(sign * pi_by_2_1mp, angle ** p, pi_by_2)
     return jnp.where(inside, value, beta)
 
 

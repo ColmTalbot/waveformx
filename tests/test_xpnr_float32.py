@@ -122,3 +122,27 @@ def test_scaled_strain():
     for a, b in zip(scaled, strain):
         a, b = np.asarray(a), np.asarray(b)
         assert np.max(np.abs(a - 1e21 * b)) < 1e-13 * np.max(np.abs(a))
+
+
+def test_arctan_window_float32_derivative():
+    """The window of the ringdown ``beta`` (Eq. 62 of arXiv:2107.08876) has
+    finite derivatives in float32 where LAL's power overflows (``beta <
+    -0.3``), and the same values and derivatives as in float64."""
+    from waveformjax.models.xpnr import pnr_angles
+    from waveformjax.models.xpnr._math import precision
+
+    beta = np.array([-2.0, -0.5, -0.3, -0.1, -1e-3, 0.0, 1e-3, 1.4e-3, 5e-3, 0.0099, 0.5, 3.135, 3.2, 3.5])
+    results = {}
+    for dtype in (np.float32, np.float64):
+        def window(b, dtype=dtype):
+            with precision(np.dtype(dtype)):
+                return pnr_angles.arctan_window(b)
+
+        b = jnp.asarray(beta, dtype)
+        value, tangent = jax.vmap(lambda x: jax.jvp(window, (x,), (jnp.ones_like(x),)))(b)
+        gradient = jax.vmap(jax.grad(window))(b)
+        assert np.all(np.isfinite(tangent)) and np.all(np.isfinite(gradient))
+        results[dtype] = (np.asarray(value, float), np.asarray(tangent, float))
+    (v32, t32), (v64, t64) = results[np.float32], results[np.float64]
+    assert np.allclose(v32, v64, rtol=1e-6, atol=1e-7)
+    assert np.allclose(t32, t64, rtol=1e-4, atol=1e-7)
