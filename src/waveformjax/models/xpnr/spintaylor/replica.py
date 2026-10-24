@@ -28,7 +28,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from .._math import DBL_MIN, Struct, isolated
+from .._math import DBL_MIN, Struct, isolated_step
 from .._transforms import while_loop
 from . import dynamics
 
@@ -310,9 +310,16 @@ def evolve_recorded(c, y0, deltat, max_iterations, capacity, components=None, ri
 
     def body(consts, s, records, active):
         c, deltat, _ = consts
-        # the attempt in a loop of its own (_math.isolated): its many small
-        # operations then run on the calling thread
-        new, row = isolated(_attempt, c, s, deltat)
+        # the attempt in a loop of its own (_math.isolated_step): its many
+        # small operations then run on the calling thread (the loop starts
+        # from the state and the whole row the attempt replaces)
+        if ring:
+            old_row = records[1][s.accepted % ring]
+        elif components is None:
+            old_row = records[0][jnp.minimum(s.accepted, capacity - 1)]
+        else:
+            old_row = jnp.zeros(2 + 3 * nv)
+        new, row = isolated_step(lambda state, c, deltat: _attempt(c, state, deltat), s, (c, deltat), old_row)
         # written at every attempt: a rejected one is overwritten by the
         # next accepted step (inactive under jax.vmap: written back unchanged)
         i = jnp.minimum(s.accepted, capacity - 1)

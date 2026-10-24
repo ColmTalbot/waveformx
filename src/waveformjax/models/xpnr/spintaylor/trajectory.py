@@ -28,7 +28,7 @@ import numpy as np
 
 from .._generated import dop853
 from . import dynamics
-from .._math import isolated
+from .._math import isolated_step
 from .integrate import fixed_steps
 
 __all__ = ["DENSE_COMPONENTS", "dop853_step", "integrate", "node_times", "evaluate", "evaluate_full"]
@@ -97,17 +97,22 @@ def _stages_looped(c, y, h, k0):
     stages in a ``jax.lax.fori_loop`` (one copy of the equations; the sums
     of the stages are rounded differently). Row 12 of ``A`` holds the
     weights ``B``: stage 12 is the derivative at the new state. Each
-    derivative runs in a loop of its own (:func:`~.._math.isolated`), so
+    derivative runs in a loop of its own (:func:`~.._math.isolated_step`), so
     that the loop over the stages (whose stages make a buffer of more than
     512 bytes) runs on the calling thread. Returns the stages (rows) and the
     new state."""
     k = jnp.zeros((dop853.N_STAGES_EXTENDED,) + y.shape, y.dtype).at[0].set(k0)
 
     def stage(s, k):
-        return k.at[s].set(isolated(_rhs, c, y + h * (jnp.asarray(_A)[s] @ k)))
+        # (the weighted sum of the stages as one fused reduction, and a
+        # plain dynamic update: few enough thunks for the loop body to run on
+        # the calling thread)
+        y_stage = y + h * jnp.sum(jnp.asarray(_A)[s][:, None] * k, axis=0)
+        k_s = isolated_step(lambda y_stage, c: _rhs(c, y_stage), y_stage, (c,))
+        return jax.lax.dynamic_update_slice(k, k_s[None], (s, 0))
 
     k = jax.lax.fori_loop(1, dop853.N_STAGES_EXTENDED, stage, k)
-    return k, y + h * (jnp.asarray(_B) @ k)
+    return k, y + h * jnp.sum(jnp.asarray(_B)[:, None] * k, axis=0)
 
 
 def _dense_looped(y, h, k, y_new, components=None):
@@ -117,7 +122,9 @@ def _dense_looped(y, h, k, y_new, components=None):
         k, y, y_new, k0, f_new = k[:, idx], y[idx], y_new[idx], k0[idx], f_new[idx]
     dy = y_new - y
     f = jnp.stack([dy, h * k0 - dy, 2.0 * dy - h * (f_new + k0)])
-    return jnp.concatenate([f, h * (jnp.asarray(_D) @ k)], axis=0)
+    # (weighted sums as fused reductions rather than small matrix products,
+    # each a call of its own on the CPU)
+    return jnp.concatenate([f, h * jnp.sum(jnp.asarray(_D)[:, :, None] * k[None], axis=1)], axis=0)
 
 
 def _step_in_time(du, omega, omega_dot):

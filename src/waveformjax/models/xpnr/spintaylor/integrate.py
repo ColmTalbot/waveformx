@@ -19,7 +19,7 @@ import jax
 import jax.numpy as jnp
 from jax.flatten_util import ravel_pytree
 
-from .._math import isolated
+from .._math import isolated_step
 from .._transforms import while_loop
 
 __all__ = ["fixed_steps"]
@@ -58,8 +58,8 @@ def fixed_steps(step, aux, y0, n, capacity):
         aux, _ = consts
         i, y = small
         # the step in a loop of its own, so that its many small operations
-        # run on the calling thread (see _math.isolated)
-        y_next, row = isolated(advance, aux, y)
+        # run on the calling thread (see _math.isolated_step)
+        y_next, row = isolated_step(lambda y, aux: advance(aux, y), y, (aux,), rows[i])
         # (inactive under jax.vmap: the row written back unchanged)
         row = jnp.where(active, row, rows[i])
         rows = jax.lax.dynamic_update_slice(rows, row[None], (i, jnp.zeros_like(i)))

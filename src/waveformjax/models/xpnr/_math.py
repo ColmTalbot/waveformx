@@ -265,26 +265,36 @@ def _index(tree, i):
     return jax.tree_util.tree_map(lambda x: jax.lax.dynamic_index_in_dim(x, i, keepdims=False), tree)
 
 
-def isolated(function, *args):
-    """``function(*args)``, computed in a ``jax.lax.while_loop`` of one
-    iteration.
+def isolated_step(function, state, consts=(), extra=None):
+    """``function(state, *consts)``, the next state (or, with ``extra``,
+    ``(next state, extra output)``), computed in a ``jax.lax.while_loop`` of
+    one iteration whose carry is the state (and ``extra``, a pytree of the
+    structure of the extra output, e.g. the row of a record it replaces).
 
     XLA's CPU runtime executes the body of a loop thunk by thunk on the
-    calling thread only when the body has few thunks or touches no buffer
-    larger than 512 bytes; otherwise it dispatches the thunks to a thread
-    pool, which costs microseconds per iteration. A loop whose body updates
-    a large array (a record of its iterations) keeps its many small
+    calling thread only when the body has at most 8 thunks or touches no
+    buffer larger than 512 bytes; otherwise it dispatches the thunks to a
+    thread pool, which costs microseconds per iteration. A loop whose body
+    updates a large array (a record of its iterations) keeps its many small
     operations on the calling thread when they are isolated in a nested
-    loop like this one. The loop is differentiable in forward mode."""
-    out_shape = jax.eval_shape(function, *args)
-    init = jax.tree_util.tree_map(lambda s: jnp.zeros(s.shape, s.dtype), out_shape)
-    # (behind a barrier, XLA cannot see that the loop runs once and inline it)
+    loop like this one, and itself runs on the calling thread if what is
+    left of its body is at most 8 thunks: the carry of the nested loop is
+    the state itself (no zeros copied into it, no input passed twice) for
+    that. The loop is differentiable in forward mode; ``consts`` are passed
+    through unchanged."""
     first = jax.lax.optimization_barrier(jnp.asarray(True))
+    if extra is None:
+        def body(carry):
+            return jnp.zeros((), bool), function(carry[1], *consts)
 
-    def body(carry):
-        return jnp.zeros((), bool), function(*args)
+        return jax.lax.while_loop(lambda carry: carry[0], body, (first, state))[1]
 
-    return jax.lax.while_loop(lambda carry: carry[0], body, (first, init))[1]
+    def body_extra(carry):
+        new, out = function(carry[1], *consts)
+        return jnp.zeros((), bool), new, out
+
+    _, new, out = jax.lax.while_loop(lambda carry: carry[0], body_extra, (first, state, extra))
+    return new, out
 
 
 def blocked_map(function, blocks, n_blocks, args=()):
