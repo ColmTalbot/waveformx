@@ -31,11 +31,21 @@ _SUMMARY = {name: i for i, name in enumerate(SUMMARY)}
 _TWO_PI = 2.0 * PI
 
 
+def _run(kernel, args, targs, batch, n_directions, n_points=None, shared=False):
+    """A generated kernel: its outputs as :class:`._kernels.Packed` (with
+    their tangents if ``n_directions``)."""
+    return kernel.run(args, targs if n_directions else None, batch=batch, n_directions=n_directions,
+                      n_points=n_points, shared=shared)
+
+
 def _call(kernel, trees, ttrees, batch, n_directions, n_points=None, shared=False):
-    """A generated kernel on values, or on values and tangents."""
-    if not n_directions:
-        return kernel.values(*trees, batch=batch, n_points=n_points, shared=shared), None
-    return kernel.tangents(trees, ttrees, batch, n_directions, n_points=n_points, shared=shared)
+    """A generated kernel: ``(outputs, tangents)`` as pytrees (the tangents
+    ``None`` without ``n_directions``)."""
+    out = _run(kernel, trees, ttrees, batch, n_directions, n_points, shared)
+    if isinstance(out, tuple):
+        values = tuple(p.tree() for p in out)
+        return values, (tuple(p.tangent_tree() for p in out) if n_directions else None)
+    return out.tree(), (out.tangent_tree() if n_directions else None)
 
 
 def _next_power_of_two(n, minimum=64):
@@ -171,7 +181,9 @@ def tables(solution, rotation, rotation_t, n_directions):
 
 def st_angles(solution, tab, st_range, st_range_t, rotation, rotation_t, mf, mf_t, n_directions):
     """The SpinTaylor angles ``(alpha, dalpha, cosbeta, dcosbeta, inside)``
-    at ``mf`` (``(B, M)``), and their tangents."""
+    at ``mf`` (``(B, M)``), and their tangents. The kernels read the steps
+    holding the points from the tables of the solution (no copies of the
+    steps for every point)."""
     rows, drows, _, n, _ = solution
     batch, m = mf.shape
     parts = _build.parts()
@@ -179,17 +191,17 @@ def st_angles(solution, tab, st_range, st_range_t, rotation, rotation_t, mf, mf_
     last = mx.maximum(n - 1, 0)[:, None]
     p = mx.clip(_arrays.count_le(tab.omega_low, n, omega) - 1, 0, last)
     r = mx.take_along_axis(tab.order, p, axis=1)
-    g, dg = _arrays.take(rows, r, drows)
-    y0, dense, t0, h, om1 = g[..., 0:4], g[..., 4:32].reshape(batch, m, 7, 4), g[..., 32], g[..., 33], g[..., 34]
-    x = parts.st_newton.values(omega, y0, dense, om1, batch=batch, n_points=m)
-    t = t0 + x * h
+    # (y[1:5] in columns 0-3 of a step, the dense output in 4-31, the time
+    # at its start in 32, the step in 33, M omega at its end in 34)
+    gather = dict(args={1: (0, None), 2: (4, None), 3: (34, None)}, table=rows, index=r)
+    x = parts.st_newton.run((omega, None, None, None), batch=batch, n_points=m, gather=gather).tree()
+    times, _ = _arrays.take(rows[..., 32:34], r)
+    t = times[..., 0] + x * times[..., 1]
     k = mx.clip(_arrays.count_le(tab.node_t, n, t) - 1, 0, last)
     node, dnode = _arrays.take(tab.alpha, k, tab.dalpha)
-    trees = (st_range, rotation, mf, y0, dense, t0, h, x, node)
-    ttrees = None
-    if n_directions:
-        ttrees = (st_range_t, rotation_t, mf_t, dg[..., 0:4, :], dg[..., 4:32, :].reshape(batch, m, 7, 4, n_directions),
-                  dg[..., 32, :], dg[..., 33, :], None, dnode)
-    return _call(parts.st_point_angles, trees, ttrees, batch, n_directions, n_points=m)
-
-
+    gather = dict(args={3: (0, 0), 4: (4, 4), 5: (32, 32), 6: (33, 33)}, table=rows, table_t=drows, index=r)
+    args = (st_range, rotation, mf, None, None, None, None, x, node)
+    targs = (st_range_t, rotation_t, mf_t, None, None, None, None, None, dnode) if n_directions else None
+    out = parts.st_point_angles.run(args, targs, batch=batch, n_directions=n_directions, n_points=m, gather=gather)
+    values = tuple(q.tree() for q in out)
+    return values, (tuple(q.tangent_tree() for q in out) if n_directions else None)

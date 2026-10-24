@@ -96,51 +96,71 @@ def take(values, index, tangents=None):
     return out, gather(tangents, extra + 1)
 
 
+@functools.lru_cache(maxsize=None)
+def _filter_kernel():
+    weights = ", ".join(f"{w!r}f" for w in _WEIGHTS)
+    source = f"""
+    uint tid = thread_position_in_grid.x;
+    uint n_rows = dims[0];
+    int size = (int)dims[1];
+    uint per = dims[2];
+    if (tid >= n_rows * (uint)size) return;
+    uint r = tid / size;
+    int k = (int)(tid % size);
+    int n = min(lengths[r / per], size);
+    if (k < 1 || k > n - 2) {{ out[tid] = 0.0f; return; }}
+    const float w[{2 * FILTER_HALF_WIDTH + 1}] = {{{weights}}};
+    const device float* yr = y + (size_t)r * size;
+    int period = max(2 * (n - 1), 2);
+    int upper = period / 2;
+    float acc = 0.0f;
+    for (int d = -{FILTER_HALF_WIDTH}; d <= {FILTER_HALF_WIDTH}; ++d) {{
+        int q = (k + d) % period;
+        if (q < 0) q += period;
+        float sign = 1.0f;
+        if (q > upper) {{ q = period - q; sign = -1.0f; }}
+        if (q < 1 || q > n - 2) continue;
+        float second = (yr[q + 1] - yr[q]) - (yr[q] - yr[q - 1]);
+        acc = metal::fma(w[d + {FILTER_HALF_WIDTH}], sign * second, acc);
+    }}
+    out[tid] = acc * scale[r / per];
+    """
+    return mx.fast.metal_kernel(name="xpnr_natural_curvatures", input_names=["y", "lengths", "scale", "dims"],
+                                output_names=["out"], source=source)
+
+
+def _filtered(rows, lengths, scale, per):
+    """The filter of :func:`natural_curvatures` on ``rows`` (``(R, N)``),
+    row ``r`` of length ``lengths[r // per]`` scaled by ``scale[r //
+    per]``."""
+    n_rows, size = rows.shape
+    total = n_rows * size
+    threads = 256
+    (out,) = _filter_kernel()(
+        inputs=[rows.astype(mx.float32), lengths.astype(mx.int32), scale.astype(mx.float32),
+                mx.array([n_rows, size, per], dtype=mx.uint32)],
+        grid=(max(-(-total // threads) * threads, threads), 1, 1), threadgroup=(threads, 1, 1),
+        output_shapes=[(n_rows, size)], output_dtypes=[mx.float32])
+    return out
+
+
 def natural_curvatures(y, n, h, y_tangents=None, h_tangents=None):
     """The second derivatives of the natural cubic spline through ``y[b,
     k]`` at ``k h[b]``, ``k < n[b]`` (zero beyond): ``y`` of shape ``(B,
     N)``, ``n`` (``(B,)``, int) and ``h`` (``(B,)``). With tangents
-    (``(B, N, P)`` and ``(B, P)``), also those of the result."""
+    (``(B, N, P)`` and ``(B, P)``), also those of the result (one Metal
+    kernel for the values, one for the tangents)."""
     batch, size = y.shape[0], y.shape[1]
-    half = FILTER_HALF_WIDTH
     n = mx.stop_gradient(n).astype(mx.int32)
-    k = mx.arange(size)[None, :]
-    interior = (k >= 1) & (k <= (n - 2)[:, None])
-
-    def second_differences(x):
-        before = mx.concatenate([x[:, :1], x[:, :-1]], axis=1)
-        after = mx.concatenate([x[:, 1:], x[:, -1:]], axis=1)
-        mask = interior.reshape(interior.shape + (1,) * (x.ndim - 2))
-        return mx.where(mask, (after - x) - (x - before), 0.0)
-
-    # the odd extension of the second differences about 0 and n - 1
-    period = mx.maximum(2 * (n - 1), 2)[:, None]
-    q = mx.arange(-half, size + half)[None, :]
-    qq = mx.remainder(q, period)
-    upper = period // 2
-    index = mx.where(qq <= upper, qq, period - qq)
-    sign = mx.where(qq <= upper, 1.0, -1.0)
-    index = mx.minimum(index, size - 1)
-
-    def filtered(r):
-        extra = r.ndim - 2
-        idx = mx.broadcast_to(index.reshape(index.shape + (1,) * extra), (batch, size + 2 * half) + r.shape[2:])
-        s = sign.reshape(sign.shape + (1,) * extra)
-        ext = s * mx.take_along_axis(r, idx, axis=1)
-        out = None
-        for j, w in enumerate(_WEIGHTS):
-            term = w * ext[:, j:j + size]
-            out = term if out is None else out + term
-        mask = interior.reshape(interior.shape + (1,) * extra)
-        return mx.where(mask, out, 0.0)
-
-    scale = (6.0 / (h * h))[:, None]
-    m = filtered(second_differences(y)) * scale
+    scale = 6.0 / (h * h)
+    m = _filtered(y, n, scale, 1)
     if y_tangents is None and h_tangents is None:
         return m, None
     dm = None
     if y_tangents is not None:
-        dm = filtered(second_differences(y_tangents)) * scale[..., None]
+        p = y_tangents.shape[-1]
+        rows = mx.moveaxis(y_tangents, 2, 1).reshape(batch * p, size)
+        dm = mx.moveaxis(_filtered(rows, n, scale, p).reshape(batch, p, size), 1, 2)
     if h_tangents is not None:
         term = -2.0 * m[..., None] * (h_tangents / h[:, None])[:, None, :]
         dm = term if dm is None else dm + term

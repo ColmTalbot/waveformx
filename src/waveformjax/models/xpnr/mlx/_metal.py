@@ -102,42 +102,70 @@ def _expression(op, args, kind, name_of):
     raise NotImplementedError(op)
 
 
-def _use_counts(program):
-    counts = [0] * len(program.instructions)
+def _dependent(program, n_primal):
+    """Which instructions depend on the inputs from index ``n_primal`` on
+    (the tangents of a program lowered from ``jax.jvp``)."""
+    dependent = [False] * len(program.instructions)
+    for i, (op, args, _) in enumerate(program.instructions):
+        if op == "input":
+            dependent[i] = n_primal is not None and args[0][0] >= n_primal
+        else:
+            dependent[i] = any(isinstance(a, Var) and dependent[a.id] for a in args)
+    return dependent
 
-    def use(x):
+
+def _use_counts(program, dependent):
+    """The uses of each value by the instructions and outputs (all, and
+    those that do not depend on tangents)."""
+    counts = [0] * len(program.instructions)
+    primal = [0] * len(program.instructions)
+
+    def use(x, by_primal):
         if isinstance(x, Var):
             counts[x.id] += 1
+            if by_primal:
+                primal[x.id] += 1
         elif isinstance(x, Complex):
-            use(x.re)
-            use(x.im)
+            use(x.re, by_primal)
+            use(x.im, by_primal)
 
-    for _, args, _ in program.instructions:
+    for i, (_, args, _) in enumerate(program.instructions):
         for a in args:
-            use(a)
+            use(a, not dependent[i])
     for out in program.outputs:
         for x in out.reshape(-1):
-            use(x)
-    return counts
+            use(x, True)
+    return counts, primal
 
 
-def _fusions(program):
+def _fusions(program, n_primal=None):
     """The additions and subtractions whose operand is a product used only
     there: written as fused multiply-adds (as XLA's CPU backend, whose
     float32 evaluation the JAX model is, contracts them; the Metal compiler
     does not contract across statements). Returns ``{add index: (mul
-    index, which operand)}`` and the set of the products absorbed."""
-    counts = _use_counts(program)
+    index, which operand)}`` and the set of the products absorbed (not
+    computed on their own).
+
+    For a program lowered from ``jax.jvp`` (``n_primal`` primal inputs),
+    the decisions for the values are taken from their uses by the values
+    alone (the tangent rules read some products again), so that the
+    values come out as in the program of the values, to the bit."""
+    dependent = _dependent(program, n_primal)
+    counts, primal = _use_counts(program, dependent)
     fused, absorbed = {}, set()
+    used = set()
     instructions = program.instructions
     for i, (op, args, kind) in enumerate(instructions):
         if kind != FLOAT or op not in ("add", "sub"):
             continue
+        uses = counts if dependent[i] else primal
         for position, a in enumerate(args):
             if (isinstance(a, Var) and instructions[a.id][0] == "mul" and instructions[a.id][2] == FLOAT
-                    and counts[a.id] == 1 and a.id not in absorbed):
+                    and dependent[a.id] == dependent[i] and uses[a.id] == 1 and a.id not in used):
                 fused[i] = (a.id, position)
-                absorbed.add(a.id)
+                used.add(a.id)
+                if counts[a.id] == 1:
+                    absorbed.add(a.id)
                 break
     return fused, absorbed
 
@@ -146,7 +174,7 @@ def _fusions(program):
 CONTRACT = True
 
 
-def body_lines(program, input_name, prefix="v", contract=None):
+def body_lines(program, input_name, prefix="v", contract=None, n_primal=None):
     """The statements of ``program``: ``input_name(index, k)`` gives the
     expression of element ``k`` of input ``index``. Returns the lines and
     a function giving the expression of a value (a :class:`Var` or a
@@ -161,7 +189,7 @@ def body_lines(program, input_name, prefix="v", contract=None):
 
     if contract is None:
         contract = CONTRACT
-    fused, absorbed = _fusions(program) if contract else ({}, set())
+    fused, absorbed = _fusions(program, n_primal) if contract else ({}, set())
     for i, (op, args, kind) in enumerate(program.instructions):
         if op == "input":
             index, k = args[0]
@@ -212,7 +240,7 @@ def function_source(program, name, n_primal=None):
             value = f"in{index}[{k}]"
         return value if kind == FLOAT else f"static_cast<{_TYPES[kind]}>({value})"
 
-    lines, name_of = body_lines(program, input_name)
+    lines, name_of = body_lines(program, input_name, n_primal=n_primal)
     for i, out in enumerate(program.outputs):
         for k, x in enumerate(out.reshape(-1)):
             if isinstance(x, Complex):

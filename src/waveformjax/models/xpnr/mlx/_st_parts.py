@@ -118,6 +118,11 @@ def step(c_vec, y, k0, h):
     return y_new, k[dop853.N_STAGES], dense, st_lean.margin(c, y_new)[None]
 
 
+def rhs(c_vec, y):
+    """The derivative of the state (``dynamics.derivatives``)."""
+    return st_lean._rhs(_c(c_vec), y)
+
+
 def going(c_vec, y):
     """:func:`..spintaylor.lean.going`, ``-1`` for NaN (as ``_end``)."""
     g = st_lean.going(_c(c_vec), y)
@@ -154,6 +159,7 @@ def _shapes():
     return {
         "setup": (setup, [s(N_INPUTS)]),
         "step_in_time": (step_in_time, [s(1), s(1), s(1)]),
+        "rhs": (rhs, [s(n_c), s(n_y)]),
         "step": (step, [s(n_c), s(n_y), s(n_y), s(1)]),
         "going": (going, [s(n_c), s(n_y)]),
         "margin": (margin, [s(n_c), s(n_y)]),

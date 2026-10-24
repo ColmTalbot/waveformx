@@ -26,7 +26,8 @@ import numpy as np
 
 from . import _build, _smooth
 from ._interpolants import interpolants, spline_values
-from ._solution import _call, _next_power_of_two, integrate, st_angles, tables
+from ._kernels import Packed
+from ._solution import _call, _next_power_of_two, _run, integrate, st_angles, tables
 
 __all__ = ["evaluate", "N_PARAMETERS", "binary_tangents"]
 
@@ -55,51 +56,135 @@ def _where_tree(mask, tree):
     return tree
 
 
-def evaluate(leaves, frequencies, modes, amp_scale, n_directions=0, keep=None):
-    """The polarizations of a batch: ``leaves`` the fields of the binaries
-    (``(B,)``, spins ``(B, 3)``, float32 MLX arrays), ``frequencies``
-    ``(1, N)`` (shared) or ``(B, N)``. Returns ``(h, error, jacobian)``
-    with ``h`` of shape ``(B, N, 4)`` (``Re h_+``, ``Im h_+``, ``Re h_x``,
-    ``Im h_x``; NaN where the model fails), ``error`` ``(B,)`` and the
-    Jacobian ``(B, N, 4, P)`` along the first ``n_directions`` parameters
-    (``None`` for none). ``keep`` (a dict) collects the intermediate
-    values."""
-    S = _build.stages(tuple(modes), float(amp_scale))
+#: The points of the grids of the PNR interpolants evaluated together (the
+#: binaries are grouped by the size of their grid, and the groups split
+#: below this many points): with tangents and without.
+POINTS_PER_GROUP = {True: 1 << 21, False: 1 << 24}
+#: The largest grid of the PNR interpolants (JAX's capacity).
+MAX_GRID = 1 << 19
+
+
+def _select(tree, index):
+    """The binaries ``index`` of a pytree of MLX arrays with a leading
+    batch axis (``None`` and Python leaves kept), or of a
+    :class:`._kernels.Packed`."""
+    import jax
+
+    if isinstance(tree, Packed):
+        return tree.select(index)
+
+    def pick(x):
+        return x[index] if isinstance(x, mx.array) and x.ndim > 0 else x
+
+    return jax.tree_util.tree_map(pick, tree, is_leaf=lambda x: x is None)
+
+
+#: The cost of a group of binaries (its launches) in points of the grid.
+GROUP_COST = 1 << 19
+
+
+def _groups(n_grid, n_directions):
+    """The binaries in groups by the size of their grid: ``[(indices,
+    size)]`` with ``size`` a power of two at least each grid of the group.
+    The binaries sorted by size are cut into runs that minimise the padded
+    points plus a cost per group (:data:`GROUP_COST`: its kernels are
+    launched one after the other), each run within the budget of
+    :data:`POINTS_PER_GROUP`."""
+    budget = POINTS_PER_GROUP[bool(n_directions)]
+    sizes = np.array([min(_next_power_of_two(max(int(n), 1), 1024), MAX_GRID) for n in n_grid])
+    distinct = sorted(set(sizes.tolist()))
+    counts = [int(np.sum(sizes == size)) for size in distinct]
+    # cheapest cut of the distinct sizes into runs (each padded to its largest)
+    best = [0.0] + [np.inf] * len(distinct)
+    cut = [0] * (len(distinct) + 1)
+    for j in range(1, len(distinct) + 1):
+        for i in range(j):
+            n = sum(counts[i:j])
+            cost = best[i] + GROUP_COST * max(1, -(-n * distinct[j - 1] // budget)) + n * distinct[j - 1]
+            if cost < best[j]:
+                best[j], cut[j] = cost, i
+    runs, j = [], len(distinct)
+    while j > 0:
+        runs.append((cut[j], j))
+        j = cut[j]
+    out = []
+    for i, j in reversed(runs):
+        size = distinct[j - 1]
+        index = np.nonzero(np.isin(sizes, distinct[i:j]))[0]
+        per = max(1, budget // size)
+        for start in range(0, len(index), per):
+            out.append((index[start:start + per], int(size)))
+    return out
+
+
+class _Setup:
+    """The set-up of a batch, up to the grid of the PNR interpolants."""
+
+
+def setup(leaves, frequencies, S, n_directions):
+    """Stages A, B (the SpinTaylor solution), C1, the bank and C2 for the
+    whole batch."""
     P = n_directions
     batch = leaves["mass_1"].shape[0]
-    shared = frequencies.shape[0] == 1 and batch > 1
-    n_freq = frequencies.shape[1]
     f_min, f_max = frequencies[:, 0], frequencies[:, -1]
-    if shared:
+    if frequencies.shape[0] == 1 and batch > 1:
         f_min = mx.broadcast_to(f_min, (batch,))
         f_max = mx.broadcast_to(f_max, (batch,))
     lt = binary_tangents(leaves, P) if P else None
+    st = _Setup()
     # A: the common set-up
-    (base, wf0, ode, error_a), (base_t, wf0_t, ode_t, _) = _pair(
-        _call(S.a, (leaves, f_min, f_max), (lt, None, None), batch, P))
+    base, wf0, ode, error_a = _run(S.a, (leaves, f_min, f_max), (lt, None, None), batch, P)
+    st.ode = ode.tree()
+    st.error_a = error_a.tree()
     # B: the SpinTaylor solution
-    solution, summary, summary_t = integrate(ode, ode_t, P)
+    st.solution, st.summary, summary_t = integrate(st.ode, ode.tangent_tree() if P else None, P)
     # C1: finish_setup and the points of the bank
-    (prec1, wf1, points, rotation, st_range), (prec1_t, wf1_t, points_t, rotation_t, st_range_t) = _pair(
-        _call(S.c1, (base, wf0, summary), (base_t, wf0_t, summary_t), batch, P))
-    tab = tables(solution, rotation, rotation_t, P)
-    bank, bank_t = st_angles(solution, tab, st_range, st_range_t, rotation, rotation_t, points, points_t, P)
+    prec1, wf1, points, rotation, st_range = _run(S.c1, (base, wf0, st.summary), (None, None, summary_t), batch, P)
+    st.rotation, st.rotation_t = rotation.tree(), rotation.tangent_tree() if P else None
+    st.st_range, st.st_range_t = st_range.tree(), st_range.tangent_tree() if P else None
+    st.tables = tables(st.solution, st.rotation, st.rotation_t, P)
+    bank, bank_t = st_angles(st.solution, st.tables, st.st_range, st.st_range_t, st.rotation, st.rotation_t,
+                             points.tree(), points.tangent_tree() if P else None, P)
     # C2: the rest of the set-up
-    (prec2, wf2, grid, error_c), (prec2_t, wf2_t, grid_t, _) = _pair(
-        _call(S.c2, (prec1, wf1, points, bank, st_range), (prec1_t, wf1_t, points_t, bank_t, st_range_t), batch, P))
-    n_grid = mx.maximum(grid[:, 1], 0.0)
-    n_grid = mx.where(mx.isfinite(n_grid), n_grid, 0.0).astype(mx.int32)
-    size = _next_power_of_two(int(np.max(np.asarray(n_grid))), 1024)
-    if size > (1 << 19):
-        size = 1 << 19
-    n_grid = mx.minimum(n_grid, size)
+    st.prec2, st.wf2, grid, error_c = _run(S.c2, (prec1, wf1, points, bank, st_range),
+                                           (None, None, None, bank_t, None), batch, P)
+    st.grid, st.grid_t = grid.tree(), grid.tangent_tree() if P else None
+    st.error_c = error_c.tree()
+    n_grid = mx.maximum(st.grid[:, 1], 0.0)
+    st.n_grid = mx.minimum(mx.where(mx.isfinite(n_grid), n_grid, 0.0), MAX_GRID).astype(mx.int32)
+    st.error = st.error_a | ~st.ode.active | st.summary.failed | st.error_c | st.summary.incomplete
+    st.extra = dict(summary_t=summary_t, points=points, bank=bank, bank_t=bank_t)
+    return st
+
+
+def finish(st, index, size, frequencies, S, modes, n_directions):
+    """The grid of the PNR interpolants of size ``size``, the interpolants
+    and the waveform of the binaries ``index`` of the set-up ``st``."""
+    P = n_directions
+    batch = len(index)
+    whole = batch == st.n_grid.shape[0] and np.array_equal(index, np.arange(batch))
+    idx = mx.array(np.asarray(index, np.int32))
+
+    def sel(x):
+        return x if whole else _select(x, idx)
+
+    if frequencies.shape[0] > 1:
+        frequencies = sel(frequencies)
+    n_freq = frequencies.shape[1]
+    solution, tab = sel(st.solution), sel(st.tables)
+    rotation, rotation_t = sel(st.rotation), sel(st.rotation_t)
+    st_range, st_range_t = sel(st.st_range), sel(st.st_range_t)
+    prec2, wf2 = sel(st.prec2), sel(st.wf2)
+    grid, grid_t = sel(st.grid), sel(st.grid_t)
+    wf2_tree, wf2_t = wf2.tree(), wf2.tangent_tree() if P else None
+    n_grid = mx.minimum(sel(st.n_grid), size)
     k = mx.arange(size, dtype=mx.float32)[None, :]
-    mf_grid, mf_grid_t = _call(_build.parts().grid_mf, (grid, wf2.m_tot, k),
+    mf_grid, mf_grid_t = _call(_build.parts().grid_mf, (grid, wf2_tree.m_tot, k),
                                (grid_t, wf2_t.m_tot if P else None, None), batch, P, n_points=size, shared=True)
     st_grid, st_grid_t = st_angles(solution, tab, st_range, st_range_t, rotation, rotation_t, mf_grid, mf_grid_t, P)
     # D: the PNR angles on the grid
-    (alpha, beta, err_grid), d_t = _pair(_call(S.d, (prec2, wf2, mf_grid, st_grid),
-                                               (prec2_t, wf2_t, mf_grid_t, st_grid_t), batch, P, n_points=size))
+    (alpha, beta, err_grid), d_t = _call(S.d, (prec2, wf2, mf_grid, st_grid), (None, None, mf_grid_t, st_grid_t),
+                                         batch, P, n_points=size)
     valid = k < n_grid[:, None].astype(mx.float32)
     alpha = mx.where(valid, alpha, 0.0)
     beta = mx.where(valid, beta, 0.0)
@@ -110,14 +195,13 @@ def evaluate(leaves, frequencies, modes, amp_scale, n_directions=0, keep=None):
     error_grid = mx.any(err_grid & valid, axis=1)
     splines = interpolants(alpha, beta, dalpha, dbeta, grid, grid_t, n_grid, P)
     # E: offsets, remapped J frame, coefficients
-    at_ref, inside_ref, dat_ref = spline_values(splines, wf2.f_ref[:, None], wf2_t.f_ref[:, None, :] if P else None,
-                                                P)
-    (prec_e, wf_e, extra, error_e), (prec_e_t, wf_e_t, extra_t, _) = _pair(
-        _call(S.e, (prec2, wf2, at_ref[:, 0], inside_ref[:, 0]),
-              (prec2_t, wf2_t, None if dat_ref is None else dat_ref[:, 0], None), batch, P))
+    at_ref, inside_ref, dat_ref = spline_values(splines, wf2_tree.f_ref[:, None],
+                                                wf2_t.f_ref[:, None, :] if P else None, P)
+    prec_e, wf_e, extra, error_e = _run(S.e, (prec2, wf2, at_ref[:, 0], inside_ref[:, 0]),
+                                        (None, None, None if dat_ref is None else dat_ref[:, 0], None), batch, P)
     # F1: the frequencies of the angles of each mode, the amplitude ratio
-    (mapped, map_errors, mf_as, kappa), f1_t = _pair(
-        _call(S.f1, (prec_e, wf_e, frequencies), (prec_e_t, wf_e_t, None), batch, P, n_points=n_freq))
+    (mapped, map_errors, mf_as, kappa), f1_t = _call(S.f1, (prec_e, wf_e, frequencies), (None, None, None), batch,
+                                                     P, n_points=n_freq)
     n_modes = len(modes)
     values, inside, dvalues = spline_values(splines, mapped.reshape(batch, n_freq * n_modes),
                                             None if not P else f1_t[0].reshape(batch, n_freq * n_modes, P), P)
@@ -125,35 +209,66 @@ def evaluate(leaves, frequencies, modes, amp_scale, n_directions=0, keep=None):
     inside = inside.reshape(batch, n_freq, n_modes)
     if dvalues is not None:
         dvalues = dvalues.reshape(batch, n_freq, n_modes, 6, P)
+    shared = frequencies.shape[0] == 1
     if (2, 2) in modes:
-        kappa_s = _smooth.smooth_amp_ratio(kappa, frequencies if shared else frequencies)
+        kappa_s = _smooth.smooth_amp_ratio(kappa, frequencies)
         dkappa_s = None
         if P:
             rows = mx.moveaxis(f1_t[3], 2, 1).reshape(batch * P, n_freq)
-            dkappa_s = _smooth.smooth_amp_ratio(rows, frequencies, rows_per_frequency=P if not shared else 1)
+            dkappa_s = _smooth.smooth_amp_ratio(rows, frequencies, rows_per_frequency=1 if shared else P)
             dkappa_s = mx.moveaxis(dkappa_s.reshape(batch, P, n_freq), 1, 2)
     else:
         kappa_s, dkappa_s = kappa, (f1_t[3] if P else None)
     st_f, st_f_t = st_angles(solution, tab, st_range, st_range_t, rotation, rotation_t, mf_as,
                              f1_t[2] if P else None, P)
     # F2: the angles, the modes and the twist
-    trees = (prec_e, wf_e, extra, frequencies, values, inside, map_errors, kappa_s, st_f[0], st_f[4])
-    ttrees = (prec_e_t, wf_e_t, extra_t, None, dvalues, None, None, dkappa_s, st_f_t[0] if P else None, None)
-    (h, err_f), f2_t = _pair(_call(S.f2, trees, ttrees, batch, P, n_points=n_freq))
-    error = (error_a | ~ode.active | summary.failed | error_c | summary.incomplete | error_grid | error_e
-             | mx.any(err_f, axis=1))
+    args = (prec_e, wf_e, extra, frequencies, values, inside, map_errors, kappa_s, st_f[0], st_f[4])
+    targs = (None, None, None, None, dvalues, None, None, dkappa_s, st_f_t[0] if P else None, None)
+    (h, err_f), f2_t = _call(S.f2, args, targs, batch, P, n_points=n_freq)
+    error = error_grid | error_e.tree() | mx.any(err_f, axis=1)
+    intermediate = dict(mf_grid=mf_grid, st_grid=st_grid, alpha=alpha, beta=beta, error_grid=error_grid,
+                        splines=splines, at_ref=at_ref, prec_e=prec_e, extra=extra, error_e=error_e, mapped=mapped,
+                        values=values, kappa=kappa, kappa_s=kappa_s, st_f=st_f, err_f=err_f)
+    return h, error, (f2_t[0] if P else None), intermediate
+
+
+def evaluate(leaves, frequencies, modes, amp_scale, n_directions=0, keep=None):
+    """The polarizations of a batch: ``leaves`` the fields of the binaries
+    (``(B,)``, spins ``(B, 3)``, float32 MLX arrays), ``frequencies``
+    ``(1, N)`` (shared) or ``(B, N)``. Returns ``(h, error, jacobian)``
+    with ``h`` of shape ``(B, N, 4)`` (``Re h_+``, ``Im h_+``, ``Re h_x``,
+    ``Im h_x``; NaN where the model fails), ``error`` ``(B,)`` and the
+    Jacobian ``(B, N, 4, P)`` along the first ``n_directions`` parameters
+    (``None`` for none). ``keep`` (a dict) collects the intermediate
+    values (of the set-up, and of the last group of binaries)."""
+    S = _build.stages(tuple(modes), float(amp_scale))
+    P = n_directions
+    batch = leaves["mass_1"].shape[0]
+    n_freq = frequencies.shape[1]
+    st = setup(leaves, frequencies, S, P)
+    groups = _groups(np.asarray(st.n_grid), P)
+    if len(groups) == 1:
+        h, error, jacobian, intermediate = finish(st, groups[0][0], groups[0][1], frequencies, S, modes, P)
+    else:
+        h = mx.zeros((batch, n_freq, 4))
+        error = mx.zeros((batch,), dtype=mx.bool_)
+        jacobian = mx.zeros((batch, n_freq, 4, P)) if P else None
+        for index, size in groups:
+            hg, eg, jg, intermediate = finish(st, index, size, frequencies, S, modes, P)
+            idx = mx.array(np.asarray(index, np.int32))
+            h[idx] = hg
+            error[idx] = eg
+            if P:
+                jacobian[idx] = jg
+            mx.eval(h, error, *([jacobian] if P else []))
+    error = error | st.error
     h = mx.where(error[:, None, None], float("nan"), h)
-    jacobian = None
     if P:
-        jacobian = mx.where(error[:, None, None, None], float("nan"), f2_t[0])
+        jacobian = mx.where(error[:, None, None, None], float("nan"), jacobian)
     if keep is not None:
-        keep.update(base=base, wf0=wf0, ode=ode, error_a=error_a, solution=solution, summary=summary,
-                    summary_t=summary_t, prec_c1=prec1, wf_c1=wf1, points=points, rotation=rotation,
-                    st_range=st_range, bank=bank, bank_t=bank_t, prec_c2=prec2, wf_c2=wf2, grid=grid,
-                    error_c=error_c, mf_grid=mf_grid, st_grid=st_grid, alpha=alpha, beta=beta,
-                    error_grid=error_grid, splines=splines, at_ref=at_ref, prec_e=prec_e, extra=extra,
-                    error_e=error_e, mapped=mapped, values=values, kappa=kappa, kappa_s=kappa_s, st_f=st_f,
-                    h=h, err_f=err_f, n_grid=n_grid)
+        keep.update(ode=st.ode, error_a=st.error_a, solution=st.solution, summary=st.summary, rotation=st.rotation,
+                    st_range=st.st_range, prec_c2=st.prec2, wf_c2=st.wf2, grid=st.grid, error_c=st.error_c,
+                    n_grid=st.n_grid, groups=groups, **st.extra, **intermediate)
     return h, error, jacobian
 
 
