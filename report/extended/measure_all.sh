@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 #
 # Re-run every measurement of the report on the extended SpinTaylor angles,

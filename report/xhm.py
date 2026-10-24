@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
-"""IMRPhenomXHM (``waveformjax.models.xhm``): its accuracy against
+"""IMRPhenomXHM (``waveformx.models.xhm``): its accuracy against
 LALSimulation, of float32 and of MLX against float64, of the derivatives,
 and its cost on the CPU (JAX) and the Apple GPU (MLX). Writes
 ``report/data/xhm.json``.
@@ -50,13 +50,13 @@ import lal  # noqa: E402
 import lalsimulation as lalsim  # noqa: E402
 import numpy as np  # noqa: E402
 
-import waveformjax as wf  # noqa: E402
-from waveformjax.models.xhm import core, model  # noqa: E402
+import waveformx as wf  # noqa: E402
+from waveformx.models.xhm import core, model  # noqa: E402
 
 try:
     import mlx.core as mx
 
-    from waveformjax.models.xhm import mlx as xhm_mlx
+    from waveformx.models.xhm import mlx as xhm_mlx
 except ImportError:
     mx = None
 
@@ -207,8 +207,8 @@ def mlx_timings():
                 out["jacobian"][str(size)] = _mlx_time(lambda: xhm_mlx.polarizations_and_jacobian(b, grid)[1])
                 out["modes"][str(size)] = _mlx_time(lambda: list(xhm_mlx.modes(b, grid).values()))
     script = (
-        "import time; t0 = time.perf_counter(); import numpy as np, mlx.core as mx, waveformjax as wf; "
-        "from waveformjax.models.xhm import mlx as m; t1 = time.perf_counter(); "
+        "import time; t0 = time.perf_counter(); import numpy as np, mlx.core as mx, waveformx as wf; "
+        "from waveformx.models.xhm import mlx as m; t1 = time.perf_counter(); "
         "b = wf.Binary(30.0, 25.0, (0, 0, .3), (0, 0, -.2), 400.0, .4, .1, 20.0); "
         "f = np.geomspace(20, 1024, 1000); mx.eval(*m.polarizations(b, f)); t2 = time.perf_counter(); "
         "g = mx.grad(lambda x: mx.sum(mx.abs(m.polarizations(b._replace(mass_1=x), f)[0]) ** 2)); "

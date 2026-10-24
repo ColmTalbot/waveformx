@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """The waveform across LAL's switches, for LAL's model (with its fallbacks)
 and the extended angles.
@@ -35,8 +35,8 @@ import numpy as np
 
 import xcommon as x
 from xcommon import jax, jnp
-from waveformjax.models.xpnr import pnr_angles as pa
-from waveformjax.models.xpnr.api import _prescription
+from waveformx.models.xpnr import pnr_angles as pa
+from waveformx.models.xpnr.api import _prescription
 
 LAL = jax.jit(x.polarizations_fn("lal"))
 EXTENDED = jax.jit(x.polarizations_fn("extended"))

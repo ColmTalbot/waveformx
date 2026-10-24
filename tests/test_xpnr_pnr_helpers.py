@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """The parameter-space fits and the model-independent helpers of the PNR
 angles of IMRPhenomXPNR against LALSimulation 6.2.0: the PhenomXCP
@@ -23,8 +23,8 @@ import numpy as np
 import pytest
 
 from conftest import compare
-from waveformjax.models.xpnr import pnr_angles as pa
-from waveformjax.models.xpnr._generated import pnr_fits as pf
+from waveformx.models.xpnr import pnr_angles as pa
+from waveformx.models.xpnr._generated import pnr_fits as pf
 
 D = ctypes.c_double
 BETA_FIELDS = ["b0", "b1", "b2", "b3", "b4", "b5", "mf_beta_lower", "mf_beta_upper", "beta_lower",

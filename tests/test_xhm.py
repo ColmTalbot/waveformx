@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
-"""IMRPhenomXHM (``waveformjax.models.xhm``, release 122022) against
+"""IMRPhenomXHM (``waveformx.models.xhm``, release 122022) against
 LALSimulation 6.2.0 (``SimInspiralChooseFDWaveformSequence``,
 ``SimIMRPhenomXHMFrequencySequenceOneMode``, ``SimInspiralChooseFDModes``),
 in float64 and float32, through the public functions.
@@ -21,9 +21,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import waveformjax as wf
+import waveformx as wf
 from conftest import compare
-from waveformjax.models.xhm import core, reference
+from waveformx.models.xhm import core, reference
 
 MTSUN_SI = 4.925490947641267e-06
 
@@ -119,7 +119,7 @@ def test_exact_derivatives():
     """The derivatives of the rotated (3,2) ringdown phase that fix its
     intermediate phase against fourth-order finite differences with steps
     at which they are well conditioned."""
-    from waveformjax.models.xpnr._math import lean
+    from waveformx.models.xpnr._math import lean
 
     for case in (CASES[0], CASES[6]):
         p = tuple(jnp.float64(case[k]) for k in (0, 1, 2, 3, 4, 5, 6, 8))
@@ -195,7 +195,7 @@ def test_float32():
 
 
 def core_modes(binary, f):
-    from waveformjax.models.xhm import model
+    from waveformx.models.xhm import model
 
     return model.modes_and_polarizations(binary, f, wf.WaveformOptions())
 

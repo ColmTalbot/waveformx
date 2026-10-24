@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
-"""NRSur7dq4 in MLX (``waveformjax.models.nrsur7dq4.mlx``) against the JAX
+"""NRSur7dq4 in MLX (``waveformx.models.nrsur7dq4.mlx``) against the JAX
 implementation: the float32 MLX waveform, its modes and its gradient agree
 with the float64 JAX ones as closely as the float32 JAX evaluation does
 (the bounds of test_nrsur7dq4_float32.py). Skipped without MLX."""
@@ -13,7 +13,7 @@ import pytest
 
 mx = pytest.importorskip("mlx.core")
 
-import waveformjax as wf  # noqa: E402
+import waveformx as wf  # noqa: E402
 from conftest import requires_nrsur  # noqa: E402
 
 pytestmark = requires_nrsur
@@ -32,7 +32,7 @@ MODEL = wf.models.get("NRSur7dq4")
 
 @pytest.fixture(scope="module")
 def nrsur():
-    from waveformjax.models.nrsur7dq4 import mlx as nrsur
+    from waveformx.models.nrsur7dq4 import mlx as nrsur
 
     return nrsur
 
@@ -76,8 +76,8 @@ def assert_close(a, b):
 def test_data(nrsur):
     """float32 data; the spline operators reproduce JAX's splines (whose
     ``lax.scan`` they replace) in float64."""
-    from waveformjax.models.nrsur7dq4 import _spline, default_data
-    from waveformjax.models.nrsur7dq4.mlx._data import spline_matrix, spline_system
+    from waveformx.models.nrsur7dq4 import _spline, default_data
+    from waveformx.models.nrsur7dq4.mlx._data import spline_matrix, spline_system
 
     data = nrsur.default_data()
     assert nrsur.load() is data
@@ -223,9 +223,9 @@ def test_dynamics_kernel(nrsur):
     close to JAX in float64, and their Jacobian with respect to ``(q, chi_a,
     chi_b, t_ref)`` agrees with JAX's float64 forward-mode derivatives;
     ``mx.grad`` contracts it."""
-    from waveformjax.models.nrsur7dq4 import _dynamics, default_data
-    from waveformjax.models.nrsur7dq4.mlx import _dynamics as mlx_dynamics
-    from waveformjax.models.nrsur7dq4.mlx import _kernel
+    from waveformx.models.nrsur7dq4 import _dynamics, default_data
+    from waveformx.models.nrsur7dq4.mlx import _dynamics as mlx_dynamics
+    from waveformx.models.nrsur7dq4.mlx import _kernel
 
     data = nrsur.default_data()
     jax_data = default_data()
@@ -278,8 +278,8 @@ def test_wigner_kernel(nrsur):
     MLX operations, values and VJP, including quaternions without precession
     (``rb = 0``) and with ``ra = 0``; their generators are JAX's
     ``dD/dq`` at the identity."""
-    from waveformjax.models.nrsur7dq4 import _frames as jax_frames
-    from waveformjax.models.nrsur7dq4.mlx import _frames, _wigner
+    from waveformx.models.nrsur7dq4 import _frames as jax_frames
+    from waveformx.models.nrsur7dq4.mlx import _frames, _wigner
 
     rng = np.random.default_rng(0)
     shape = (3, len(_wigner.MODES), 64)
@@ -329,9 +329,9 @@ def test_grids():
     """The grids of a batch, computed together, are those of the JAX driver
     binary by binary (``t0`` to the rounding of the fits, evaluated in
     another order), with LAL's errors."""
-    from waveformjax._binary import row
-    from waveformjax.models.nrsur7dq4 import _driver
-    from waveformjax.models.nrsur7dq4.mlx import _driver as mlx_driver
+    from waveformx._binary import row
+    from waveformx.models.nrsur7dq4 import _driver
+    from waveformx.models.nrsur7dq4.mlx import _driver as mlx_driver
 
     rng = np.random.default_rng(3)
     n = 300
@@ -358,7 +358,7 @@ def test_grids():
 def test_td_polarizations(nrsur):
     """LAL's waveform and modes on its grid: the length and epoch of the JAX
     driver, the values of the JAX waveform."""
-    from waveformjax.models.nrsur7dq4 import _driver
+    from waveformx.models.nrsur7dq4 import _driver
 
     for binary, f_min in ON_GRID:
         expected = _driver.td_polarizations(binary, 1 / 4096, f_min, OPTIONS)
@@ -380,7 +380,7 @@ def test_td_polarizations(nrsur):
 
 def test_batch_td_polarizations(nrsur):
     """The batch on LAL's grids: the binaries one by one, with the errors
-    and ``ok`` of :func:`waveformjax.batch_td_polarizations`."""
+    and ``ok`` of :func:`waveformx.batch_td_polarizations`."""
     table = wf.parameter_table(stacked([binary for binary, _ in ON_GRID])._asdict())
     table = np.concatenate([table, [[10.0, 1.0] + [0.0] * 6 + [400.0, 0.0, 0.0, 0.0],
                                     [-1.0, 1.0] + [0.0] * 6 + [400.0, 0.0, 0.0, 0.0]]])
@@ -401,7 +401,7 @@ def test_batch_td_polarizations(nrsur):
 def test_simulate(nrsur, index):
     """``SimInspiralTD`` and ``SimInspiralFD``: the lengths, epochs and
     sampling of the JAX conversions, and their values."""
-    from waveformjax import conversions
+    from waveformx import conversions
 
     binary, f_min = ON_GRID[index]
     expected = conversions.simulate_td("NRSur7dq4", binary, OPTIONS, 1 / 4096, f_min)
@@ -423,7 +423,7 @@ def test_simulate_function(nrsur):
     """The pure functions of the conditioned waveforms: their reference at
     the reference binary, a batch, the float64 JAX gradient and
     ``mx.compile``."""
-    from waveformjax import conversions
+    from waveformx import conversions
 
     binary, f_min = ON_GRID[0]
     function = nrsur.simulate_fd_function(binary, 1 / 8, f_min, 1024.0, OPTIONS)

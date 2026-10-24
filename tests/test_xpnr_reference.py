@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """The mass-scaled reference frequency of the lean IMRPhenomXPNR
 (``WaveformOptions(lean=True, reference_mf=...)``) and the converters
@@ -35,9 +35,9 @@ import pytest
 import jax
 import jax.numpy as jnp
 
-import waveformjax as wf
-from waveformjax.exceptions import InvalidParameterError
-from waveformjax.models.xpnr import lean
+import waveformx as wf
+from waveformx.exceptions import InvalidParameterError
+from waveformx.models.xpnr import lean
 
 MTSUN_SI = 4.925490947641267e-06
 REF = 0.01
@@ -331,7 +331,7 @@ def _patched_lalsimulation():
     import sys
     from pathlib import Path
 
-    default = Path.home() / ".cache" / "waveformjax" / "patched_lalsimulation" / "liblalsimulation.37.dylib"
+    default = Path.home() / ".cache" / "waveformx" / "patched_lalsimulation" / "liblalsimulation.37.dylib"
     path = os.environ.get("PATCHED_LALSIMULATION", str(default))
     scripts = Path(__file__).resolve().parents[2] / "waveformrs" / "scripts"
     if not Path(path).is_file() or not scripts.is_dir():

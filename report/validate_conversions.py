@@ -1,20 +1,20 @@
 #!/usr/bin/env python
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """``simulate_td`` and ``simulate_fd`` against LALSimulation's
 ``SimInspiralTD`` and ``SimInspiralFD`` (and waveformrs's), end to end.
 
 LALSimulation is called with multibanding off (``SimInspiralTD`` and
 ``SimInspiralFD`` call ``SimInspiralChooseFDWaveform``, where it is on by
-default for IMRPhenomXPNR; waveformjax and waveformrs do not implement it):
+default for IMRPhenomXPNR; waveformx and waveformrs do not implement it):
 how far LAL's default is from that is recorded too.
 IMRPhenomXPNR is compared without the parity fix (as LALSimulation 6.2.0),
 with all its modes and with the (2,2) mode alone (which isolates the
 conversions: the JAX (2,2) mode agrees with LAL to ~1e-9, the higher modes
 to ~1e-5). Recorded for each case: whether the lengths, the epochs and the
 sampling are LAL's exactly, the largest relative error and the mismatch of
-both polarizations (uniform weights), and the wall-clock times (waveformjax
+both polarizations (uniform weights), and the wall-clock times (waveformx
 after its first call, which compiles).
 
 Usage::
@@ -59,7 +59,7 @@ CASES = [
 
 
 def lal_dict(mode_array, multibanding=False):
-    """A LALDict with multibanding off (waveformjax and waveformrs do not
+    """A LALDict with multibanding off (waveformx and waveformrs do not
     implement it; ``SimInspiralTD`` and ``SimInspiralFD`` call
     ``SimInspiralChooseFDWaveform``, where it is on by default)."""
     params = lal.CreateDict()
@@ -94,7 +94,7 @@ def call_package(package, approximant, function, keywords, arguments, mode_array
     if approximant == "IMRPhenomXPNR":
         options["pnr_parity_fix"] = False
     if package is wf:
-        # waveformjax gives the strain times 1e21 by default
+        # waveformx gives the strain times 1e21 by default
         options["scaled_strain"] = False
     if function == "td":
         out = package.simulate_td(approximant, *arguments, **options, **keywords)

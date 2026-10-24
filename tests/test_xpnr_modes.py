@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """Milestone 5 of IMRPhenomXPNR: the J-frame modes of
 ``SimIMRPhenomXPHMFrequencySequenceOneMode`` (with the flags of
@@ -22,9 +22,9 @@ import numpy as np
 import pytest
 
 from conftest import compare
-from waveformjax import Binary, WaveformOptions
-from waveformjax.exceptions import InvalidParameterError, PrecessionVersionUnavailableError
-from waveformjax.models.xpnr import MODEL
+from waveformx import Binary, WaveformOptions
+from waveformx.exceptions import InvalidParameterError, PrecessionVersionUnavailableError
+from waveformx.models.xpnr import MODEL
 
 DATA = Path(__file__).parent / "data"
 SEQUENCE = json.loads((DATA / "imrphenomxpnr_parityfix_sequence_modes.json").read_text())["cases"]

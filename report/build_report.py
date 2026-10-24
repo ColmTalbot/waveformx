@@ -1,15 +1,15 @@
 #!/usr/bin/env python
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """Build the report from the measurements in ``report/data``.
 
 Writes
 
-* ``report/waveformjax-report.html``: a standalone HTML document;
+* ``report/waveformx-report.html``: a standalone HTML document;
 * ``report/artifact/index.html``: the same page as a fragment (no html,
   head or body);
-* ``report/waveformjax-report.pdf``: printed with headless Chrome (optional).
+* ``report/waveformx-report.pdf``: printed with headless Chrome (optional).
 
 Run the measurements first (``report/measure_all.sh``).
 
@@ -154,7 +154,7 @@ def test_results():
 
 
 def source_lines():
-    sources = list((ROOT / "src" / "waveformjax").rglob("*.py"))
+    sources = list((ROOT / "src" / "waveformx").rglob("*.py"))
     generated = [p for p in sources if "_generated" in p.parts]
     count = lambda paths: sum(len(p.read_text().splitlines()) for p in paths)  # noqa: E731
     return count(sources), count(generated), len(sources)
@@ -170,12 +170,12 @@ def svg(name, label):
 
 
 def failure_text(data, how):
-    """Whether waveformjax fails where LAL does, as a sentence."""
+    """Whether waveformx fails where LAL does, as a sentence."""
     n, failures, agree = data["n_draws"], data["n_lal_failures"], data["n_failures_agree"]
     if failures == 0:
-        return (f"LAL evaluates all {n} draws, and so does waveformjax." if agree == n else
-                f"LAL evaluates all {n} draws; waveformjax fails on {n - agree} of them.")
-    return (f"LAL fails for {failures} of the {n} draws, and waveformjax {how} for the same ones "
+        return (f"LAL evaluates all {n} draws, and so does waveformx." if agree == n else
+                f"LAL evaluates all {n} draws; waveformx fails on {n - agree} of them.")
+    return (f"LAL fails for {failures} of the {n} draws, and waveformx {how} for the same ones "
             f"({agree}/{n} agree).")
 
 
@@ -929,10 +929,10 @@ def build(args):
         rows.append(
             f"<tr><td>{model}</td><td class=\"num\">{rate(entry['lal'])}</td>"
             f"<td class=\"num\">{rate(entry.get('waveformrs_1'))}</td><td class=\"num\">{rate(entry.get('waveformrs_0'))}</td>"
-            f"<td class=\"num\">{rate(entry['waveformjax'])}</td><td class=\"num\">{duration(entry['first_call'])}</td></tr>")
+            f"<td class=\"num\">{rate(entry['waveformx'])}</td><td class=\"num\">{duration(entry['first_call'])}</td></tr>")
     values["public_batch_rows"] = "\n".join(rows)
     pb = timings["public_batches"]["IMRPhenomXPNR"]
-    values["xpnr_public_batch"] = rate(pb["waveformjax"])
+    values["xpnr_public_batch"] = rate(pb["waveformx"])
     values["xpnr_rs_batch_all"] = rate(pb.get("waveformrs_0"))
     values["xpnr_lal_batch"] = rate(pb["lal"])
 
@@ -999,11 +999,11 @@ def build(args):
     document = ('<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
                 '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n'
                 "</head>\n<body>\n" + page + "\n</body>\n</html>\n")
-    out = HERE / "waveformjax-report.html"
+    out = HERE / "waveformx-report.html"
     out.write_text(document)
     print(f"wrote {out} and {HERE / 'artifact' / 'index.html'}")
     if not args.no_pdf:
-        pdf = HERE / "waveformjax-report.pdf"
+        pdf = HERE / "waveformx-report.pdf"
         subprocess.run([args.chrome, "--headless=new", "--disable-gpu", "--no-pdf-header-footer",
                         "--virtual-time-budget=20000", f"--user-data-dir={tempfile.mkdtemp()}",
                         f"--print-to-pdf={pdf}", out.as_uri()], check=True, capture_output=True)

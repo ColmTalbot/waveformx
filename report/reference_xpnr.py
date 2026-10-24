@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """The mass-scaled reference frequency of the lean IMRPhenomXPNR
 (``WaveformOptions(lean=True, reference_mf=0.01)``): writes
@@ -59,8 +59,8 @@ TIMING = r'''
 import json, sys, time
 import jax, jax.numpy as jnp, numpy as np
 jax.config.update("jax_enable_x64", True)
-from waveformjax import Binary
-from waveformjax.models.xpnr import lean
+from waveformx import Binary
+from waveformx.models.xpnr import lean
 ref = None if sys.argv[1] == "lal" else float(sys.argv[1])
 F = jnp.asarray(np.arange(20.0, 1024.0, 0.125))
 f = jax.jit(lambda b, F: lean.polarizations(b, F, reference_mf=ref))
@@ -88,8 +88,8 @@ def finite_counts(n, seed):
     import jax
     import jax.numpy as jnp
 
-    from waveformjax import Binary
-    from waveformjax.models.xpnr import lean
+    from waveformx import Binary
+    from waveformx.models.xpnr import lean
 
     rng = np.random.default_rng(seed)
     q = np.exp(rng.uniform(0, np.log(30), n))
@@ -135,8 +135,8 @@ def against_lal(n, seed, library):
     import lal
     import lalsimulation as lalsim
 
-    import waveformjax as wf
-    from waveformjax.models.xpnr import lean
+    import waveformx as wf
+    from waveformx.models.xpnr import lean
 
     waveformrs = HERE.parents[1] / "waveformrs" / "scripts"
     sys.path.insert(0, str(waveformrs))

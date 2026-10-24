@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """Shared set-up of the tests.
 
@@ -8,8 +8,8 @@
 * The NRSur7dq4 data are found through ``NRSUR7DQ4_DATA`` (the file) or
   ``LAL_DATA_PATH`` (its directory), else in waveformrs's ``lal_data/`` next
   to this repository (or next to one of its parents, for git worktrees).
-* Compiled code is kept in JAX's persistent cache (``~/.cache/waveformjax/jax``,
-  or ``WAVEFORMJAX_TEST_CACHE``; empty to turn it off), so that a run with
+* Compiled code is kept in JAX's persistent cache (``~/.cache/waveformx/jax``,
+  or ``WAVEFORMX_TEST_CACHE``; empty to turn it off), so that a run with
   unchanged models skips their compilation.
 """
 
@@ -23,12 +23,12 @@ import jax  # noqa: E402
 import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 
-import waveformjax  # noqa: E402, F401 (enables 64-bit floats)
+import waveformx  # noqa: E402, F401 (enables 64-bit floats)
 
 # JAX's persistent compilation cache: a test run with unchanged models loads
 # their compiled code rather than compiling it again (IMRPhenomXPNR takes
-# ~15 s, its derivatives more). WAVEFORMJAX_TEST_CACHE="" turns it off.
-_CACHE = os.environ.get("WAVEFORMJAX_TEST_CACHE", str(Path.home() / ".cache" / "waveformjax" / "jax"))
+# ~15 s, its derivatives more). WAVEFORMX_TEST_CACHE="" turns it off.
+_CACHE = os.environ.get("WAVEFORMX_TEST_CACHE", str(Path.home() / ".cache" / "waveformx" / "jax"))
 if _CACHE:
     jax.config.update("jax_compilation_cache_dir", _CACHE)
     jax.config.update("jax_persistent_cache_min_compile_time_secs", 1.0)
@@ -40,9 +40,9 @@ _SIBLING = next(
      if (p / "waveformrs" / "lal_data" / DATA_FILE).is_file()),
     Path(__file__).resolve().parents[2] / "waveformrs" / "lal_data" / DATA_FILE,
 )
-if waveformjax.nrsur7dq4_data_file() is None and _SIBLING.is_file():
+if waveformx.nrsur7dq4_data_file() is None and _SIBLING.is_file():
     os.environ["NRSUR7DQ4_DATA"] = str(_SIBLING)
-NRSUR_DATA = waveformjax.nrsur7dq4_data_file()
+NRSUR_DATA = waveformx.nrsur7dq4_data_file()
 if NRSUR_DATA is not None:
     paths = [p for p in os.environ.get("LAL_DATA_PATH", "").split(os.pathsep) if p]
     if str(Path(NRSUR_DATA).parent) not in paths:

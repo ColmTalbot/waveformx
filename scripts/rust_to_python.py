@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
-"""Translate the numerical Rust of waveformrs into Python for waveformjax.
+"""Translate the numerical Rust of waveformrs into Python for waveformx.
 
 waveformrs (``../waveformrs``) writes LALSimulation's parameter-space fits,
 coefficient tables and closed-form expressions as straight-line Rust: ``let``
@@ -12,7 +12,7 @@ code as Python on JAX arrays, so that the thousands of fitted numbers are
 copied by a program rather than by hand:
 
 * ``fma(a, b, c)``, ``fms``, ``fnms`` stay function calls (``a * b + c`` ...
-  in :mod:`waveformjax.models.xpnr._math`);
+  in :mod:`waveformx.models.xpnr._math`);
 * ``x.sqrt()``, ``x.powf(y)``, ``x.libm_cbrt()``, ``y.atan2(x)``, ... become
   ``jnp`` functions;
 * ``const`` arrays become nested tuples of floats;
@@ -27,7 +27,7 @@ Usage::
     python scripts/rust_to_python.py ../waveformrs/src/imrphenomx/pnr_fits.rs \\
         --functions alpha_a1 beta_b0 --consts COEFF_A1 > out.py
 
-The generated modules of :mod:`waveformjax.models.xpnr` say at the top which
+The generated modules of :mod:`waveformx.models.xpnr` say at the top which
 command produced them (``scripts/generate_fits.py`` runs them all).
 """
 

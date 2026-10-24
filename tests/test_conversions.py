@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """``simulate_td`` and ``simulate_fd`` against LALSimulation 6.2.0's
 ``SimInspiralTD`` and ``SimInspiralFD``.
@@ -24,11 +24,11 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import waveformjax as wf
+import waveformx as wf
 from conftest import compare, requires_nrsur
-from waveformjax import Binary, WaveformOptions
-from waveformjax.conversions import _conditioning as c
-from waveformjax.conversions import _from_fd, _from_td, _models
+from waveformx import Binary, WaveformOptions
+from waveformx.conversions import _conditioning as c
+from waveformx.conversions import _from_fd, _from_td, _models
 
 XPNR = dict(mass_1=36.0, mass_2=29.0, spin_1=(0.4, 0.2, 0.3), spin_2=(-0.2, 0.3, -0.1), luminosity_distance=500.0,
             inclination=0.7, phi_ref=1.2, f_ref=20.0)
@@ -60,7 +60,7 @@ def lal_arguments(lal_module, keywords):
 
 
 def lal_dict(lal, mode_array=None):
-    """A LALDict with multibanding off (waveformjax does not implement it)."""
+    """A LALDict with multibanding off (waveformx does not implement it)."""
     lal_module, lalsim = lal
     params = lal_module.CreateDict()
     lalsim.SimInspiralWaveformParamsInsertPhenomXHMThresholdMband(params, 0)

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """Milestone 2 of IMRPhenomXPNR: the higher modes of IMRPhenomXHM with
 ``PhenomXHMReleaseVersion = 122019`` against
@@ -37,10 +37,10 @@ import numpy as np
 import pytest
 
 from conftest import compare
-from waveformjax.models.xpnr import hm, phase22
-from waveformjax.models.xpnr._math import MPC_SI, MSUN_SI
-from waveformjax.models.xpnr.hm import roots
-from waveformjax.models.xpnr.internals import waveform_struct
+from waveformx.models.xpnr import hm, phase22
+from waveformx.models.xpnr._math import MPC_SI, MSUN_SI
+from waveformx.models.xpnr.hm import roots
+from waveformx.models.xpnr.internals import waveform_struct
 
 # mass_1, mass_2, chi_1, chi_2, f_ref (waveformrs's XHM_122019_BINARIES)
 XHM_122019_BINARIES = [

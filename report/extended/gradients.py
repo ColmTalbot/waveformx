@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """The derivatives of the extended model (``extended_spintaylor=True``,
 all modes) against central finite differences, for every parameter of
@@ -24,8 +24,8 @@ import numpy as np
 
 import xcommon as x
 from xcommon import jax, jnp
-from waveformjax import Binary, WaveformOptions
-from waveformjax.models.xpnr import MODEL
+from waveformx import Binary, WaveformOptions
+from waveformx.models.xpnr import MODEL
 
 OPTIONS = WaveformOptions(extended_spintaylor=True)
 NAMES = ["mass_1", "mass_2", "spin_1x", "spin_1y", "spin_1z", "spin_2x", "spin_2y", "spin_2z", "luminosity_distance",

@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """NRSur7dq4 in JAX against LALSimulation's ``SimInspiralChooseTDWaveform``
 and waveformrs over random binaries.
@@ -16,7 +16,7 @@ Recorded for each draw: whether the epochs and lengths are LAL's, the
 largest relative error ``max |h - h_LAL| / max |h_LAL|`` and the
 noise-weighted mismatch of both polarizations (aLIGO design sensitivity
 from 10 Hz, without maximisation), the same against waveformrs, and the
-wall-clock times (waveformjax through the public ``td_polarizations``,
+wall-clock times (waveformx through the public ``td_polarizations``,
 whose output grids of similar lengths share a compilation).
 
 Usage::

@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """The figures of the report, from the measurements in ``report/data``.
 
@@ -44,7 +44,7 @@ def style():
         "xtick.labelcolor": FOREGROUND, "ytick.labelcolor": FOREGROUND, "grid.color": GRID, "grid.linewidth": 0.5,
         "axes.grid": True, "axes.spines.top": False, "axes.spines.right": False, "svg.fonttype": "none",
         "figure.facecolor": "none", "axes.facecolor": "none", "savefig.facecolor": "none", "legend.frameon": False,
-        "svg.hashsalt": "waveformjax",
+        "svg.hashsalt": "waveformx",
     })
 
 
@@ -118,7 +118,7 @@ def batch():
             continue
         sizes = np.array([int(n) for n in rows])
         rates = np.array([rows[str(n)]["per_second"] for n in sizes])
-        ax.plot(sizes, rates, "o-", color=BLUE, ms=4, lw=1.2, label="waveformjax, jax.vmap")
+        ax.plot(sizes, rates, "o-", color=BLUE, ms=4, lw=1.2, label="waveformx, jax.vmap")
         public = timings["public_batches"].get(model, {})
         single = timings["single"].get(model, {})
         lines = [
@@ -130,7 +130,7 @@ def batch():
             if value:
                 ax.axhline(value, color=colour, ls=dash, lw=1.1, label=label)
         if single.get("pure"):
-            ax.plot([1], [1 / single["pure"]], "D", color=PURPLE, ms=4, label="waveformjax, one binary")
+            ax.plot([1], [1 / single["pure"]], "D", color=PURPLE, ms=4, label="waveformx, one binary")
         ax.set_xscale("log", base=2)
         ax.set_yscale("log")
         ax.set_xlabel("Binaries per call")

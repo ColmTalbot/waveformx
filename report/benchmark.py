@@ -1,15 +1,15 @@
 #!/usr/bin/env python
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
-"""Compilation and evaluation times of waveformjax, against waveformrs and
+"""Compilation and evaluation times of waveformx, against waveformrs and
 LALSimulation, on the binaries and grids of waveformrs's Python benchmark
 (``python/benchmarks/benchmark.py``).
 
 * single waveforms: IMRPhenomXPNR on 8033 frequencies (20-1024 Hz in steps
   of 1/8 Hz), NRSur7dq4 in the time domain (4096 Hz from 20 Hz), and the
   conversions (``simulate_td`` of IMRPhenomXPNR at 4096 Hz from 20 Hz,
-  ``simulate_fd`` of NRSur7dq4 up to 2048 Hz from 20 Hz). For waveformjax:
+  ``simulate_fd`` of NRSur7dq4 up to 2048 Hz from 20 Hz). For waveformx:
   the first call (LAL's checks, tracing and compilation), later calls of the
   public function (checks on the host, the compiled model, the copy of the
   result), and the compiled pure function alone;
@@ -24,7 +24,7 @@ Single waveforms are timed over a cycle of 16 binaries around the benchmark
 binary, so that no code reuses the result of a previous call (waveformrs
 keeps the last NRSur7dq4 evaluation of a workspace). LALSimulation's
 conversions of IMRPhenomXPNR are timed with multibanding off (the work
-waveformjax and waveformrs do) and with its default, multibanding on. Run
+waveformx and waveformrs do) and with its default, multibanding on. Run
 with ``XLA_FLAGS="--xla_cpu_multi_thread_eigen=false
 intra_op_parallelism_threads=1" ... --parts single --output
 timings_one_core.json`` to try JAX on one core (with jax 0.11.2 on macOS
@@ -128,8 +128,8 @@ def lal_params(multibanding):
 
 def single(repeats):
     """One waveform per call, for binaries around the benchmark binary."""
-    from waveformjax._api import _request
-    from waveformjax.models import get
+    from waveformx._api import _request
+    from waveformx.models import get
 
     out = {}
     frequencies = BENCHMARK_FREQUENCIES
@@ -250,7 +250,7 @@ def public_batches(n, repeats):
     entry = dict(n=n)
     entry["first_call"] = first_call(lambda: wf.batch_polarizations("IMRPhenomXPNR", frequencies, parameters,
                                                                     **XPNR_OPTIONS).hplus)
-    entry["waveformjax"] = n / median_time(
+    entry["waveformx"] = n / median_time(
         lambda: wf.batch_polarizations("IMRPhenomXPNR", frequencies, parameters, **XPNR_OPTIONS).hplus, repeats)
     lal_times = [median_time(lambda: lal_sequence(row(parameters, i), frequencies), 3) for i in range(min(n, 8))]
     entry["lal"] = 1 / float(np.mean(lal_times))
@@ -267,7 +267,7 @@ def public_batches(n, repeats):
         entry = dict(n=n)
         entry["first_call"] = first_call(lambda: wf.batch_td_polarizations("NRSur7dq4", delta_t, f_min,
                                                                            parameters).waveforms[0].hplus)
-        entry["waveformjax"] = n / median_time(
+        entry["waveformx"] = n / median_time(
             lambda: wf.batch_td_polarizations("NRSur7dq4", delta_t, f_min, parameters).waveforms[-1].hplus,
             repeats)
         lal_times = [median_time(lal_nrsur(row(parameters, i), delta_t, f_min), 3) for i in range(min(n, 8))]

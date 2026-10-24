@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """The jumps of the waveform along 1-D scans of five binaries in four
 parameters, for LAL's angles and the extended ones.
@@ -24,7 +24,7 @@ import numpy as np
 
 import xcommon as x
 from xcommon import jax, jnp
-from waveformjax.models.xpnr import pnr_angles as pa
+from waveformx.models.xpnr import pnr_angles as pa
 
 BINARIES = {
     "A (36+29, f_min 20 Hz)": dict(m1=36., m2=29., s1=[0.4, 0.2, 0.3], s2=[-0.2, 0.3, -0.1], fref=20., fmin=20.),

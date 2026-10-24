@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """The extended angles against LAL's where LAL uses the SpinTaylor angles:
 the mismatch (aLIGO design weights, no maximisation, the larger of the two
@@ -21,7 +21,7 @@ import numpy as np
 
 import xcommon as x
 from xcommon import jax, jnp
-from waveformjax.models.xpnr import pnr_angles as pa
+from waveformx.models.xpnr import pnr_angles as pa
 
 N_FREQUENCIES = 1024
 

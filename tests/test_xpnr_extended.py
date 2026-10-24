@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """IMRPhenomXPNR without LAL's fallbacks (``version_fallback=False``) and
 with the extended SpinTaylor angles (``extended_spintaylor=True``).
@@ -24,10 +24,10 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from waveformjax import Binary, WaveformOptions
-from waveformjax.exceptions import PrecessionVersionUnavailableError
-from waveformjax.models.xpnr import MODEL, model, pnr
-from waveformjax.models.xpnr.api import _prescription
+from waveformx import Binary, WaveformOptions
+from waveformx.exceptions import PrecessionVersionUnavailableError
+from waveformx.models.xpnr import MODEL, model, pnr
+from waveformx.models.xpnr.api import _prescription
 
 LAL = WaveformOptions(version_fallback=True, scaled_strain=False)
 STRICT = WaveformOptions(version_fallback=False, scaled_strain=False)
@@ -276,7 +276,7 @@ def test_smooth_interpolants_do_not_depend_on_the_branch_of_alpha(case):
     follow the swing, which is narrower than the grid's spacing, and give
     LAL's ``gamma = -int alpha' cos(beta) df`` (up to a constant) in both
     hemispheres and across the equator."""
-    from waveformjax.models.xpnr.pnr import PNR_GRID_CAPACITY
+    from waveformx.models.xpnr.pnr import PNR_GRID_CAPACITY
 
     n, h, i_start = 400, 0.25, 40
     f = (i_start + np.arange(PNR_GRID_CAPACITY)) * h

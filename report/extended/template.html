@@ -8,12 +8,12 @@
 </style>
 <div class="shell">
 <header class="masthead">
-  <p class="eyebrow">Technical report · waveformjax</p>
+  <p class="eyebrow">Technical report · waveformx</p>
   <h1>IMRPhenomXPNR without fallbacks: where the SpinTaylor angles fail, how to extend them, and a continuous model</h1>
   <p class="dek">LALSimulation's IMRPhenomXPNR switches between three prescriptions for the precession angles, and between many branches inside them. This report maps where its main prescription, the SpinTaylor angles, fails. It then extends that prescription to every binary and replaces LAL's discrete switches with continuous versions, so that the waveform and its derivatives are continuous in the binary's parameters. Where LAL keeps the SpinTaylor angles, the extended model agrees with LAL to a mismatch of {{val_max_low}} or better for mass ratios up to 12.</p>
   <dl class="meta">
-    <div><dt>Repository</dt><dd><code>waveformjax</code>, branch <code>{{branch}}</code> at <code>{{commit}}</code></dd></div>
-    <div><dt>Reference</dt><dd>lalsimulation {{lalsim_version}}, through waveformrs (LAL to rounding) and waveformjax's own LAL-exact model</dd></div>
+    <div><dt>Repository</dt><dd><code>waveformx</code>, branch <code>{{branch}}</code> at <code>{{commit}}</code></dd></div>
+    <div><dt>Reference</dt><dd>lalsimulation {{lalsim_version}}, through waveformrs (LAL to rounding) and waveformx's own LAL-exact model</dd></div>
     <div><dt>Platform</dt><dd>{{machine}}; JAX {{jax_version}} on the CPU</dd></div>
     <div><dt>Generated</dt><dd>{{date}}</dd></div>
   </dl>
@@ -108,7 +108,7 @@
   <ol class="pipeline">
     <li><span class="step-title">Integrate backwards through the energy test</span><span class="step-body">Where the test fails at f<sub>ref</sub>, the backward run ignores it and continues to below f<sub>min</sub>, so the spins given at f<sub>ref</sub> are carried to lower frequencies by the same equations. Where LAL's backward run succeeds, the test never fails along it (the energy test only fails at high frequencies), so nothing changes there.</span></li>
     <li><span class="step-title">End the inspiral where the PN energy test holds</span><span class="step-body">The knots of the inspiral angles stop at the last sample of the backward run that passes the energy test, found by bisection. From there the fine run goes on to where the energy test fails, as LAL's does for a reference frequency just below it. The PN angles are therefore never used beyond the validity of the PN equations, and the merger-ringdown continuation takes over as usual.</span></li>
-    <li><span class="step-title">A larger step budget</span><span class="step-body">waveformjax integrates the backward run with DOP853 on a fixed number of steps in u = 1/(Mω), estimating the time of each step from the leading-order evolution. From frequencies beyond the energy test that estimate is poor in the first steps, so the budget is 25% above the range rather than 3%.</span></li>
+    <li><span class="step-title">A larger step budget</span><span class="step-body">waveformx integrates the backward run with DOP853 on a fixed number of steps in u = 1/(Mω), estimating the time of each step from the leading-order evolution. From frequencies beyond the energy test that estimate is poor in the first steps, so the budget is 25% above the range rather than 3%.</span></li>
     <li><span class="step-title">Drop checks on an unused quantity</span><span class="step-body">For a few very heavy binaries the whole band lies after the end of the inspiral, and LAL's checks on its own interpolation of γ (<code>IMRPhenomX_InterpolateGamma_SpinTaylor</code>) fail. The PNR angles never use that γ (they integrate their own on the PNR grid), so the extended model skips those checks.</span></li>
     <li><span class="step-title">Every in-plane spin</span><span class="step-body">The thresholds at 10<sup>−7</sup> and 10<sup>−6</sup> are removed: the PNR machinery and the SpinTaylor angles are used down to aligned spins. Where the in-plane spin vanishes, the J frame equals the L frame, and the angles are evaluated without division by zero (see <a href="#continuous">section {{sec:continuous}}</a>).</span></li>
   </ol>
@@ -151,7 +151,7 @@
     <li><strong>The connection frequencies of the PNR β.</strong> PNR joins the inspiral β to its merger-ringdown fit at a lower connection frequency, and holds β at the minimum of the fit beyond an upper one. Both are chosen by a decision tree on the shape of the fit: which root of a cubic is its inflection point, whether the fit turns over, rules that switch formula at M f = 0.06, and whether the fit is attached at all. Along {{beta_n}} decision changes found by bisection on random lines through spin space, {{beta_visible}} change the waveform visibly, {{beta_big}} by more than 10<sup>−3</sup>, the largest by {{beta_lal_max}}.</li>
   </ul>
   <p>The thresholds in in-plane spin (10<sup>−7</sup>, 10<sup>−6</sup> and 10<sup>−3</sup>, the last for the remapping of the J frame) give smaller jumps, as does the end of LAL's SpinTaylor angles in f<sub>ref</sub>, which is a switch to the MSA angles.</p>
-  <p><strong>Numerical noise.</strong> A change of m<sub>1</sub> in its last bit changes LAL's waveform by up to {{noise_rs_xpnr}} (waveformrs; {{noise_rs_xhm}} for IMRPhenomXHM, {{noise_rs_xas}} for the (2,2) mode alone). Almost all of it is in the {{noise_worst_mode}} mode (up to {{noise_worst_mode_value}} relative). LAL fixes the intermediate phase of that mode with the second derivative of the mode-mixed ringdown phase by central differences with a step of 10<sup>−7</sup>, which amplifies rounding by ~10<sup>14</sup>. waveformjax's default model already differentiates this exactly for its gradients, but its values keep LAL's finite differences.</p>
+  <p><strong>Numerical noise.</strong> A change of m<sub>1</sub> in its last bit changes LAL's waveform by up to {{noise_rs_xpnr}} (waveformrs; {{noise_rs_xhm}} for IMRPhenomXHM, {{noise_rs_xas}} for the (2,2) mode alone). Almost all of it is in the {{noise_worst_mode}} mode (up to {{noise_worst_mode_value}} relative). LAL fixes the intermediate phase of that mode with the second derivative of the mode-mixed ringdown phase by central differences with a step of 10<sup>−7</sup>, which amplifies rounding by ~10<sup>14</sup>. waveformx's default model already differentiates this exactly for its gradients, but its values keep LAL's finite differences.</p>
 </section>
 
 <section id="continuous">

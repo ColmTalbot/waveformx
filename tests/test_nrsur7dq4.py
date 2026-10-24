@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """NRSur7dq4 against LALSimulation 6.2.0 (``SimInspiralChooseTDWaveform``,
 ``SimInspiralChooseTDModes`` and ``PrecessingNRSurDynamics``), its errors,
@@ -18,7 +18,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import waveformjax as wf
+import waveformx as wf
 from conftest import NRSUR_DATA, compare, requires_nrsur
 
 pytestmark = requires_nrsur
@@ -139,7 +139,7 @@ def test_rk4_start_nodes(lal):
     """References between the first nodes: the RK4 start with the half
     nodes (node 0) and forwards with interpolated derivatives (nodes 1, 2)."""
     lal_module, lalsim = lal
-    from waveformjax.models.nrsur7dq4 import _data, _driver
+    from waveformx.models.nrsur7dq4 import _data, _driver
 
     binary = wf._binary.binary_from_keywords(BINARY)
     _, _, _, chi_a, chi_b, q, m_tot_sec = _driver._host_labels(_driver._intrinsic(binary))
@@ -191,7 +191,7 @@ def test_modes_sum_to_polarizations():
 def test_dynamics(lal):
     """The dynamics on the nodes against ``PrecessingNRSurDynamics``."""
     _, lalsim = lal
-    from waveformjax.models.nrsur7dq4 import _data, _dynamics
+    from waveformx.models.nrsur7dq4 import _data, _dynamics
 
     data = _data.default_data()
     for q, chi_a, chi_b, omega in (
@@ -238,7 +238,7 @@ def test_invalid_sampling():
 
 
 def test_data():
-    from waveformjax.models.nrsur7dq4 import _data, load
+    from waveformx.models.nrsur7dq4 import _data, load
 
     data = load(NRSUR_DATA)
     assert load(NRSUR_DATA) is data
@@ -250,7 +250,7 @@ def test_data():
 
 
 def test_data_file_errors(tmp_path):
-    from waveformjax.models.nrsur7dq4 import load
+    from waveformx.models.nrsur7dq4 import load
 
     with pytest.raises(wf.DataFileNotFoundError):
         load(tmp_path / "missing.h5")
@@ -271,7 +271,7 @@ def test_data_file_not_found():
     DataFileNotFoundError (a FileNotFoundError)."""
     env = {k: v for k, v in os.environ.items() if k not in ("NRSUR7DQ4_DATA", "LAL_DATA_PATH")}
     code = (
-        "import waveformjax as wf\n"
+        "import waveformx as wf\n"
         "assert wf.nrsur7dq4_data_file() is None\n"
         "try:\n"
         "    wf.td_polarizations('NRSur7dq4', 1 / 4096, 20.0, mass_1=40.0, mass_2=20.0)\n"
@@ -317,7 +317,7 @@ def test_batch():
 
 def test_polarizations_at_matches_td_polarizations():
     """The pure function at LAL's sample times gives td_polarizations."""
-    from waveformjax.models.nrsur7dq4 import _driver
+    from waveformx.models.nrsur7dq4 import _driver
 
     options = wf.WaveformOptions()
     binary = wf._binary.binary_from_keywords(dict(BINARY, f_ref=0.0))

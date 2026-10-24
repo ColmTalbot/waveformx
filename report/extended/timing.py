@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """The cost of the three variants through the public pure function
 (``MODEL.polarizations`` under ``jax.jit``): the first call (compilation)
@@ -22,8 +22,8 @@ import numpy as np
 import xcommon as x
 from xcommon import jax, jnp
 from common import BENCHMARK_FREQUENCIES, BINARY, binary_of, median_time
-from waveformjax import WaveformOptions
-from waveformjax.models.xpnr import MODEL
+from waveformx import WaveformOptions
+from waveformx.models.xpnr import MODEL
 
 OPTIONS = {"lal": WaveformOptions(version_fallback=True), "strict": WaveformOptions(version_fallback=False),
            "extended": WaveformOptions(extended_spintaylor=True)}

@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """NRSur7dq4 in MLX on the Apple GPU against the JAX implementation on the
 CPU: the accuracy of the float32 MLX waveform and of its derivatives, LAL's
@@ -26,7 +26,7 @@ gradient for batches of 1 to 4096 binaries (MLX, compiled) or 1 to 256
 grid (one binary, and a batch of 1024 random binaries at 4096 Hz from the
 start of the surrogate), and ``simulate_fd``.
 
-It needs MLX (``pip install waveformjax[mlx]``), and LALSuite as the other
+It needs MLX (``pip install waveformx[mlx]``), and LALSuite as the other
 measurements do.
 
 Usage::
@@ -49,11 +49,11 @@ import numpy as np
 
 import float32_nrsur7dq4 as f32
 from common import DATA, NAMES, environment, max_relative_error, median_time, wf, write
-from waveformjax._binary import row
-from waveformjax.models.nrsur7dq4 import _data, _driver, _waveform
-from waveformjax.models.nrsur7dq4 import mlx as nrsur
-from waveformjax.models.nrsur7dq4._dynamics import START_TIME
-from waveformjax.models.nrsur7dq4.mlx import _driver as mlx_driver
+from waveformx._binary import row
+from waveformx.models.nrsur7dq4 import _data, _driver, _waveform
+from waveformx.models.nrsur7dq4 import mlx as nrsur
+from waveformx.models.nrsur7dq4._dynamics import START_TIME
+from waveformx.models.nrsur7dq4.mlx import _driver as mlx_driver
 
 OPTIONS = wf.WaveformOptions()
 
@@ -220,7 +220,7 @@ CONDITIONED = [
 
 
 def check_conditioned():
-    from waveformjax import conversions
+    from waveformx import conversions
 
     records = []
     for label, keywords, f_min in CONDITIONED:
@@ -268,8 +268,8 @@ import json, time
 start = time.perf_counter()
 import mlx.core as mx
 import numpy as np
-import waveformjax as wf
-from waveformjax.models.nrsur7dq4 import mlx as nrsur
+import waveformx as wf
+from waveformx.models.nrsur7dq4 import mlx as nrsur
 nrsur.default_data()
 data = time.perf_counter() - start
 times = mx.array(np.float32(-1.9) + np.float32(1 / 4096) * np.arange(8192, dtype=np.float32))
@@ -360,7 +360,7 @@ def public_timings():
     (``td_polarizations``, ``simulate_fd`` up to 2048 Hz in steps of 1/8
     Hz), and 1024 random binaries at 4096 Hz from the start of the
     surrogate (``batch_td_polarizations``)."""
-    from waveformjax import conversions
+    from waveformx import conversions
 
     binary = wf.Binary(40.0, 20.0, (0.4, 0.2, 0.3), (-0.2, 0.3, -0.1), 500.0, 0.7, 1.2, 20.0)
     out = {}

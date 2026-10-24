@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """IMRPhenomXAS under ``jax.jit``, ``jax.vmap``, ``jax.grad`` and
 ``jax.jvp``: the gradients of a fixed real function of the polarizations
@@ -11,8 +11,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from waveformjax import Binary, WaveformOptions
-from waveformjax.models.xas import MODEL
+from waveformx import Binary, WaveformOptions
+from waveformx.models.xas import MODEL
 
 OPTIONS = WaveformOptions()
 FREQUENCIES = np.geomspace(20.0, 900.0, 300)

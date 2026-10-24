@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "waveformjax"
+name = "waveformx"
 version = "0.1.0"
-description = "IMRPhenomXPNR and NRSur7dq4 in JAX: jit-compiled, vectorised and differentiable, with the API of waveformrs"
+description = "Gravitational-wave waveform models (IMRPhenomXAS, IMRPhenomXHM, IMRPhenomXPNR, NRSur7dq4) in JAX and MLX: compiled, vectorised and differentiable, with the API of waveformrs"
 readme = "README.md"
 requires-python = ">=3.10"
 # derived from LALSuite and GSL (see NOTICE.md)
@@ -18,7 +18,7 @@ dependencies = ["jax>=0.4.30", "numpy>=1.24", "h5py>=3.8"]
 # (conda-forge)
 test = ["pytest"]
 # NRSur7dq4, the lean IMRPhenomXPNR, IMRPhenomXAS and IMRPhenomXHM on Apple
-# GPUs (waveformjax.models.nrsur7dq4.mlx, xpnr.mlx, xas.mlx, xhm.mlx)
+# GPUs (waveformx.models.nrsur7dq4.mlx, xpnr.mlx, xas.mlx, xhm.mlx)
 mlx = ["mlx>=0.32.4"]
 
 [tool.setuptools.packages.find]

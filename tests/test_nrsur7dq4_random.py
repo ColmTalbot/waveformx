@@ -1,14 +1,14 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """NRSur7dq4 against LALSimulation 6.2.0 for random binaries (slow, opt in).
 
-Run with ``WAVEFORMJAX_SLOW=1``; ``NRSUR7DQ4_DRAWS`` sets the number of
+Run with ``WAVEFORMX_SLOW=1``; ``NRSUR7DQ4_DRAWS`` sets the number of
 draws (default 64) and ``-s`` prints the worst agreement. The draws cover
 ``1 <= q <= 6`` (either label heavier), spin magnitudes up to 0.99 in random
 directions, total masses of 20 to 300 solar masses, sampling at 1 to 8 kHz,
 ``f_min = 0`` or around the surrogate's starting frequency, and ``f_ref = 0``
-or above ``f_min``. Where LAL fails, waveformjax must raise too.
+or above ``f_min``. Where LAL fails, waveformx must raise too.
 """
 
 import os
@@ -16,14 +16,14 @@ import os
 import numpy as np
 import pytest
 
-import waveformjax as wf
+import waveformx as wf
 from conftest import compare, requires_nrsur
 from test_nrsur7dq4 import MISMATCH, TOLERANCE, lal_polarizations
 
 pytestmark = [
     requires_nrsur,
     pytest.mark.skipif(
-        os.environ.get("WAVEFORMJAX_SLOW", "") in ("", "0"), reason="slow: set WAVEFORMJAX_SLOW=1"
+        os.environ.get("WAVEFORMX_SLOW", "") in ("", "0"), reason="slow: set WAVEFORMX_SLOW=1"
     ),
 ]
 
@@ -32,7 +32,7 @@ DRAWS = int(os.environ.get("NRSUR7DQ4_DRAWS", "64"))
 
 def draw(rng):
     """A random binary, ``delta_t`` and ``f_min``."""
-    from waveformjax.models.nrsur7dq4 import _driver
+    from waveformx.models.nrsur7dq4 import _driver
 
     q = rng.uniform(1.0, 6.0)
     total = rng.uniform(20.0, 300.0)
@@ -86,7 +86,7 @@ def test_random_draws(lal):
             assert error < TOLERANCE and mismatch < MISMATCH, (binary, delta_t, f_min, error, mismatch)
         compared += 1
     print(
-        f"\nNRSur7dq4: {compared} draws compared, {failed} rejected by LAL and waveformjax; "
+        f"\nNRSur7dq4: {compared} draws compared, {failed} rejected by LAL and waveformx; "
         f"worst relative error {worst_error:.2e}, worst mismatch {worst_mismatch:.2e}"
     )
     # most draws are inside the surrogate (about 9 in 10 with these priors)

@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
-"""IMRPhenomXAS in MLX (``waveformjax.models.xas.mlx``) against the JAX
-model of the same tables (``waveformjax.models.xas.core``) in float64 and
+"""IMRPhenomXAS in MLX (``waveformx.models.xas.mlx``) against the JAX
+model of the same tables (``waveformx.models.xas.core``) in float64 and
 float32, and against LALSimulation. Skipped without MLX.
 
 * The polarizations are as close to float64 as JAX float32's (mismatch),
@@ -20,10 +20,10 @@ import pytest
 
 mx = pytest.importorskip("mlx.core")
 
-import waveformjax as wf  # noqa: E402
-from waveformjax.models.xas import core  # noqa: E402
-from waveformjax.models.xas import mlx as xas_mlx  # noqa: E402
-from waveformjax.models.xpnr._math import precision  # noqa: E402
+import waveformx as wf  # noqa: E402
+from waveformx.models.xas import core  # noqa: E402
+from waveformx.models.xas import mlx as xas_mlx  # noqa: E402
+from waveformx.models.xpnr._math import precision  # noqa: E402
 
 MTSUN_SI = 4.925490947641267e-06
 
@@ -57,7 +57,7 @@ def vector(binary):
 
 
 def jax_polarizations(p12, f, dtype=jnp.float64):
-    """``(h_+, h_x)`` of :mod:`waveformjax.models.xas.core` from the twelve
+    """``(h_+, h_x)`` of :mod:`waveformx.models.xas.core` from the twelve
     parameters, the strain times 1e21."""
     with precision(dtype):
         p = (p12[0], p12[1], p12[4], p12[7], p12[8], p12[9], p12[10], p12[11])

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """Shared set-up of the measurements of the report.
 
@@ -28,7 +28,7 @@ import lal  # noqa: E402
 import lalsimulation as lalsim  # noqa: E402
 import numpy as np  # noqa: E402
 
-import waveformjax as wf  # noqa: E402
+import waveformx as wf  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -62,7 +62,7 @@ NAMES = ["mass_1", "mass_2", "spin_1x", "spin_1y", "spin_1z", "spin_2x", "spin_2
 
 
 def binary_of(keywords):
-    """A :class:`waveformjax.Binary` of float64 JAX arrays."""
+    """A :class:`waveformx.Binary` of float64 JAX arrays."""
     return wf.Binary(
         mass_1=jnp.float64(keywords["mass_1"]), mass_2=jnp.float64(keywords["mass_2"]),
         spin_1=jnp.asarray(keywords["spin_1"], jnp.float64), spin_2=jnp.asarray(keywords["spin_2"], jnp.float64),
@@ -203,7 +203,7 @@ def environment():
         jaxlib=getattr(sys.modules.get("jaxlib"), "__version__", None),
         backend=jax.default_backend(),
         xla_flags=os.environ.get("XLA_FLAGS", ""),
-        waveformjax_commit=commit,
+        waveformx_commit=commit,
         lalsimulation=lalsim.__version__,
         lal=lal.__version__,
         waveformrs=None if rs is None else rs.__version__,

@@ -8,7 +8,7 @@
   "jaxlib": "0.11.2",
   "backend": "cpu",
   "xla_flags": "",
-  "waveformjax_commit": "cbdb398",
+  "waveformx_commit": "cbdb398",
   "lalsimulation": "6.2.0",
   "lal": "7.7.0",
   "waveformrs": "0.1.0"

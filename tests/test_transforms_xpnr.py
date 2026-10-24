@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """IMRPhenomXPNR under ``jax.jit``, ``jax.vmap`` and ``jax.grad``.
 
@@ -26,8 +26,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from waveformjax import Binary, WaveformOptions
-from waveformjax.models.xpnr import MODEL
+from waveformx import Binary, WaveformOptions
+from waveformx.models.xpnr import MODEL
 
 OPTIONS = WaveformOptions(mode_array=((2, 2), (2, -2)), version_fallback=True, scaled_strain=False)
 FREQUENCIES = jnp.asarray(np.geomspace(20.0, 400.0, 96))

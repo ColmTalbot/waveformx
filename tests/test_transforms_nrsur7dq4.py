@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """NRSur7dq4 under the JAX transformations: ``jax.jit`` and ``jax.vmap``
 give the plain call, ``jax.grad`` agrees with finite differences for every
@@ -12,7 +12,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import waveformjax as wf
+import waveformx as wf
 from conftest import requires_nrsur
 
 pytestmark = requires_nrsur
@@ -61,7 +61,7 @@ def test_jit_matches_plain_call(function):
 def test_data_first_read_under_jit(function):
     """The data read by a first call inside ``jax.jit`` are concrete arrays,
     so later calls (outside that trace) can use them."""
-    from waveformjax.models.nrsur7dq4 import _data
+    from waveformx.models.nrsur7dq4 import _data
 
     _data._load_as.cache_clear()
     _data._load_cached.cache_clear()
@@ -189,7 +189,7 @@ def test_modes_under_jit():
 
 def test_no_recompilation():
     """Waveforms of similar lengths share one compilation."""
-    from waveformjax.models.nrsur7dq4 import _driver
+    from waveformx.models.nrsur7dq4 import _driver
 
     binary = dict(
         mass_1=40.0, mass_2=20.0, spin_1=(0.4, -0.3, 0.2), spin_2=(0.1, 0.5, -0.3), luminosity_distance=100.0

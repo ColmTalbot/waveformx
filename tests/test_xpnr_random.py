@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """IMRPhenomXPNR against ``SimInspiralChooseFDWaveformSequence`` for random
-binaries (opt-in: set ``WAVEFORMJAX_SLOW=1``).
+binaries (opt-in: set ``WAVEFORMX_SLOW=1``).
 
 The draws follow waveformrs's ``scripts/validate_against_lalsimulation.py``:
 total masses log-uniform in 5 to 300 solar masses, mass ratios uniform in
@@ -22,11 +22,11 @@ import numpy as np
 import pytest
 
 from conftest import compare
-from waveformjax import Binary, WaveformOptions
-from waveformjax.models.xpnr import MODEL
+from waveformx import Binary, WaveformOptions
+from waveformx.models.xpnr import MODEL
 
-pytestmark = pytest.mark.skipif(os.environ.get("WAVEFORMJAX_SLOW") != "1",
-                                reason="slow: set WAVEFORMJAX_SLOW=1 to run")
+pytestmark = pytest.mark.skipif(os.environ.get("WAVEFORMX_SLOW") != "1",
+                                reason="slow: set WAVEFORMX_SLOW=1 to run")
 
 N_DRAWS = 64
 TOLERANCE = (1e-4, 1e-9)

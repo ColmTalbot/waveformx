@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 #
 # Re-run every measurement of the report, one after another (on an otherwise
@@ -20,7 +20,7 @@ export OMP_NUM_THREADS=1
 PY="${PYTHON:-python}"
 MLX_PY="${MLX_PYTHON:-$PY}"
 # (the whole suite: plain pytest runs the quick tier only)
-WAVEFORMJAX_SLOW=1 "$PY" -m pytest -q -p no:cacheprovider --junitxml=report/data/pytest.xml tests
+WAVEFORMX_SLOW=1 "$PY" -m pytest -q -p no:cacheprovider --junitxml=report/data/pytest.xml tests
 if "$MLX_PY" -c "import mlx.core" 2>/dev/null; then
     "$MLX_PY" -m pytest -q -p no:cacheprovider tests/test_nrsur7dq4_mlx.py tests/test_xpnr_mlx.py tests/test_xas_mlx.py tests/test_xhm_mlx.py \
         --junitxml=report/data/pytest_mlx.xml

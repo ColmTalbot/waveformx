@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """``scripts/generate_fits.py`` spec of the parameter-space fits of the PNR
 angles and of the PhenomXCP co-precessing deviations of IMRPhenomXPNR

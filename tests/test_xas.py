@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
-"""IMRPhenomXAS (``waveformjax.models.xas``) against
+"""IMRPhenomXAS (``waveformx.models.xas``) against
 ``SimInspiralChooseFDWaveformSequence`` of LALSimulation 6.2.0, in float64
 and float32, through the public functions.
 
@@ -17,9 +17,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import waveformjax as wf
+import waveformx as wf
 from conftest import compare
-from waveformjax.models.xas import core
+from waveformx.models.xas import core
 
 MTSUN_SI = 4.925490947641267e-06
 
@@ -143,7 +143,7 @@ def test_qnm_fits():
     """The QNM fits in powers of ``1 - a_f``: LAL's values (to its rounding,
     which cancels near ``a_f = 1``), and float32 within ``2e-6`` where LAL's
     form loses a part in 100."""
-    from waveformjax.models.xpnr._generated import qnm
+    from waveformx.models.xpnr._generated import qnm
 
     for af in [-0.99, -0.5, 0.0, 0.5, 0.9, 0.99, 0.999]:
         ring, damp = core.qnm_22(np.float64(af))

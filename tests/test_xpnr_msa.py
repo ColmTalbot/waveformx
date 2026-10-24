@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """The MSA (``PhenomXPrecVersion`` 223) and NNLO (102) Euler angles and the
 precession set-up of IMRPhenomXP/XPNR against LALSimulation 6.2.0
@@ -32,7 +32,7 @@ import numpy as np
 import pytest
 
 from conftest import compare
-from waveformjax.models.xpnr import msa, nnlo, precession
+from waveformx.models.xpnr import msa, nnlo, precession
 
 Case = namedtuple("Case", "m1 m2 s1 s2 iota fmin fref tol_msa tol_pn", defaults=(3e-12, 1e-13))
 
@@ -194,7 +194,7 @@ def test_frame_matches_lalsimulation(lal_globals, name, version):
     def frame(m1, m2, chi1, chi2, inclination):
         m1_si, m2_si, chi1, chi2 = precession.check_masses_and_spins(
             m1 * lal_module.MSUN_SI, m2 * lal_module.MSUN_SI, chi1, chi2)
-        from waveformjax.models.xpnr.internals import waveform_struct
+        from waveformx.models.xpnr.internals import waveform_struct
 
         wf = waveform_struct(m1_si, m2_si, chi1[2], chi2[2], 0.125, f_ref, phi_ref, 30.0, 1024.0,
                              1e6 * lal_module.PC_SI, inclination)

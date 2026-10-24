@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """The lean IMRPhenomXPNR in MLX on the Apple GPU against the JAX lean
 model on the CPU: the accuracy of the float32 MLX waveform and of its
@@ -23,7 +23,7 @@ derivatives, and its cost. Writes ``report/data/mlx_xpnr.json``.
   calls of MLX in a new process (tracing the model and compiling its
   kernels).
 
-It needs MLX (``pip install waveformjax[mlx]``).
+It needs MLX (``pip install waveformx[mlx]``).
 
 Usage::
 
@@ -50,10 +50,10 @@ import jax.numpy as jnp  # noqa: E402
 import mlx.core as mx  # noqa: E402
 import numpy as np  # noqa: E402
 
-import waveformjax as wf  # noqa: E402
+import waveformx as wf  # noqa: E402
 import xcommon  # noqa: E402
-from waveformjax.models.xpnr import lean  # noqa: E402
-from waveformjax.models.xpnr import mlx as xpnr_mlx  # noqa: E402
+from waveformx.models.xpnr import lean  # noqa: E402
+from waveformx.models.xpnr import mlx as xpnr_mlx  # noqa: E402
 
 
 def mlx_environment():
@@ -190,8 +190,8 @@ import json, time
 start = time.perf_counter()
 import mlx.core as mx
 import numpy as np
-import waveformjax as wf
-from waveformjax.models.xpnr import mlx as xpnr_mlx
+import waveformx as wf
+from waveformx.models.xpnr import mlx as xpnr_mlx
 imports = time.perf_counter() - start
 f = np.arange(160, 8193) / 8.0
 binary = wf.Binary(36.0, 29.0, (0.4, 0.2, 0.3), (-0.2, 0.3, -0.1), 500.0, 0.7, 1.2, 20.0)

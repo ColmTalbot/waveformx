@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """Milestone 1 of IMRPhenomXPNR: the aligned-spin (2,2) mode IMRPhenomXAS
 against ``SimIMRPhenomXASFrequencySequence`` of LALSimulation 6.2.0."""
@@ -9,8 +9,8 @@ import numpy as np
 import pytest
 
 from conftest import compare
-from waveformjax.models.xpnr import xas
-from waveformjax.models.xpnr._generated import qnm, utilities
+from waveformx.models.xpnr import xas
+from waveformx.models.xpnr._generated import qnm, utilities
 
 # mass_1, mass_2, chi_1, chi_2, distance, phi_ref, f_min, f_ref (waveformrs's
 # aligned_cases, plus the lighter body first and f_ref = 0)

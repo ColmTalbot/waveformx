@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """Shared set-up of the measurements of the report on IMRPhenomXPNR without
 fallbacks and with the extended SpinTaylor angles (``report/extended``).
 
-The model is called through :func:`waveformjax.models.xpnr.model._decide`
+The model is called through :func:`waveformx.models.xpnr.model._decide`
 with the static flags of the three variants: LAL's (``fallback=True``),
 LAL's SpinTaylor angles only (``fallback=False``) and the extended, smooth
 angles (``extended=True``), as ``WaveformOptions`` selects them, and the
@@ -24,8 +24,8 @@ import jax  # noqa: E402
 import jax.numpy as jnp  # noqa: E402
 import numpy as np  # noqa: E402
 
-import waveformjax as wf  # noqa: E402
-from waveformjax.models.xpnr import model, pnr  # noqa: E402
+import waveformx as wf  # noqa: E402
+from waveformx.models.xpnr import model, pnr  # noqa: E402
 
 DATA = HERE / "data"
 DATA.mkdir(exist_ok=True)
@@ -66,7 +66,7 @@ def setup_fn(extended=False, smooth=None):
 
 
 def binary(d, **changes):
-    """A :class:`waveformjax.Binary` from a dict with ``m1``, ``m2``, ``s1``,
+    """A :class:`waveformx.Binary` from a dict with ``m1``, ``m2``, ``s1``,
     ``s2``, ``fref`` (and optionally ``inclination``, ``phi_ref``)."""
     d = dict(d, **changes)
     return wf.Binary(mass_1=jnp.float64(d["m1"]), mass_2=jnp.float64(d["m2"]), spin_1=jnp.asarray(d["s1"], jnp.float64),

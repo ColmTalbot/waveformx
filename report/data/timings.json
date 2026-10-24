@@ -8,7 +8,7 @@
   "jaxlib": "0.11.2",
   "backend": "cpu",
   "xla_flags": "",
-  "waveformjax_commit": "3ff80dc",
+  "waveformx_commit": "3ff80dc",
   "lalsimulation": "6.2.0",
   "lal": "7.7.0",
   "waveformrs": "0.1.0"
@@ -125,7 +125,7 @@
   "IMRPhenomXPNR": {
    "n": 64,
    "first_call": 23.819889459293336,
-   "waveformjax": 70.0522071576198,
+   "waveformx": 70.0522071576198,
    "lal": 74.30162304049115,
    "waveformrs_1": 340.00813371750917,
    "waveformrs_0": 4667.401901444192
@@ -133,7 +133,7 @@
   "NRSur7dq4": {
    "n": 64,
    "first_call": 2.358433125074953,
-   "waveformjax": 734.4194117163809,
+   "waveformx": 734.4194117163809,
    "lal": 184.46833891459892,
    "waveformrs_1": 1011.2521603833417,
    "waveformrs_0": 11523.91750710545

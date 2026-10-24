@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """IMRPhenomXPNR in float32 and the scale of its output.
 
@@ -19,9 +19,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import waveformjax as wf
-from waveformjax import WaveformOptions
-from waveformjax.models.xpnr import model
+import waveformx as wf
+from waveformx import WaveformOptions
+from waveformx.models.xpnr import model
 
 BINARY = wf.Binary(36.0, 29.0, (0.4, 0.2, 0.3), (-0.2, 0.3, -0.1), 500.0, 0.7, 1.2, 20.0)
 FREQUENCIES = np.geomspace(20.0, 1024.0, 128)
@@ -128,8 +128,8 @@ def test_arctan_window_float32_derivative():
     """The window of the ringdown ``beta`` (Eq. 62 of arXiv:2107.08876) has
     finite derivatives in float32 where LAL's power overflows (``beta <
     -0.3``), and the same values and derivatives as in float64."""
-    from waveformjax.models.xpnr import pnr_angles
-    from waveformjax.models.xpnr._math import precision
+    from waveformx.models.xpnr import pnr_angles
+    from waveformx.models.xpnr._math import precision
 
     beta = np.array([-2.0, -0.5, -0.3, -0.1, -1e-3, 0.0, 1e-3, 1.4e-3, 5e-3, 0.0099, 0.5, 3.135, 3.2, 3.5])
     results = {}

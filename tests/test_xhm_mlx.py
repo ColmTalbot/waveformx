@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
-"""IMRPhenomXHM in MLX (``waveformjax.models.xhm.mlx``) against the JAX
-model of the same tables (``waveformjax.models.xhm``) in float64 and float32.
+"""IMRPhenomXHM in MLX (``waveformx.models.xhm.mlx``) against the JAX
+model of the same tables (``waveformx.models.xhm``) in float64 and float32.
 Skipped without MLX.
 
 * The polarizations and the modes are as close to float64 as JAX float32's
@@ -22,9 +22,9 @@ import pytest
 
 mx = pytest.importorskip("mlx.core")
 
-import waveformjax as wf  # noqa: E402
-from waveformjax.models.xhm import mlx as xhm_mlx  # noqa: E402
-from waveformjax.models.xhm import model  # noqa: E402
+import waveformx as wf  # noqa: E402
+from waveformx.models.xhm import mlx as xhm_mlx  # noqa: E402
+from waveformx.models.xhm import model  # noqa: E402
 
 MTSUN_SI = 4.925490947641267e-06
 OPTIONS = wf.WaveformOptions()

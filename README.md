@@ -1,4 +1,4 @@
-# waveformjax
+# waveformx
 
 Gravitational-wave waveform models for compact binaries, implemented in
 [JAX](https://github.com/jax-ml/jax). The models can be
@@ -161,7 +161,7 @@ make its measurements (`report/measure_all.sh`).
 
 ## License
 
-waveformjax is free software, licensed under the GNU General Public License
+waveformx is free software, licensed under the GNU General Public License
 version 3 or later ([LICENSE](LICENSE)). It follows LALSuite, the GNU
 Scientific Library and waveformrs; [NOTICE.md](NOTICE.md) lists the original
 code.

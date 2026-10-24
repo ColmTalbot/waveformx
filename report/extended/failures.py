@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """Where IMRPhenomXPNR's SpinTaylor angles fail, why, and the extended
 angles there.
@@ -44,8 +44,8 @@ def lal_status(d):
 
 
 def diagnosis():
-    from waveformjax.models.xpnr._math import MSUN_SI, MTSUN_SI
-    from waveformjax.models.xpnr.spintaylor import angles, dynamics, replica
+    from waveformx.models.xpnr._math import MSUN_SI, MTSUN_SI
+    from waveformx.models.xpnr.spintaylor import angles, dynamics, replica
 
     def f(b, frequencies):
         x.pnr.clear_cache()

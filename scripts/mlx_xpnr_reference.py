@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """The reference values of the MLX port of the lean IMRPhenomXPNR: the
-float64 intermediates of every stage (:func:`waveformjax.models.xpnr.mlx._stages.reference`)
+float64 intermediates of every stage (:func:`waveformx.models.xpnr.mlx._stages.reference`)
 and the float64 Jacobians of ``h_+`` and ``h_x`` with respect to the twelve
 parameters of the binary, at random binaries of ``report/extended`` and at
 edge cases, written to an ``.npz`` file (one entry per binary and value,
@@ -23,9 +23,9 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-import waveformjax as wf
-from waveformjax.models.xpnr import lean
-from waveformjax.models.xpnr.mlx import _stages
+import waveformx as wf
+from waveformx.models.xpnr import lean
+from waveformx.models.xpnr.mlx import _stages
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "report" / "extended"))
 import xcommon  # noqa: E402

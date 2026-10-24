@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """IMRPhenomXPNR in JAX against LALSimulation and waveformrs over random
 binaries.
@@ -14,7 +14,7 @@ log-uniform in 100-3000 Mpc and isotropic lines of sight. The frequencies are
 M, 2048 Hz)``: one length, so one compilation serves every draw (waveformrs
 used a spacing of 0.25 Hz, which gives each draw its own length).
 
-For each draw this compares, through the public ``waveformjax.polarizations``
+For each draw this compares, through the public ``waveformx.polarizations``
 (LAL's checks on the host, then the compiled model):
 
 * the model without the parity fix with LALSimulation 6.2.0
@@ -28,7 +28,7 @@ For each draw this compares, through the public ``waveformjax.polarizations``
 
 Recorded: the largest relative error ``max |h - h_ref| / max |h_ref|`` and the
 noise-weighted mismatch (aLIGO design sensitivity, no maximisation) of both
-polarizations, and the wall-clock times. Where LAL fails, waveformjax must
+polarizations, and the wall-clock times. Where LAL fails, waveformx must
 raise or give NaN.
 
 Usage::
@@ -80,7 +80,7 @@ def evaluate(function, repeats=3):
     """``(hplus, hcross, seconds)`` or ``(None, None, error message)``."""
     try:
         hp, hc = function()
-    except Exception as error:  # noqa: BLE001 (LAL's RuntimeError, waveformjax's WaveformError)
+    except Exception as error:  # noqa: BLE001 (LAL's RuntimeError, waveformx's WaveformError)
         return None, None, f"{type(error).__name__}: {error}"
     seconds = median_time(function, repeats=repeats)
     return np.asarray(hp), np.asarray(hc), seconds
@@ -164,7 +164,7 @@ def main():
         record["jax_vs_rs"] = against("jax", "rs")
         record["jax_fix_vs_rs_fix"] = against("jax_fix", "rs_fix")
         record["rs_fix_vs_lal_fix"] = against("rs_fix", "lal_fix")
-        # LAL fails: waveformjax must reject the binary or give NaN
+        # LAL fails: waveformx must reject the binary or give NaN
         lal_failed = results["lal"][0] is None
         jax_failed = results["jax"][0] is None or not record["finite_jax"]
         record["failure_agrees"] = lal_failed == jax_failed

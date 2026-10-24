@@ -21,8 +21,8 @@
   the model's `tests/test_transforms_<model>.py` after changing it.
 - **Tests**: `pytest` runs the quick tier (`tests/test_quick.py` and a few
   fast files, about a minute); `pytest tests` runs everything (an hour or
-  more; `WAVEFORMJAX_SLOW=1` adds the random-binary suites). Compiled code is
-  cached across runs in `~/.cache/waveformjax/jax` (`WAVEFORMJAX_TEST_CACHE`
+  more; `WAVEFORMX_SLOW=1` adds the random-binary suites). Compiled code is
+  cached across runs in `~/.cache/waveformx/jax` (`WAVEFORMX_TEST_CACHE`
   moves it, empty turns it off): time compilation with the cache off.
 - **MLX tests** (`tests/test_nrsur7dq4_mlx.py`, `tests/test_xpnr_mlx.py`,
   `tests/test_xas_mlx.py`, `tests/test_xhm_mlx.py`) are skipped without MLX: run them with a Python

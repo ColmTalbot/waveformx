@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """Milestone 4 of IMRPhenomXPNR: the polarizations against
 ``SimInspiralChooseFDWaveformSequence``.
@@ -36,8 +36,8 @@ import numpy as np
 import pytest
 
 from conftest import compare
-from waveformjax import Binary, WaveformOptions
-from waveformjax.models.xpnr import MODEL
+from waveformx import Binary, WaveformOptions
+from waveformx.models.xpnr import MODEL
 
 DATA = Path(__file__).parent / "data"
 CASES = json.loads((DATA / "imrphenomxpnr_parityfix.json").read_text())["cases"]

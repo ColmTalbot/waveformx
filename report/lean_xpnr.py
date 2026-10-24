@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """The lean IMRPhenomXPNR (``lean=True``) against the extended model, and
 the cost of compiling and running it against the default model: writes
@@ -34,8 +34,8 @@ CASE = r'''
 import json, sys, time
 import jax, jax.numpy as jnp, numpy as np
 jax.config.update("jax_enable_x64", True)
-from waveformjax import Binary, WaveformOptions
-from waveformjax.models.xpnr import MODEL
+from waveformx import Binary, WaveformOptions
+from waveformx.models.xpnr import MODEL
 name, kind = sys.argv[1], sys.argv[2]
 options = {"lean": WaveformOptions(lean=True), "default": WaveformOptions()}[name]
 F = jnp.asarray(np.linspace(20.0, 512.0, 64))
@@ -61,8 +61,8 @@ RUN = r'''
 import json, sys, time
 import jax, jax.numpy as jnp, numpy as np
 jax.config.update("jax_enable_x64", True)
-from waveformjax import Binary, WaveformOptions
-from waveformjax.models.xpnr import model
+from waveformx import Binary, WaveformOptions
+from waveformx.models.xpnr import model
 F = jnp.asarray(np.arange(160, 8193) / 8.0)
 B = Binary(mass_1=jnp.float64(36.0), mass_2=jnp.float64(29.0), spin_1=jnp.asarray([0.4, 0.2, 0.3]),
            spin_2=jnp.asarray([-0.2, 0.3, -0.1]), luminosity_distance=jnp.float64(500.0),

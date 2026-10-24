@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
-"""The lean IMRPhenomXPNR in MLX (``waveformjax.models.xpnr.mlx``) against
+"""The lean IMRPhenomXPNR in MLX (``waveformx.models.xpnr.mlx``) against
 the JAX lean model, stage by stage (the stages of
-``waveformjax.models.xpnr.mlx._stages``) and end to end. Skipped without
+``waveformx.models.xpnr.mlx._stages``) and end to end. Skipped without
 MLX.
 
 * The stages composed in JAX reproduce the lean model to rounding (the
@@ -32,9 +32,9 @@ import pytest
 
 mx = pytest.importorskip("mlx.core")
 
-import waveformjax as wf  # noqa: E402
-from waveformjax.models.xpnr import lean, model  # noqa: E402
-from waveformjax.models.xpnr.mlx import _stages  # noqa: E402
+import waveformx as wf  # noqa: E402
+from waveformx.models.xpnr import lean, model  # noqa: E402
+from waveformx.models.xpnr.mlx import _stages  # noqa: E402
 
 MTSUN_SI = 4.925490947641267e-06
 
@@ -136,7 +136,7 @@ def _probe(x, y, i, z):
 def test_program_and_kernel():
     """A jaxpr lowered and run as MLX operations and as a Metal kernel, and
     its JVP, agree with JAX (float32)."""
-    from waveformjax.models.xpnr.mlx import _kernels, _mlxrun, _program
+    from waveformx.models.xpnr.mlx import _kernels, _mlxrun, _program
 
     rng = np.random.default_rng(1)
     x = rng.uniform(0.1, 1.0, 64).astype(np.float32)
@@ -179,7 +179,7 @@ def test_program_and_kernel():
 
 
 def _stack(trees):
-    from waveformjax.models.xpnr.mlx._stages import combine, partition
+    from waveformx.models.xpnr.mlx._stages import combine, partition
 
     parts = [partition(t) for t in trees]
     leaves = []
@@ -194,7 +194,7 @@ def _stack(trees):
 
 
 def _stack_tangents(tangent_lists, trees):
-    from waveformjax.models.xpnr.mlx._stages import combine, partition
+    from waveformx.models.xpnr.mlx._stages import combine, partition
 
     out = []
     for k in range(len(tangent_lists[0])):
@@ -211,8 +211,8 @@ def _stack_tangents(tangent_lists, trees):
 def _leaf_errors(mlx_tree, mlx_tangents, key, names):
     """Per leaf and binary: the relative error of MLX against float64, and
     JAX float32's (values, then tangents)."""
-    from waveformjax.models.xpnr.mlx._kernels import _flatten_like
-    from waveformjax.models.xpnr.mlx._stages import partition
+    from waveformx.models.xpnr.mlx._kernels import _flatten_like
+    from waveformx.models.xpnr.mlx._stages import partition
 
     values = partition(mlx_tree)[0]
     tangents = _flatten_like(mlx_tangents, mlx_tree) if mlx_tangents is not None else [None] * len(values)
@@ -270,7 +270,7 @@ def _inputs(keys, names, dtype="float32"):
 
 @pytest.fixture(scope="module")
 def built():
-    from waveformjax.models.xpnr.mlx import _build
+    from waveformx.models.xpnr.mlx import _build
 
     return _build.stages(model.DEFAULT_MODES, 1e21)
 
@@ -338,7 +338,7 @@ def test_stage_e(built):
 def test_spintaylor():
     """The steps of the integration, the dense output and the end of the
     inspiral, with derivatives."""
-    from waveformjax.models.xpnr.mlx import _solution
+    from waveformx.models.xpnr.mlx import _solution
 
     names = ("generic", "aligned", "unequal", "beyond", "light")
     trees, ttrees = _inputs(("ode",), names, "float64")
@@ -361,7 +361,7 @@ def test_spintaylor():
             want = np.asarray(getattr(s64.tree, field), np.float64)
             assert np.max(np.abs(got - want)) <= 1e-3 * max(np.max(np.abs(want)), 1e-3), (name, field)
         # the derivatives of the end of the inspiral
-        from waveformjax.models.xpnr.mlx._stages import partition
+        from waveformx.models.xpnr.mlx._stages import partition
 
         names_t = [p for p, _ in _stages.named_leaves(s64.tree)]
         for field in ("s1_end", "s2_end", "lnhat_end", "omega_last"):
@@ -380,7 +380,7 @@ def test_spintaylor_angles():
     """The SpinTaylor angles at the points of the set-up (``alpha``,
     ``cos(beta)`` and their derivatives in ``Mf``), and their derivatives
     along the parameters, against float64: as close as JAX float32's."""
-    from waveformjax.models.xpnr.mlx import _solution
+    from waveformx.models.xpnr.mlx import _solution
 
     names = ("generic", "unequal", "beyond", "light")
     trees, ttrees = _inputs(("ode", "rotation", "st_range", "points"), names, "float64")
@@ -407,7 +407,7 @@ def test_interpolants():
     """The interpolants of the PNR angles on the grid (from JAX float32's
     angles there) and their values at the frequencies of the modes, against
     float64: as close as JAX float32's."""
-    from waveformjax.models.xpnr.mlx import _interpolants
+    from waveformx.models.xpnr.mlx import _interpolants
 
     for name in ("generic", "light", "beyond"):
         r32, r64 = jax_reference(name, "float32"), jax_reference(name, "float64")
@@ -443,7 +443,7 @@ def test_interpolants():
 
 @pytest.fixture(scope="module")
 def mlx_model():
-    from waveformjax.models.xpnr import mlx as xpnr_mlx
+    from waveformx.models.xpnr import mlx as xpnr_mlx
 
     return xpnr_mlx
 

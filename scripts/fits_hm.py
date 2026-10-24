@@ -1,14 +1,14 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """Generated modules of the IMRPhenomXHM higher modes (see
 generate_fits.py): the quasi-normal-mode fits, the parameter-space fits of
 the 122019 amplitude (fits version 122018) and of the phase, the
 coefficients of the intermediate amplitude polynomial and the straight-line
 pieces of the 122019 amplitude, whose control flow lives in
-``src/waveformjax/models/xpnr/hm/``; and the parameter-space fits of the
+``src/waveformx/models/xpnr/hm/``; and the parameter-space fits of the
 amplitude of the 122022 release (``hm_amp_fits_*``), whose control flow
-lives in ``src/waveformjax/models/xhm/``."""
+lives in ``src/waveformx/models/xhm/``."""
 
 _PHASE_FITS = [f"phase_{mode}_p{i}" for mode in (21, 33, 32, 44) for i in range(1, 7)]
 _MODES = (21, 33, 32, 44)

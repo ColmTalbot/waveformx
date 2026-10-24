@@ -1,8 +1,8 @@
 # Notices
 
-waveformjax is Copyright (C) 2026 Colm Talbot.
+waveformx is Copyright (C) 2026 Colm Talbot.
 
-waveformjax is free software: you can redistribute it and/or modify it under
+waveformx is free software: you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
 Foundation, either version 3 of the License, or (at your option) any later
 version. It is distributed in the hope that it will be useful, but WITHOUT
@@ -12,7 +12,7 @@ The full text is in [LICENSE](LICENSE).
 
 ## Code this work is derived from
 
-waveformjax implements IMRPhenomXAS, IMRPhenomXHM, IMRPhenomXPNR and NRSur7dq4 following
+waveformx implements IMRPhenomXAS, IMRPhenomXHM, IMRPhenomXPNR and NRSur7dq4 following
 [LALSuite](https://git.ligo.org/lscsoft/lalsuite) and its Rust translation
 [waveformrs](https://github.com/ColmTalbot/waveformrs) (GPL-3.0-or-later),
 which also translates parts of the GNU Scientific Library. The copyright of
@@ -22,20 +22,20 @@ holders and licences: LALSuite is licensed under the GNU General Public
 License version 2 or later, used here under version 3 or later, and GSL under
 version 3 or later.
 
-The table below lists the original files of each module of waveformjax. Keep
+The table below lists the original files of each module of waveformx. Keep
 it up to date when code is ported.
 
-| waveformjax | Original files |
+| waveformx | Original files |
 |---|---|
-| `src/waveformjax/models/xpnr/` | LALSuite: `LALSimIMRPhenomX*.c` (with `LALSimIMRPhenomXHM*.c`, `LALSimIMRPhenomX_precession.c`, `LALSimIMRPhenomXUtilities.c`), `LALSimIMRPhenomX_PNR*.c`, `LALSimIMRPhenomX_AntisymmetricWaveform.c`, `LALSimInspiralSpinTaylor.c`, `LALSimInspiralPNCoefficients.c`, `LALAdaptiveRungeKuttaIntegrator.c`, lal `SphericalHarmonics.c`; GSL: `specfunc/elljac.c`, `specfunc/ellint.c`, `interpolation/cspline.c`, `poly/zsolve.c`, `ode-initval/rkf45.c`, `ode-initval/cstd.c`, `ode-initval/evolve.c` (as listed in waveformrs's `NOTICE.md`); SciPy: the Dormand-Prince 8(5,3) coefficients of `scipy/integrate/_ivp/dop853_coefficients.py` in `_generated/dop853.py` (see below) |
-| `src/waveformjax/models/xas/` | LALSuite: `LALSimIMRPhenomX.c` (`IMRPhenomXASGenerateFD`, `XLALSimIMRPhenomXASFrequencySequence`), `LALSimIMRPhenomX_internals.c`, `LALSimIMRPhenomX_qnm.c` (the fits, rewritten in powers of `1 - a_f`), `LALSimIMRPhenomXUtilities.c` and the IMRPhenomXAS polarizations of `LALSimInspiral.c` (`XLALSimInspiralChooseFDWaveformSequence`); waveformrs: `src/imrphenomx/xas.rs`, through the (2,2) mode of `src/waveformjax/models/xpnr/` |
-| `src/waveformjax/models/xhm/` | LALSuite: `LALSimIMRPhenomXHM.c` (`IMRPhenomXHM_MultiMode2`, `IMRPhenomXHMGenerateFDOneMode`, `XLALSimIMRPhenomXHMFrequencySequenceOneMode`, `XLALSimIMRPhenomXHMModes`), `LALSimIMRPhenomXHM_internals.c` (with the `_inspiral`, `_intermediate`, `_ringdown` and `_qnm` files it includes; release 122022), `LALSimIMRPhenomX.c` and the IMRPhenomXHM branches of `LALSimInspiral.c`; waveformrs: `src/imrphenomx/xhm.rs`, `xhm/modes.rs`, `hm_internals.rs`, `hm_inspiral.rs`, `hm_intermediate.rs`, `hm_ringdown.rs` (whose amplitude fits are generated into `src/waveformjax/models/xpnr/_generated/hm_amp_fits_*.py`) |
-| `src/waveformjax/conversions/` | LALSuite: `LALSimInspiral.c` (`XLALSimInspiralTD`, `XLALSimInspiralFD`, `XLALSimInspiralTDFromFD`, `XLALSimInspiralTDConditionStage1/2` and the duration bounds `XLALSimInspiralChirpTimeBound`, `MergeTimeBound`, `RingdownTimeBound`, `FinalBlackHoleSpinBound` and `ChirpStartFrequencyBound`), `LALSimInspiralGeneratorConditioning.c`, `LALSimInspiralWaveformTaper.c` (`XLALSimInspiralREAL8WaveTaper`), lal `ButterworthTimeSeries.c` (with `BilinearTransform.c`, `CreateIIRFilter.c` and `IIRFilterVector*.c` for the filter it builds), `TimeFreqFFT.c` (the normalisation of the transforms) and `XLALTime.c` (`XLALGPSAdd`, the epochs); waveformrs: `src/conditioning.rs`, `src/conversions/` |
-| `src/waveformjax/models/nrsur7dq4/` | LALSuite: `LALSimIMRPrecessingNRSur.c`, `LALSimNRSurrogateUtilities.c` (Jonathan Blackman, Vijay Varma), the NRSur7dq4 branches of `LALSimInspiralGeneratorLegacy.c` and lal's `LALConstants.h`; GSL: `interpolation/cspline.c`, `linalg/tridiag.c` (`gsl_linalg_solve_symm_tridiag`), `interpolation/poly.c` and `poly/dd.c` (divided differences); waveformrs: `src/nrsur.rs`, `src/nrsur/` (as listed in waveformrs's `NOTICE.md`) |
+| `src/waveformx/models/xpnr/` | LALSuite: `LALSimIMRPhenomX*.c` (with `LALSimIMRPhenomXHM*.c`, `LALSimIMRPhenomX_precession.c`, `LALSimIMRPhenomXUtilities.c`), `LALSimIMRPhenomX_PNR*.c`, `LALSimIMRPhenomX_AntisymmetricWaveform.c`, `LALSimInspiralSpinTaylor.c`, `LALSimInspiralPNCoefficients.c`, `LALAdaptiveRungeKuttaIntegrator.c`, lal `SphericalHarmonics.c`; GSL: `specfunc/elljac.c`, `specfunc/ellint.c`, `interpolation/cspline.c`, `poly/zsolve.c`, `ode-initval/rkf45.c`, `ode-initval/cstd.c`, `ode-initval/evolve.c` (as listed in waveformrs's `NOTICE.md`); SciPy: the Dormand-Prince 8(5,3) coefficients of `scipy/integrate/_ivp/dop853_coefficients.py` in `_generated/dop853.py` (see below) |
+| `src/waveformx/models/xas/` | LALSuite: `LALSimIMRPhenomX.c` (`IMRPhenomXASGenerateFD`, `XLALSimIMRPhenomXASFrequencySequence`), `LALSimIMRPhenomX_internals.c`, `LALSimIMRPhenomX_qnm.c` (the fits, rewritten in powers of `1 - a_f`), `LALSimIMRPhenomXUtilities.c` and the IMRPhenomXAS polarizations of `LALSimInspiral.c` (`XLALSimInspiralChooseFDWaveformSequence`); waveformrs: `src/imrphenomx/xas.rs`, through the (2,2) mode of `src/waveformx/models/xpnr/` |
+| `src/waveformx/models/xhm/` | LALSuite: `LALSimIMRPhenomXHM.c` (`IMRPhenomXHM_MultiMode2`, `IMRPhenomXHMGenerateFDOneMode`, `XLALSimIMRPhenomXHMFrequencySequenceOneMode`, `XLALSimIMRPhenomXHMModes`), `LALSimIMRPhenomXHM_internals.c` (with the `_inspiral`, `_intermediate`, `_ringdown` and `_qnm` files it includes; release 122022), `LALSimIMRPhenomX.c` and the IMRPhenomXHM branches of `LALSimInspiral.c`; waveformrs: `src/imrphenomx/xhm.rs`, `xhm/modes.rs`, `hm_internals.rs`, `hm_inspiral.rs`, `hm_intermediate.rs`, `hm_ringdown.rs` (whose amplitude fits are generated into `src/waveformx/models/xpnr/_generated/hm_amp_fits_*.py`) |
+| `src/waveformx/conversions/` | LALSuite: `LALSimInspiral.c` (`XLALSimInspiralTD`, `XLALSimInspiralFD`, `XLALSimInspiralTDFromFD`, `XLALSimInspiralTDConditionStage1/2` and the duration bounds `XLALSimInspiralChirpTimeBound`, `MergeTimeBound`, `RingdownTimeBound`, `FinalBlackHoleSpinBound` and `ChirpStartFrequencyBound`), `LALSimInspiralGeneratorConditioning.c`, `LALSimInspiralWaveformTaper.c` (`XLALSimInspiralREAL8WaveTaper`), lal `ButterworthTimeSeries.c` (with `BilinearTransform.c`, `CreateIIRFilter.c` and `IIRFilterVector*.c` for the filter it builds), `TimeFreqFFT.c` (the normalisation of the transforms) and `XLALTime.c` (`XLALGPSAdd`, the epochs); waveformrs: `src/conditioning.rs`, `src/conversions/` |
+| `src/waveformx/models/nrsur7dq4/` | LALSuite: `LALSimIMRPrecessingNRSur.c`, `LALSimNRSurrogateUtilities.c` (Jonathan Blackman, Vijay Varma), the NRSur7dq4 branches of `LALSimInspiralGeneratorLegacy.c` and lal's `LALConstants.h`; GSL: `interpolation/cspline.c`, `linalg/tridiag.c` (`gsl_linalg_solve_symm_tridiag`), `interpolation/poly.c` and `poly/dd.c` (divided differences); waveformrs: `src/nrsur.rs`, `src/nrsur/` (as listed in waveformrs's `NOTICE.md`) |
 
 ### SciPy
 
-`src/waveformjax/models/xpnr/_generated/dop853.py` holds the coefficients of
+`src/waveformx/models/xpnr/_generated/dop853.py` holds the coefficients of
 the Dormand-Prince 8(5,3) method and its dense output, generated by
 `scripts/generate_dop853.py` from SciPy's
 `scipy/integrate/_ivp/dop853_coefficients.py`, which is distributed under the

@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """NRSur7dq4 in float32 against float64: the precision of the inner
 products between different waveforms, of the waveforms and of their
@@ -49,9 +49,9 @@ import jax.numpy as jnp
 import numpy as np
 
 from common import DATA, NAMES, environment, median_time, psd, wf, write
-from waveformjax.models.nrsur7dq4 import _data, _driver, _waveform
-from waveformjax.models.nrsur7dq4._dynamics import START_TIME, integrate
-from waveformjax.models.nrsur7dq4._frames import coorbital_to_coprecessing, coprecessing_to_inertial
+from waveformx.models.nrsur7dq4 import _data, _driver, _waveform
+from waveformx.models.nrsur7dq4._dynamics import START_TIME, integrate
+from waveformx.models.nrsur7dq4._frames import coorbital_to_coprecessing, coprecessing_to_inertial
 
 F_LOW = 20.0
 SINGLE, DOUBLE = jnp.float32, jnp.float64

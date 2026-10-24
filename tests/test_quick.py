@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """The quick tests: what ``pytest`` runs by default (``testpaths`` in
 ``pyproject.toml``), within about two minutes, before every commit. The
@@ -32,8 +32,8 @@ import numpy as np
 import pytest
 
 from conftest import compare, requires_nrsur
-from waveformjax import Binary, WaveformOptions
-from waveformjax.models.xpnr import MODEL, model
+from waveformx import Binary, WaveformOptions
+from waveformx.models.xpnr import MODEL, model
 
 CASE = json.loads((Path(__file__).parent / "data" / "imrphenomxpnr_parityfix.json").read_text())["cases"][0]
 FREQUENCIES = jnp.asarray(CASE["frequencies"])
@@ -125,7 +125,7 @@ def test_lean_xpnr_and_its_derivative(spins):
 def test_nrsur7dq4_matches_lal(lal):
     from test_nrsur7dq4 import BINARY, check_polarizations, lal_polarizations
 
-    import waveformjax as wf
+    import waveformx as wf
 
     result = wf.td_polarizations("NRSur7dq4", 1 / 2048, 20.0, scaled_strain=False, **BINARY)
     check_polarizations(result, *lal_polarizations(*lal, BINARY, 1 / 2048, 20.0))

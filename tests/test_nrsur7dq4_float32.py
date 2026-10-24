@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """NRSur7dq4 in float32 and the scale of its output.
 
@@ -14,7 +14,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import waveformjax as wf
+import waveformx as wf
 from conftest import requires_nrsur
 
 pytestmark = requires_nrsur
@@ -47,7 +47,7 @@ def produced(jaxpr):
 
 
 def test_float32_data():
-    from waveformjax.models.nrsur7dq4 import _data, default_data, load
+    from waveformx.models.nrsur7dq4 import _data, default_data, load
 
     data = load(dtype=jnp.float32)
     assert load(None, np.float32) is data and default_data(jnp.float32) is data
@@ -84,7 +84,7 @@ def test_float32_throughout(method):
 def test_precision_follows_the_binary():
     """Python numbers take the type of the other parameters; float64 data
     are converted to the precision of the binary."""
-    from waveformjax.models.nrsur7dq4 import default_data
+    from waveformx.models.nrsur7dq4 import default_data
 
     binary = BINARIES["precessing"]._replace(mass_1=jnp.float32(40.0), mass_2=jnp.float32(20.0),
                                              spin_1=jnp.asarray((0.4, -0.3, 0.2), jnp.float32),

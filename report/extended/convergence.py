@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 Colm Talbot. waveformjax follows LALSuite, GSL and
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
 """Central finite differences against the forward-mode derivative, for a
 range of steps, for LAL's model and the extended one (all modes): where
@@ -18,8 +18,8 @@ import numpy as np
 
 import xcommon as x
 from xcommon import jax, jnp
-from waveformjax import Binary, WaveformOptions
-from waveformjax.models.xpnr import MODEL
+from waveformx import Binary, WaveformOptions
+from waveformx.models.xpnr import MODEL
 
 POINT = [36.0, 29.0, 0.4, 0.2, 0.3, -0.2, 0.3, -0.1, 500.0, 0.7, 1.2, 25.0]
 PARAMETERS = {"spin_2x": (5, False), "mass_1": (0, True)}
