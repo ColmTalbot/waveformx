@@ -336,15 +336,23 @@ def _stop_time(rec, c):
             jnp.ones_like(t),
         )
 
-    def bisect(_, bounds):
-        lo, hi = bounds
-        mid = 0.5 * (lo + hi)
-        going = condition(mid) > 0.0
-        return jnp.where(going, mid, lo), jnp.where(going, hi, mid)
-
     end = t0 + h
-    fires = (condition(jax.lax.stop_gradient(end)) <= 0.0) & (condition(jax.lax.stop_gradient(t0)) > 0.0)
-    lo, hi = jax.lax.fori_loop(0, 60, bisect, jax.lax.stop_gradient((t0, end)))
+    start, stop = jax.lax.stop_gradient((t0, end))
+
+    def bisect(i, carry):
+        # (the first two iterations evaluate the ends of the step: whether
+        # the condition is met within it; one copy of the condition)
+        lo, hi, stop_met, start_going = carry
+        x = jnp.where(i == 0, stop, jnp.where(i == 1, start, 0.5 * (lo + hi)))
+        going = condition(x) > 0.0
+        bisecting = i >= 2
+        stop_met = jnp.where(i == 0, ~going, stop_met)
+        start_going = jnp.where(i == 1, going, start_going)
+        return (jnp.where(bisecting & going, x, lo), jnp.where(bisecting & ~going, x, hi), stop_met, start_going)
+
+    false = jnp.zeros((), bool)
+    lo, hi, stop_met, start_going = jax.lax.fori_loop(0, 62, bisect, (start, stop, false, false))
+    fires = stop_met & start_going
     root = jax.lax.stop_gradient(0.5 * (lo + hi))
     value, slope = jax.jvp(condition, (root,), (jnp.ones_like(root),))
     root = root - value / jnp.where(slope != 0.0, slope, 1.0)
