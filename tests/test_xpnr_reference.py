@@ -14,6 +14,11 @@ between the reference conventions.
   converted exactly (the waveforms of the two conventions are then equal);
   the in-plane spins stay zero with finite derivatives; jit, vmap and grad
   in float32 and float64.
+* Invariance: a binary converted between two mass-scaled references
+  gives the same waveform (without any maximisation), for precessing,
+  nearly aligned and aligned spins, in float64 and float32: the model
+  takes everything that depends on the reference at the canonical
+  ``REFERENCE_MF``.
 * Equivalence: as the in-plane spins vanish, the waveforms of the two
   conventions agree. Against LAL (with the parity fix, where available):
   the lean model with the mass-scaled reference agrees with LAL given the
@@ -66,10 +71,10 @@ def rotated(h, psi):
 _SCALED = {}
 
 
-def scaled(binary, frequencies, modes=None):
-    key = modes
+def scaled(binary, frequencies, modes=None, reference_mf=REF):
+    key = modes, reference_mf
     if key not in _SCALED:
-        _SCALED[key] = jax.jit(lambda b, f: lean.polarizations(b, f, mode_array=modes, reference_mf=REF))
+        _SCALED[key] = jax.jit(lambda b, f: lean.polarizations(b, f, mode_array=modes, reference_mf=reference_mf))
     return _SCALED[key](binary, frequencies)
 
 
@@ -145,21 +150,22 @@ def test_finite(modes):
 
 
 @pytest.mark.parametrize("dtype", [jnp.float64, jnp.float32])
-@pytest.mark.parametrize("modes", [((2, 1), (2, -1)), None])
-def test_derivatives_finite(dtype, modes):
+@pytest.mark.parametrize("modes,reference_mf", [(((2, 1), (2, -1)), REF), (None, REF), (None, 0.006)])
+def test_derivatives_finite(dtype, modes, reference_mf):
     """Finite gradients of a log-likelihood, in float32 and float64, for a
     light, a heavy and an aligned-spin binary; and float32 close to
-    float64."""
+    float64; at the canonical reference and at another (carried to the
+    canonical one inside the model)."""
     f = jnp.asarray(np.geomspace(20.0, 1024.0, 256), dtype)
     binaries = [GENERIC, GENERIC._replace(mass_1=180.0, mass_2=120.0),
                 GENERIC._replace(spin_1=(0.0, 0.0, 0.3), spin_2=(0.0, 0.0, -0.2))]
     for binary in binaries:
         data = lean.polarizations(as_dtype(binary._replace(mass_1=binary.mass_1 * 1.01), jnp.float64),
-                                  jnp.asarray(f, jnp.float64), mode_array=modes, reference_mf=REF)
+                                  jnp.asarray(f, jnp.float64), mode_array=modes, reference_mf=reference_mf)
         data = [jnp.asarray(x, jnp.complex64 if dtype == jnp.float32 else jnp.complex128) for x in data]
 
         def log_likelihood(b):
-            hp, hc = lean.polarizations(b, f, mode_array=modes, reference_mf=REF)
+            hp, hc = lean.polarizations(b, f, mode_array=modes, reference_mf=reference_mf)
             return jnp.real(jnp.vdot(data[0], hp) + jnp.vdot(data[1], hc)) - 0.5 * jnp.sum(
                 jnp.abs(hp) ** 2 + jnp.abs(hc) ** 2)
 
@@ -169,9 +175,9 @@ def test_derivatives_finite(dtype, modes):
         # no dependence on f_ref, which the option ignores
         assert float(grad.f_ref) == 0.0
         if dtype == jnp.float32:
-            hp32, _ = lean.polarizations(as_dtype(binary, dtype), f, mode_array=modes, reference_mf=REF)
+            hp32, _ = lean.polarizations(as_dtype(binary, dtype), f, mode_array=modes, reference_mf=reference_mf)
             hp64, _ = lean.polarizations(as_dtype(binary, jnp.float64), jnp.asarray(f, jnp.float64),
-                                         mode_array=modes, reference_mf=REF)
+                                         mode_array=modes, reference_mf=reference_mf)
             a, b = np.asarray(hp32, np.complex128), np.asarray(hp64)
             assert 1 - abs(np.vdot(a, b)) / (np.linalg.norm(a) * np.linalg.norm(b)) < 1e-5
 
@@ -246,6 +252,60 @@ def test_converters_transforms(dtype):
         for name in ("spin_1", "spin_2", "inclination"):
             np.testing.assert_allclose(np.asarray(getattr(out, name), float), np.asarray(getattr(double, name)),
                                        atol=5e-4, err_msg=name)
+
+
+def moved(binary, mf_from, mf_to):
+    """``binary`` given at the mass-scaled reference ``mf_from`` as one
+    given at ``mf_to`` (float64)."""
+    mass = float(binary.mass_1) + float(binary.mass_2)
+    out = wf.to_physical_reference(binary, mf_to / (mass * MTSUN_SI), reference_mf=mf_from)
+    return out._replace(f_ref=jnp.zeros((), jnp.float64))
+
+
+INVARIANT = [
+    GENERIC,
+    wf.Binary(10.0, 5.0, (0.4, -0.5, 0.3), (-0.3, 0.2, 0.1), 500.0, 2.2, 4.0, 0.0),
+    wf.Binary(90.0, 5.0, (0.6, 0.3, -0.2), (0.1, 0.2, 0.3), 500.0, 0.7, 1.2, 0.0),
+    wf.Binary(30.0, 25.0, (0.01, 0.005, 0.3), (0.005, -0.01, 0.2), 500.0, 1.0, 0.5, 0.0),
+    wf.Binary(30.0, 25.0, (0.0, 0.0, 0.3), (0.0, 0.0, 0.2), 500.0, 1.0, 0.5, 0.0),
+]
+
+
+@pytest.mark.parametrize("index", range(len(INVARIANT)))
+@pytest.mark.parametrize("dtype", [jnp.float64, jnp.float32])
+def test_invariance(index, dtype):
+    """A binary at the reference ``M f = 0.006`` and the same binary
+    converted to ``M f = 0.012`` give the same waveform, without any
+    maximisation (the polarization basis and the alignment of the phase
+    are taken at the canonical reference): to the integration error in
+    float64 (and for float32 to its rounding); the waveform itself changes
+    by order one between the references."""
+    binary = as_dtype(INVARIANT[index], jnp.float64)
+    there = moved(binary, 0.006, 0.012)
+    f = jnp.asarray(F, dtype)
+    h1 = [np.asarray(x) for x in scaled(as_dtype(binary, dtype), f, reference_mf=0.006)]
+    h2 = [np.asarray(x) for x in scaled(as_dtype(there, dtype), f, reference_mf=0.012)]
+    scale = max(np.abs(x).max() for x in h1)
+    difference = max(np.abs(x - y).max() for x, y in zip(h1, h2)) / scale
+    assert difference < (1e-6 if dtype == jnp.float64 else 1e-3), difference
+    assert overlap(h1, h2, maximise=False) < (1e-12 if dtype == jnp.float64 else 1e-6)
+    if dtype == jnp.float64 and index < 3:
+        unconverted = [np.asarray(x) for x in scaled(binary, f, reference_mf=0.012)]
+        assert overlap(h1, unconverted, maximise=False) > 1e-2
+
+
+@pytest.mark.parametrize("index", range(3))
+def test_round_trip_mass_scaled(index):
+    """Physical -> a mass-scaled reference other than the canonical one ->
+    physical returns the binary; the two legs of the polarization angle
+    cancel."""
+    binary = as_dtype(CONVERTED[index], jnp.float64)
+    there, psi = wf.to_mass_scaled_reference(binary, reference_mf=0.007, return_angle=True)
+    back, psi_back = wf.to_physical_reference(there, binary.f_ref, reference_mf=0.007, return_angle=True)
+    for name in wf.Binary._fields:
+        np.testing.assert_allclose(np.asarray(getattr(back, name)), np.asarray(getattr(binary, name)), atol=1e-9,
+                                   err_msg=name)
+    np.testing.assert_allclose(float(psi_back), -float(psi), atol=1e-9)
 
 
 def test_weak_precession():

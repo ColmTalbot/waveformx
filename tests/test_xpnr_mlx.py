@@ -577,3 +577,21 @@ def test_mass_scaled_reference(mlx_model, modes):
     grad = mx.grad(norm, argnums=list(range(8)))(*args)
     assert all(np.all(np.isfinite(np.asarray(g))) for g in grad)
     assert float(np.asarray(grad[7])) == 0.0
+
+
+def test_reference_invariance(mlx_model):
+    """A binary at ``M f = 0.006`` and the same binary converted to ``M f =
+    0.012`` (in float64) give the same waveform without maximisation: the
+    binary is carried to the canonical reference inside the model, in
+    float32 here."""
+    f = np.linspace(20.0, 512.0, 256)
+    binary = as_dtype(BINARIES["generic"]._replace(f_ref=0.0), jnp.float64)
+    mass = float(binary.mass_1) + float(binary.mass_2)
+    there = wf.to_physical_reference(binary, 0.012 / (mass * 4.925490947641267e-06), reference_mf=0.006)
+    there = there._replace(f_ref=jnp.zeros((), jnp.float64))
+    h1 = np.asarray(mlx_model.polarizations(binary, f, reference_mf=0.006)[0])
+    h2 = np.asarray(mlx_model.polarizations(there, f, reference_mf=0.012)[0])
+    want = np.asarray(lean.polarizations(binary, jnp.asarray(f), reference_mf=0.006)[0])
+    assert np.all(np.isfinite(h1)) and np.all(np.isfinite(h2))
+    assert mismatch(h1, want) < 1e-5
+    assert mismatch(h1, h2) < 1e-5

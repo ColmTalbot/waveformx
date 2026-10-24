@@ -50,7 +50,7 @@ import functools
 import jax
 import jax.numpy as jnp
 
-from ..._options import strain_scale
+from ..._options import REFERENCE_MF, strain_scale
 from . import hm, pnr
 from . import pnr_angles as pa
 from ._math import (
@@ -115,7 +115,14 @@ def reference_frequency(binary, reference_mf=None):
 def setup_waveform(binary, delta_f, f_min, f_max, amp_scale=1.0, reference_mf=None):
     """``IMRPhenomXSetWaveformVariables`` as the precessing drivers call it
     (ordered bodies, the 122019 release of the higher modes), with the
-    reference frequency of :func:`reference_frequency`."""
+    reference frequency of :func:`reference_frequency`. With the
+    mass-scaled reference, the binary is first carried to the canonical
+    reference ``REFERENCE_MF`` (:func:`.reference.to_canonical`), where
+    the model takes everything that depends on the reference."""
+    if reference_mf is not None and reference_mf != REFERENCE_MF:
+        from .reference import to_canonical
+
+        binary, reference_mf = to_canonical(binary, reference_mf), REFERENCE_MF
     m1, m2, chi1, chi2 = ordered_binary(binary)
     wf = waveform_struct(
         m1 * mass_unit(), m2 * mass_unit(), chi1[2], chi2[2], delta_f, reference_frequency(binary, reference_mf),

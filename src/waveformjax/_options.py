@@ -135,7 +135,14 @@ class WaveformOptions:
       works for every mode array and every binary, whether ``f_ref`` lies
       inside the frequencies or not. ``Binary.f_ref`` must then be zero (the
       waveform is NaN otherwise, and its derivative with respect to it
-      zero). :func:`waveformjax.to_mass_scaled_reference` and
+      zero). Whatever ``reference_mf`` is, the model first carries the
+      binary to :data:`REFERENCE_MF` and takes everything that depends on
+      the reference there (the aligned spins of the co-precessing modes,
+      J, the PNR fits, the offsets of the angles, the phase alignment and
+      the basis of the polarizations), so a binary converted between two
+      references gives the same waveform; other values cost an
+      integration between the two references (and a compilation each, as
+      the option is static). :func:`waveformjax.to_mass_scaled_reference` and
       :func:`waveformjax.to_physical_reference` convert binaries between
       the two conventions.
     * ``scaled_strain``: whether the models return the strain multiplied by

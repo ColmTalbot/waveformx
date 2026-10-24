@@ -36,9 +36,20 @@ itself at two references differs by up to ~1e-2 in mismatch for strongly
 precessing binaries. Given the converted binary at ``f_ref =
 reference_mf / M``, LAL agrees with the lean model with the mass-scaled
 reference as closely as with the lean model in its own convention.
+
+The lean model with the mass-scaled reference is invariant: whatever its
+``reference_mf``, it carries the binary to the canonical reference
+``REFERENCE_MF`` (:func:`to_canonical`) and takes everything that depends
+on the reference there, its polarization basis included. Conversions
+between mass-scaled references pass through the canonical one, with the
+orbital phase of both legs from the aligned spins there, so that they
+compose, and a binary converted between two references gives the same
+waveform to the integration error.
 """
 
 from __future__ import annotations
+
+import math
 
 import jax
 import jax.numpy as jnp
@@ -50,9 +61,10 @@ from ._math import MTSUN_SI, PI, lean, mass_unit, powers, precision, precision_o
 from .internals import waveform_struct
 from .phase22 import phase_22
 from .spintaylor import dynamics
+from .spintaylor.angles import STEP_ANGLE
 from .xas import xas_setup
 
-__all__ = ["to_mass_scaled_reference", "to_physical_reference", "orbital_phase", "STEPS"]
+__all__ = ["to_mass_scaled_reference", "to_physical_reference", "to_canonical", "orbital_phase", "STEPS"]
 
 #: The sign of the orbital phase in ``phi_ref`` (see :func:`_convert`).
 PHASE_SIGN = 1.0
@@ -107,6 +119,11 @@ def orbital_phase(binary, mf_from, mf_to):
 
 
 def _convert(binary, f_from, f_to, f_ref_out, steps, phase_binary):
+    """``binary`` given at ``f_from`` (Hz) as a binary given at ``f_to``
+    (with ``f_ref = f_ref_out``) after ``steps`` (static) DOP853 steps, and
+    the rotation of the polarizations; the orbital phase between the two
+    is that of the aligned spins of ``phase_binary`` (at ``f_to`` for
+    ``None``)."""
     m1 = jnp.asarray(binary.mass_1, real())
     m2 = jnp.asarray(binary.mass_2, real())
     chi1 = jnp.asarray(binary.spin_1, real())
@@ -178,6 +195,55 @@ def _convert(binary, f_from, f_to, f_ref_out, steps, phase_binary):
     return out, psi
 
 
+def _mass_scaled(binary, mf):
+    m_tot = jnp.asarray(binary.mass_1, real()) + jnp.asarray(binary.mass_2, real())
+    return mf / (m_tot * MTSUN_SI)
+
+
+def canonical_steps(reference_mf):
+    """The DOP853 steps of :func:`to_canonical` from ``reference_mf``: the
+    steps in ``u = 1 / (M omega)`` of the lean SpinTaylor solution
+    (:data:`.spintaylor.angles.STEP_ANGLE` of the precession of ``L`` per
+    step, for equal masses, the fastest) between the two references, at
+    least :data:`MIN_CANONICAL_STEPS`. Static: both references are numbers
+    in units of the total mass."""
+    du = abs(1.0 / (math.pi * reference_mf) - 1.0 / (math.pi * REFERENCE_MF))
+    rate = 5.0 * (2.0 + 1.5) / 96.0
+    return max(MIN_CANONICAL_STEPS, math.ceil(du * rate / STEP_ANGLE))
+
+
+#: The fewest steps of :func:`to_canonical`.
+MIN_CANONICAL_STEPS = 4
+
+
+def to_canonical(binary, reference_mf):
+    """``binary`` given at the mass-scaled reference ``reference_mf / M`` as
+    a binary given at the canonical reference ``REFERENCE_MF / M``, where
+    the lean model with the mass-scaled reference takes everything that
+    depends on the reference (the aligned spins of the co-precessing
+    modes, ``J``, the parameters of the PNR fits, the offsets of the
+    angles, the alignment of the phase, the line of sight and the basis of
+    the polarizations): the waveform then depends on ``reference_mf`` only
+    through the integration error. ``binary`` is returned unchanged for
+    ``reference_mf = REFERENCE_MF``; ``f_ref`` is kept (it must be zero).
+    The steps are :func:`canonical_steps` (static). Called inside the
+    model (traced, in its precision)."""
+    if reference_mf == REFERENCE_MF:
+        return binary
+    out, _ = _convert(binary, _mass_scaled(binary, reference_mf), _mass_scaled(binary, REFERENCE_MF),
+                      binary.f_ref, canonical_steps(reference_mf), None)
+    return out
+
+
+def _to_canonical_angle(binary, reference_mf, steps):
+    """``binary`` at ``reference_mf`` at the canonical reference and the
+    rotation of the polarizations (none for the canonical reference)."""
+    if reference_mf == REFERENCE_MF:
+        return binary, jnp.zeros((), real())
+    return _convert(binary, _mass_scaled(binary, reference_mf), _mass_scaled(binary, REFERENCE_MF), 0.0, steps,
+                    None)
+
+
 def to_mass_scaled_reference(binary, reference_mf=REFERENCE_MF, steps=STEPS, return_angle=False):
     """``binary`` given at its reference frequency ``binary.f_ref`` (Hz,
     LAL's convention; it must be positive) as a binary given at the
@@ -189,16 +255,25 @@ def to_mass_scaled_reference(binary, reference_mf=REFERENCE_MF, steps=STEPS, ret
     of the two binaries are related, up to time and phase shifts, by
     ``h_+ + i h_x -> (h_+ + i h_x) exp(2 i psi)``.
 
+    The conversion passes through the canonical reference ``REFERENCE_MF /
+    M`` (:func:`to_canonical`), whose aligned spins give the orbital phase
+    of both legs, so that conversions between mass-scaled references
+    compose: the lean model gives the same waveform for a binary at any
+    two of them.
+
     Pure: ``jax.jit``, ``jax.vmap`` and ``jax.grad`` work, in float32 for a
     binary of float32 parameters. In float32 the orbital phase between the
     references (thousands of radians for light binaries) costs ~1e-4 in
     the spins and angles: convert in float64. NaN for a zero or negative ``f_ref``; ``steps`` (static)
-    is the number of steps of the integration."""
+    is the number of steps of each leg of the integration."""
     with precision(precision_of(binary)), lean(True):
-        m_tot = jnp.asarray(binary.mass_1, real()) + jnp.asarray(binary.mass_2, real())
         f_from = jnp.asarray(binary.f_ref, real())
         f_from = jnp.where(f_from > 0.0, f_from, jnp.nan)
-        out, psi = _convert(binary, f_from, reference_mf / (m_tot * MTSUN_SI), 0.0, steps, None)
+        out, psi = _convert(binary, f_from, _mass_scaled(binary, REFERENCE_MF), 0.0, steps, None)
+        if reference_mf != REFERENCE_MF:
+            out, psi2 = _convert(out, _mass_scaled(binary, REFERENCE_MF), _mass_scaled(binary, reference_mf), 0.0,
+                                 steps, out)
+            psi = psi + psi2
     return (out, psi) if return_angle else out
 
 
@@ -209,7 +284,7 @@ def to_physical_reference(binary, f_ref, reference_mf=REFERENCE_MF, steps=STEPS,
     convention), with ``return_angle`` the rotation of the polarizations
     as there."""
     with precision(precision_of(binary)), lean(True):
-        m_tot = jnp.asarray(binary.mass_1, real()) + jnp.asarray(binary.mass_2, real())
         f_to = jnp.asarray(f_ref, real())
-        out, psi = _convert(binary, reference_mf / (m_tot * MTSUN_SI), f_to, f_to, steps, binary)
-    return (out, psi) if return_angle else out
+        canon, psi = _to_canonical_angle(binary, reference_mf, steps)
+        out, psi2 = _convert(canon, _mass_scaled(binary, REFERENCE_MF), f_to, f_to, steps, canon)
+    return (out, psi + psi2) if return_angle else out
