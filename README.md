@@ -28,6 +28,12 @@ The package has the same interface as the Python bindings of
   - It is also available in MLX, in single precision on Apple GPUs: the
     polarizations for one binary or a batch, with their Jacobian and
     derivatives for `mx.grad`.
+  - Like the lean IMRPhenomXPNR, it can take the binary at a reference
+    frequency scaled by its total mass (`reference_mf`) instead of one in
+    Hz; for this model that only moves where the reference phase is given.
+    `to_mass_scaled_reference` and `to_physical_reference` in its module
+    convert binaries between the two conventions (also in MLX), so that
+    both give the same waveform.
   - Its modes and the conversions between the time and frequency domains
     are not implemented.
 - **IMRPhenomXAS** (frequency domain): the dominant mode of binaries whose
@@ -173,6 +179,12 @@ The package has the same interface as the Python bindings of
   - It is also available in MLX, in single precision on Apple GPUs: the
     polarizations for one binary or a batch, with their Jacobian and
     derivatives for `mx.grad`.
+  - Like the lean IMRPhenomXPNR, it can take the binary at a reference
+    frequency scaled by its total mass (`reference_mf`) instead of one in
+    Hz; for this model that only moves where the reference phase is given.
+    `to_mass_scaled_reference` and `to_physical_reference` in its module
+    convert binaries between the two conventions (also in MLX), so that
+    both give the same waveform.
   - Its modes and the conversions between the time and frequency domains
     are not implemented.
 
