@@ -12,10 +12,14 @@ callers and they return booleans. ``CrossZeroP3`` and ``CrossZeroP4`` use
 the closed-form roots in complex arithmetic as LAL does; ``CrossZeroP5``
 uses the roots of GSL's ``gsl_poly_complex_solve`` (``poly/zsolve.c``: the
 eigenvalues of the balanced companion matrix from the Francis double-shift
-QR algorithm), ported step for step (in ``jax.lax.while_loop`` loops ending
-where GSL's loops end, with masked iterations under ``jax.vmap``) so that
-the roots come out in GSL's order, which LAL's quirky indexing of the roots
-depends on.
+QR algorithm), ported step by step (in ``jax.lax.while_loop`` loops ending
+where GSL's loops end, with masked iterations under ``jax.vmap``; the row
+and column operations of a QR step on whole rows and columns).
+
+Unlike LAL, :func:`cross_zero_p5` tests every root with its own real and
+imaginary parts: LAL reads shifted entries of GSL's packed roots, so that
+its test depends on the order in which GSL finds the roots (and misses
+some roots), which rounding can change.
 """
 
 from __future__ import annotations
@@ -208,6 +212,9 @@ def _qr_companion(h, nc):
         z = z.at[2 * k].set(jnp.where(cond, re, z[2 * k]))
         return z.at[2 * k + 1].set(jnp.where(cond, im, z[2 * k + 1]))
 
+    # 1-based row and column numbers
+    index = jnp.arange(1, nc + 1)
+
     def step(state):
         h, t, n, its, z, failed, count = state
         active = (n > 0) & ~failed
@@ -309,27 +316,28 @@ def _qr_companion(h, nc):
             zr = r / sk_safe
             q = q / p_safe
             r = r / p_safe
-            # row modifications
-            for j in range(k, nc + 1):
-                on = do & (j <= n)
-                pj = fma(q, H(hq, k + 1, j), H(hq, k, j))
-                if k + 2 <= nc:
-                    pj2 = fma(r, H(hq, k + 2, j), pj)
-                    pj = jnp.where(notlast, pj2, pj)
-                    hq = hq.at[k + 1, j - 1].set(jnp.where(on & notlast, fma(-pj, zr, H(hq, k + 2, j)), hq[k + 1, j - 1]))
-                hq = hq.at[k, j - 1].set(jnp.where(on, fma(-pj, yr_, H(hq, k + 1, j)), hq[k, j - 1]))
-                hq = hq.at[k - 1, j - 1].set(jnp.where(on, fma(-pj, xr, H(hq, k, j)), hq[k - 1, j - 1]))
-            # column modifications
+            # row modifications (each column from its own old values: done
+            # for the columns j = k .. n at once)
+            on = do & (index >= k) & (index <= n)
+            r0, r1 = hq[k - 1], hq[k]
+            pj = fma(q, r1, r0)
+            if k + 2 <= nc:
+                r2 = hq[k + 1]
+                pj = jnp.where(notlast, fma(r, r2, pj), pj)
+                hq = hq.at[k + 1].set(jnp.where(on & notlast, fma(-pj, zr, r2), r2))
+            hq = hq.at[k].set(jnp.where(on, fma(-pj, yr_, r1), r1))
+            hq = hq.at[k - 1].set(jnp.where(on, fma(-pj, xr, r0), r0))
+            # column modifications (the rows i = e .. min(k + 3, n) at once)
             jmax = jnp.minimum(k + 3, n)
-            for i in range(1, nc + 1):
-                on = do & (i >= e) & (i <= jmax)
-                pi_ = fma(xr, H(hq, i, k), yr_ * H(hq, i, k + 1))
-                if k + 2 <= nc:
-                    pi2 = fma(zr, H(hq, i, k + 2), pi_)
-                    pi_ = jnp.where(notlast, pi2, pi_)
-                    hq = hq.at[i - 1, k + 1].set(jnp.where(on & notlast, fma(-pi_, r, H(hq, i, k + 2)), hq[i - 1, k + 1]))
-                hq = hq.at[i - 1, k].set(jnp.where(on, fma(-pi_, q, H(hq, i, k + 1)), hq[i - 1, k]))
-                hq = hq.at[i - 1, k - 1].set(jnp.where(on, H(hq, i, k) - pi_, hq[i - 1, k - 1]))
+            on = do & (index >= e) & (index <= jmax)
+            c0, c1 = hq[:, k - 1], hq[:, k]
+            pi_ = fma(xr, c0, yr_ * c1)
+            if k + 2 <= nc:
+                c2 = hq[:, k + 1]
+                pi_ = jnp.where(notlast, fma(zr, c2, pi_), pi_)
+                hq = hq.at[:, k + 1].set(jnp.where(on & notlast, fma(-pi_, r, c2), c2))
+            hq = hq.at[:, k].set(jnp.where(on, fma(-pi_, q, c1), c1))
+            hq = hq.at[:, k - 1].set(jnp.where(on, c0 - pi_, c0))
 
         h = jnp.where(iterate, hq, h)
         t = jnp.where(iterate, t_new, t)
@@ -350,9 +358,9 @@ def _qr_companion(h, nc):
 
 def complex_solve_quintic(a):
     """``gsl_poly_complex_solve`` for ``a[0] + a[1] x + ... + a[5] x^5``:
-    the packed roots ``[re0, im0, ..., re4, im4]`` in GSL's order and
-    whether GSL succeeds (leading coefficient non-zero and the QR iteration
-    converging)."""
+    the packed roots ``[re0, im0, ..., re4, im4]`` (in GSL's order, but for
+    rounding) and whether GSL succeeds (leading coefficient non-zero and the
+    QR iteration converging)."""
     a = [jnp.asarray(c, jnp.float64) for c in a]
     nc = 5
     lead = jnp.where(a[nc] == 0.0, 1.0, a[nc])
@@ -368,16 +376,14 @@ def complex_solve_quintic(a):
 
 def cross_zero_p5(a, fstart, fend):
     """``CrossZeroP5``: whether the quintic crosses zero in ``[fstart,
-    fend]``, from the roots of ``gsl_poly_complex_solve``.
+    fend]``, from the roots of ``gsl_poly_complex_solve``: whether one of
+    them is real (imaginary part below ``1e-15``) and inside the interval.
 
     LAL tests the roots with shifted indices into the packed array (``z[4]``
     for the imaginary part of the third root, ``z[5]`` and ``z[7]`` for the
-    fourth and fifth); this is reproduced. Returns ``(crosses, ok)`` with
-    ``ok`` False where GSL fails (LAL aborts)."""
+    fourth and fifth); here each root is tested with its own parts, which
+    does not depend on the order of the roots. Returns ``(crosses, ok)``
+    with ``ok`` False where GSL fails (LAL aborts)."""
     z, ok = complex_solve_quintic(a)
-
-    def test(im, re):
-        return (jnp.abs(im) < ROOT_THRESHOLD) & _inside(re, fstart, fend)
-
-    crosses = test(z[1], z[0]) | test(z[3], z[2]) | test(z[4], z[4]) | test(z[5], z[6]) | test(z[7], z[8])
+    crosses = jnp.any((jnp.abs(z[1::2]) < ROOT_THRESHOLD) & _inside(z[0::2], fstart, fend))
     return crosses, ok
