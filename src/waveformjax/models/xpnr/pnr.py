@@ -1678,7 +1678,7 @@ def _phase_f(grid, s):
     return jnp.where(s <= 0.0, low, high)
 
 
-def angle_interpolants(prec, wf, grid, version, active=True, extra_mf=None):
+def angle_interpolants(prec, wf, grid, version, active=True, extra_mf=None, n_extra=None):
     """``IMRPhenomX_PNR_GeneratePNRAngleInterpolants``: the PNR ``alpha`` and
     ``beta`` on the uniform grid, their splines and ``gamma`` integrated
     from them with Boole's rule. Returns a :class:`~._math.Struct` of the
@@ -1691,10 +1691,12 @@ def angle_interpolants(prec, wf, grid, version, active=True, extra_mf=None):
     holding LAL's ``n`` points only.
 
     With ``extra_mf`` (a 1-d array of ``Mf``, version 330), the SpinTaylor
-    ``alpha`` of the splines at those points too, in the same loop (one
-    evaluation of the splines to compile): ``st_extra``, the values and
-    whether they lie within the knots, as :func:`_st_spline` gives them
-    (the antisymmetric mode's points, see :func:`region_alpha_many`)."""
+    ``alpha`` of the splines at the first ``n_extra`` (traced, default all)
+    of those points too, in the same loop (one evaluation of the splines to
+    compile): ``st_extra``, the values and whether they lie within the
+    knots, as :func:`_st_spline` gives them (the antisymmetric mode's
+    points, see :func:`region_alpha_many`; zeros beyond the chunks
+    needed)."""
     i_start, n, delta_f_int, error = grid
     prec, wf = barrier((prec, wf))
     n_eval = jnp.where(active, n, 0.0)
@@ -1739,8 +1741,8 @@ def angle_interpolants(prec, wf, grid, version, active=True, extra_mf=None):
     if extra_mf is None or version != 330:
         alpha, beta, errors = blocked_map(angles, jnp.arange(n_chunks), jnp.ceil(n_eval / chunk), args)
     else:
-        n_extra = -(-extra_mf.shape[0] // chunk)
-        padded = jnp.concatenate([extra_mf, jnp.broadcast_to(extra_mf[-1:], (n_extra * chunk - extra_mf.shape[0],))])
+        n_extra_chunks = -(-extra_mf.shape[0] // chunk)
+        padded = jnp.concatenate([extra_mf, jnp.broadcast_to(extra_mf[-1:], (n_extra_chunks * chunk - extra_mf.shape[0],))])
 
         def angles_or_extra(index, mf_extra, is_extra, args):
             prec, wf, i_start, n, h, _, node_map = args
@@ -1766,8 +1768,10 @@ def angle_interpolants(prec, wf, grid, version, active=True, extra_mf=None):
             values = cond(is_extra, skip, on_grid, (prec, wf, mf, st_values, valid))
             return values, (st_values[0], st_values[4])
 
+        needed = n_extra_chunks if n_extra is None else jnp.ceil(jnp.minimum(n_extra, extra_mf.shape[0]) / chunk)
         (alpha, beta, errors), st_extra = blocked_map_extra(
-            angles_or_extra, jnp.arange(n_chunks), jnp.ceil(n_eval / chunk), padded.reshape(n_extra, chunk), args)
+            angles_or_extra, jnp.arange(n_chunks), jnp.ceil(n_eval / chunk), padded.reshape(n_extra_chunks, chunk),
+            args, jnp.where(active, needed, 0))
         st_extra = tuple(x.reshape(-1)[:extra_mf.shape[0]] for x in st_extra)
     error = error | jnp.any(errors)
     alpha, beta = alpha.reshape(-1), beta.reshape(-1)

@@ -223,12 +223,13 @@ def _mode_angles_pnr(prec, wf, splines, ell, emm, mf):
     return alpha - prec.alpha_offset, jnp.cos(beta), -gamma - prec.epsilon_offset, map_error | ~inside
 
 
-def _prepare_pnr(prec, wf, grid, version, error, active=True, extra_mf=None):
+def _prepare_pnr(prec, wf, grid, version, error, active=True, extra_mf=None, n_extra=None):
     """The PNR angle interpolants (``IMRPhenomX_PNR_GeneratePNRAngleInterpolants``)
     on ``grid`` (:func:`.pnr.interpolation_grid`), with the offsets at the
     reference frequency and the remapped J frame (and the SpinTaylor
-    ``alpha`` at ``extra_mf``, see :func:`.pnr.angle_interpolants`)."""
-    splines = barrier(pnr.angle_interpolants(prec, wf, grid, version, active, extra_mf))
+    ``alpha`` at the first ``n_extra`` of ``extra_mf``, see
+    :func:`.pnr.angle_interpolants`)."""
+    splines = barrier(pnr.angle_interpolants(prec, wf, grid, version, active, extra_mf, n_extra))
     error = error | splines.error
     alpha_ref, beta_ref, gamma_ref, inside = pnr.spline_angles(splines, wf.f_ref)
     error = error | ~inside | ~jnp.isfinite(beta_ref)
@@ -524,10 +525,13 @@ def _pipeline_330(setup, modes, frequencies, active=True):
     """The angle data of version 330 from :func:`_spintaylor_setup`."""
     prec, wf, grid, flags = setup
     prec, wf = barrier((pnr._copy(prec), wf))
-    # (the antisymmetric mode reads the SpinTaylor alpha at the frequencies:
-    # evaluated with the grid)
-    extra_mf = hz_to_mf(frequencies, wf.m_tot) if (2, 2) in modes else None
-    prec, splines, error = barrier(_prepare_pnr(prec, wf, grid, 330, flags.error, active, extra_mf))
+    # (the antisymmetric mode reads the SpinTaylor alpha at the frequencies
+    # below its transition at 0.85 fRING: evaluated with the grid)
+    extra_mf, n_extra = None, None
+    if (2, 2) in modes:
+        extra_mf = hz_to_mf(frequencies, wf.m_tot)
+        n_extra = jnp.sum(extra_mf < pnr.antisymmetric_points(wf)[0])
+    prec, splines, error = barrier(_prepare_pnr(prec, wf, grid, 330, flags.error, active, extra_mf, n_extra))
     data = _angle_data(prec, wf, splines, modes, frequencies, 330, True)
     data.error = data.error | error | flags.incomplete
     return data

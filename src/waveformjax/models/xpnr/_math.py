@@ -329,9 +329,10 @@ def blocked_map(function, blocks, n_blocks, args=()):
     return while_loop(test, body, (blocks, args, n_blocks), jnp.zeros((), jnp.int32), out)[1]
 
 
-def blocked_map_extra(function, blocks, n_blocks, extra_blocks, args=()):
-    """:func:`blocked_map` with every one of ``extra_blocks`` (a pytree with
-    a leading axis of static length) done first, in the same loop:
+def blocked_map_extra(function, blocks, n_blocks, extra_blocks, args=(), n_extra=None):
+    """:func:`blocked_map` with the first ``n_extra`` (traced, default all)
+    of ``extra_blocks`` (a pytree with a leading axis of static length) done
+    first, in the same loop (the others giving zeros):
     ``(values, extra_values) = function(block, extra_block, is_extra,
     args)`` is called once per iteration, with ``is_extra`` (traced) telling
     which of its results is kept. Returns the values of the blocks (zeros
@@ -340,22 +341,24 @@ def blocked_map_extra(function, blocks, n_blocks, extra_blocks, args=()):
     from ._transforms import while_loop
 
     count = jax.tree_util.tree_leaves(blocks)[0].shape[0]
-    n_extra = jax.tree_util.tree_leaves(extra_blocks)[0].shape[0]
+    capacity = jax.tree_util.tree_leaves(extra_blocks)[0].shape[0]
     n_blocks = jnp.minimum(jnp.asarray(n_blocks).astype(jnp.int32), count)
+    n_extra = jnp.asarray(capacity if n_extra is None else n_extra)
+    n_extra = jnp.clip(n_extra.astype(jnp.int32), 0, capacity)
     out_shape, extra_shape = jax.eval_shape(function, _index(blocks, 0), _index(extra_blocks, 0), jnp.asarray(True),
                                             args)
     out = jax.tree_util.tree_map(lambda s: jnp.zeros((count,) + s.shape, s.dtype), out_shape)
-    extra_out = jax.tree_util.tree_map(lambda s: jnp.zeros((n_extra,) + s.shape, s.dtype), extra_shape)
+    extra_out = jax.tree_util.tree_map(lambda s: jnp.zeros((capacity,) + s.shape, s.dtype), extra_shape)
 
     def test(consts, i):
-        return i < consts[3] + n_extra
+        return i < consts[3] + consts[4]
 
     def body(consts, i, outs, active):
-        blocks, extra_blocks, args, _ = consts
+        blocks, extra_blocks, args, _, n_extra = consts
         out, extra_out = outs
         is_extra = i < n_extra
         b = jnp.clip(i - n_extra, 0, count - 1)
-        e = jnp.clip(i, 0, n_extra - 1)
+        e = jnp.clip(i, 0, capacity - 1)
         value, extra_value = function(_index(blocks, b), _index(extra_blocks, e), is_extra, args)
 
         def write(outs, values, index, keep):
@@ -369,7 +372,7 @@ def blocked_map_extra(function, blocks, n_blocks, extra_blocks, args=()):
         extra_out = write(extra_out, extra_value, e, active & is_extra)
         return i + 1, (out, extra_out)
 
-    return while_loop(test, body, (blocks, extra_blocks, args, n_blocks), jnp.zeros((), jnp.int32),
+    return while_loop(test, body, (blocks, extra_blocks, args, n_blocks, n_extra), jnp.zeros((), jnp.int32),
                       (out, extra_out))[1]
 
 
