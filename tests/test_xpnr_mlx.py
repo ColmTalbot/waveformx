@@ -171,3 +171,160 @@ def test_program_and_kernel():
                 continue
             np.testing.assert_allclose(np.asarray(g[0, ..., k], np.float64).reshape(64, -1),
                                        np.asarray(w, np.float64).reshape(64, -1), rtol=5e-4, atol=5e-4)
+
+
+# ---------------------------------------------------------------------------
+# stages 2-3, 5: the stages of scalars and points against JAX
+# ---------------------------------------------------------------------------
+
+
+def _stack(trees):
+    from waveformjax.models.xpnr.mlx._stages import combine, partition
+
+    parts = [partition(t) for t in trees]
+    leaves = []
+    for k in range(len(parts[0][0])):
+        a = np.stack([np.asarray(p[0][k]) for p in parts])
+        if a.dtype == np.float64:
+            a = a.astype(np.float32)
+        elif a.dtype == np.int64:
+            a = a.astype(np.int32)
+        leaves.append(mx.array(a))
+    return combine(leaves, parts[0][1])
+
+
+def _stack_tangents(tangent_lists, trees):
+    from waveformjax.models.xpnr.mlx._stages import combine, partition
+
+    out = []
+    for k in range(len(tangent_lists[0])):
+        ts = [t[k] for t in tangent_lists]
+        if all(t is None for t in ts):
+            out.append(None)
+            continue
+        shape = next(t.shape for t in ts if t is not None)
+        a = np.stack([np.zeros(shape) if t is None else np.asarray(t) for t in ts])
+        out.append(mx.array(np.moveaxis(a, 1, -1).astype(np.float32)))
+    return combine(out, partition(trees[0])[1])
+
+
+def _leaf_errors(mlx_tree, mlx_tangents, key, names):
+    """Per leaf and binary: the relative error of MLX against float64, and
+    JAX float32's (values, then tangents)."""
+    from waveformjax.models.xpnr.mlx._kernels import _flatten_like
+    from waveformjax.models.xpnr.mlx._stages import partition
+
+    values = partition(mlx_tree)[0]
+    tangents = _flatten_like(mlx_tangents, mlx_tree) if mlx_tangents is not None else [None] * len(values)
+    out = []
+    for b, name in enumerate(names):
+        r64, r32 = jax_reference(name, "float64")[key], jax_reference(name, "float32")[key]
+        v64, v32 = partition(r64.tree)[0], partition(r32.tree)[0]
+        for k, (m, a, c) in enumerate(zip(values, v64, v32)):
+            a = np.asarray(a)
+            if not np.issubdtype(a.dtype, np.floating):
+                continue
+            m, a, c = np.asarray(m[b], np.float64), a.astype(np.float64), np.asarray(c, np.float64)
+            fin = np.isfinite(a)
+            if not fin.any():
+                continue
+            scale = np.max(np.abs(a[fin])) or 1.0
+            out.append(("value", k, name, np.max(np.abs(m[fin] - a[fin])) / scale,
+                        np.max(np.abs(c[fin] - a[fin])) / scale, np.max(np.abs(m[fin] - c[fin])) / scale))
+            t64, t32 = r64.tangents[k], r32.tangents[k]
+            if tangents[k] is None or t64 is None:
+                continue
+            tm = np.asarray(tangents[k][b], np.float64)
+            t64 = np.moveaxis(np.asarray(t64, np.float64), 0, -1)
+            t32 = np.moveaxis(np.asarray(t32, np.float64), 0, -1) if t32 is not None else np.zeros_like(t64)
+            fin = np.isfinite(t64) & np.isfinite(t32)
+            if not fin.any():
+                continue
+            scale = np.max(np.abs(t64[fin])) or 1.0
+            out.append(("tangent", k, name, np.max(np.abs(tm[fin] - t64[fin])) / scale,
+                        np.max(np.abs(t32[fin] - t64[fin])) / scale, np.max(np.abs(tm[fin] - t32[fin])) / scale))
+    return out
+
+
+def _check(errors):
+    """Most leaves as JAX float32 to rounding; every leaf within 100 times
+    JAX float32's distance to float64 (or 1e-2)."""
+    for kind, tol in (("value", 1e-4), ("tangent", 1e-3)):
+        rows = [e for e in errors if e[0] == kind]
+        if not rows:
+            continue
+        close = np.mean([e[5] <= tol for e in rows])
+        assert close >= 0.9, (kind, close)
+        bad = [e for e in rows if not e[3] <= max(100 * e[4], 1e-2)]
+        assert not bad, bad[:5]
+
+
+def _inputs(keys, names, dtype="float32"):
+    trees, ttrees = [], []
+    for key in keys:
+        refs = [jax_reference(n, dtype)[key] for n in names]
+        trees.append(_stack([r.tree for r in refs]))
+        ttrees.append(_stack_tangents([r.tangents for r in refs], [r.tree for r in refs]))
+    return trees, ttrees
+
+
+@pytest.fixture(scope="module")
+def built():
+    from waveformjax.models.xpnr.mlx import _build
+
+    return _build.stages(model.DEFAULT_MODES, 1e21)
+
+
+@pytest.mark.parametrize("stage,inputs,outputs", [
+    ("c1", ("base", "wf0", "summary"), ("prec_c1", "wf_c1", "points", "rotation", "st_range")),
+    ("c2", ("prec_c1", "wf_c1", "points", "bank", "st_range"), ("prec_c2", "wf_c2", "grid", "error_c")),
+])
+def test_scalar_stage(built, stage, inputs, outputs):
+    """A stage of the set-up from JAX float32's inputs: its values and
+    derivatives."""
+    names = STAGE_BINARIES
+    trees, ttrees = _inputs(inputs, names)
+    out, tout = getattr(built, stage).tangents(trees, ttrees, batch=len(names), n_directions=P)
+    errors = []
+    for i, key in enumerate(outputs):
+        errors += _leaf_errors(out[i], tout[i], key, names)
+    _check(errors)
+
+
+def binary_tangents(leaves):
+    """The tangents of the fields of the binaries along their twelve
+    parameters."""
+    eye = np.eye(P, dtype=np.float32)
+    columns = {"mass_1": eye[0], "mass_2": eye[1], "spin_1": eye[2:5], "spin_2": eye[5:8],
+               "luminosity_distance": eye[8], "inclination": eye[9], "phi_ref": eye[10], "f_ref": eye[11]}
+    batch = leaves["mass_1"].shape[0]
+    return {k: mx.broadcast_to(mx.array(v), (batch,) + v.shape) for k, v in columns.items()}
+
+
+def test_stage_a(built):
+    """The common set-up from the binaries."""
+    names = STAGE_BINARIES
+    leaves = {k: mx.array(np.stack([np.asarray(getattr(BINARIES[n], k), np.float32) for n in names]))
+              for k in _stages.BINARY_FIELDS}
+    f = [frequencies_for(BINARIES[n]) for n in names]
+    f0 = mx.array(np.array([x[0] for x in f], np.float32))
+    f1 = mx.array(np.array([x[-1] for x in f], np.float32))
+    out, tout = built.a.tangents((leaves, f0, f1), (binary_tangents(leaves), None, None),
+                                 batch=len(names), n_directions=P)
+    errors = []
+    for i, key in enumerate(("base", "wf0", "ode", "error_a")):
+        errors += _leaf_errors(out[i], tout[i], key, names)
+    _check(errors)
+
+
+def test_stage_e(built):
+    """The offsets, the remapped J frame and the coefficients of the modes."""
+    names = STAGE_BINARIES
+    trees, ttrees = _inputs(("prec_c2", "wf_c2", "at_ref"), names)
+    at_ref, dat_ref = trees.pop(), ttrees.pop()
+    out, tout = built.e.tangents(trees + [at_ref[0], at_ref[1]], ttrees + [dat_ref[0], None], batch=len(names),
+                                 n_directions=P)
+    errors = []
+    for i, key in enumerate(("prec_e", "wf_e", "extra", "error_e")):
+        errors += _leaf_errors(out[i], tout[i], key, names)
+    _check(errors)
