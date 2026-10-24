@@ -40,7 +40,7 @@ from ..xpnr._math import MPC_SI, MRSUN_SI, MTSUN_SI, PI, real
 from . import fits
 
 __all__ = ["BASIS", "LAYOUT", "SIZE", "OFFSETS", "REGION_TERMS", "table", "unpack", "frequency_powers",
-           "phase_basis", "phase", "amplitude", "evaluate", "coefficients", "F_PHASE_INS", "F_AMP_INS"]
+           "phase_basis", "phase", "amplitude", "evaluate", "coefficients", "narrow", "F_PHASE_INS", "F_AMP_INS"]
 
 #: The end of the inspiral phase and of the inspiral amplitude (``Mf``).
 F_PHASE_INS = 0.018
@@ -354,6 +354,20 @@ def table(params, f_min, amp_scale=1.0):
     )
     return jnp.concatenate([jnp.asarray(fields[name], real()).reshape(-1) for name, _ in LAYOUT])
 
+
+def narrow(flat, dtype):
+    """A table (flat, float64) in ``dtype``, the part of the leading term
+    of the phase that ``dtype`` lacks in ``big_lo`` (as :func:`table` makes
+    it in that precision)."""
+    out = flat.astype(dtype)
+    if np.dtype(dtype) == np.float64:
+        return out
+    start = OFFSETS["big"][0]
+    lo_start = OFFSETS["big_lo"][0]
+    big64 = flat[..., start:start + 2] + flat[..., lo_start:lo_start + 2]
+    big = big64.astype(dtype)
+    lo = jax.lax.stop_gradient(big64 - big.astype(jnp.float64)).astype(dtype)
+    return out.at[..., start:start + 2].set(big).at[..., lo_start:lo_start + 2].set(lo)
 
 # --- the waveform at the frequencies -----------------------------------------
 
