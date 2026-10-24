@@ -1,5 +1,9 @@
 # Notes for agents working on this repository
 
+- **Plans stay out of git.** Write a new working plan to `<TOPIC>_PLAN.md`
+  in the repository root, which `.gitignore` ignores (`/*_PLAN.md`). If a
+  plan needs another name or place, add it to `.gitignore` in the same
+  change. Do not commit plan files.
 - **Keep README.md up to date.** When you add a feature or a model, or remove
   one, update the lists in `README.md` in the same change. The README says
   what is implemented, in plain language: no technical details and no timing
