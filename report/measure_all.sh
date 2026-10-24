@@ -19,7 +19,8 @@ cd "$(dirname "$0")/.."
 export OMP_NUM_THREADS=1
 PY="${PYTHON:-python}"
 MLX_PY="${MLX_PYTHON:-$PY}"
-WAVEFORMJAX_SLOW=1 "$PY" -m pytest -q -p no:cacheprovider --junitxml=report/data/pytest.xml
+# (the whole suite: plain pytest runs the quick tier only)
+WAVEFORMJAX_SLOW=1 "$PY" -m pytest -q -p no:cacheprovider --junitxml=report/data/pytest.xml tests
 if "$MLX_PY" -c "import mlx.core" 2>/dev/null; then
     "$MLX_PY" -m pytest -q -p no:cacheprovider tests/test_nrsur7dq4_mlx.py --junitxml=report/data/pytest_mlx.xml
 fi

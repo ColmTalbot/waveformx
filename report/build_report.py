@@ -41,6 +41,7 @@ import make_figures  # noqa: E402
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 TEST_FILES = {
+    "test_quick.py": "The quick tier (<code>pytest</code>): IMRPhenomXPNR and the extended model with its derivative, NRSur7dq4",
     "test_api.py": "The interface: options, arguments, errors, spherical harmonics",
     "test_xpnr_xas.py": "IMRPhenomXAS (2,2) mode against <code>SimIMRPhenomXASFrequencySequence</code>",
     "test_xpnr_hm.py": "Higher modes (release 122019) against <code>SimIMRPhenomXHMFrequencySequenceOneMode</code>",

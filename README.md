@@ -24,6 +24,10 @@ The package has the same interface as the Python bindings of
     aligned spins. LALSimulation's switches to the other angles are
     available as an option (`version_fallback=True`); the model then
     compiles more slowly.
+  - One of LALSimulation's checks of the higher modes, whether the
+    amplitude polynomial of the intermediate region crosses zero, reads
+    the wrong roots in LALSimulation; it is corrected here, which changes
+    the higher modes of a few binaries slightly.
   - An extended variant (`extended_spintaylor=True`), which is not
     LALSimulation's waveform: it uses the SpinTaylor angles for every
     binary, including those LALSimulation cannot evaluate with them,

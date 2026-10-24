@@ -25,7 +25,7 @@ from common import BENCHMARK_FREQUENCIES, BINARY, binary_of, median_time
 from waveformjax import WaveformOptions
 from waveformjax.models.xpnr import MODEL
 
-OPTIONS = {"lal": WaveformOptions(), "strict": WaveformOptions(version_fallback=False),
+OPTIONS = {"lal": WaveformOptions(version_fallback=True), "strict": WaveformOptions(version_fallback=False),
            "extended": WaveformOptions(extended_spintaylor=True)}
 
 
