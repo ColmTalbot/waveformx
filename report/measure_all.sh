@@ -40,4 +40,5 @@ fi
 "$PY" report/gradients.py
 "$PY" report/benchmark.py
 "$PY" report/lean_xpnr.py
+"$PY" report/reference_xpnr.py
 "$PY" report/build_report.py

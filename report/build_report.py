@@ -205,6 +205,35 @@ def lean_values(values):
         values.update(lean_vs_lal_n="–", lean_vs_lal_median="–", lean_vs_lal_max="–")
 
 
+def reference_values(values):
+    """The mass-scaled reference frequency (``report/reference_xpnr.py``)."""
+    names = ["ref_n", "ref_finite_lal_21", "ref_finite_lal_all", "ref_finite_scaled_min", "ref_lal_n",
+             "ref_lean_vs_lal_median", "ref_lean_vs_lal_max", "ref_lal_vs_lal_median", "ref_lal_vs_lal_max",
+             "ref_lal_vs_lal_above", "ref_compile_lal", "ref_compile_scaled"]
+    names += [f"ref_runtime_{c}_{m}" for c in ("lal", "scaled") for m in ("10", "60", "150", "400")]
+    if not (DATA / "reference_xpnr.json").exists():
+        values.update({name: "–" for name in names})
+        return
+    data = load("reference_xpnr.json")
+    finite = data["finite"]
+    values["ref_n"] = str(data["n"])
+    values["ref_finite_lal_21"] = str(finite["lal_21"])
+    values["ref_finite_lal_all"] = str(finite["lal_all"])
+    values["ref_finite_scaled_min"] = str(min(v for k, v in finite.items() if k.startswith("scaled")))
+    records = data.get("lal", [])
+    values["ref_lal_n"] = str(len(records)) if records else "–"
+    for key in ("lean_vs_lal", "lal_vs_lal"):
+        mm = sorted(r[key] for r in records)
+        values[f"ref_{key}_median"] = sci(mm[len(mm) // 2]) if mm else "–"
+        values[f"ref_{key}_max"] = sci(mm[-1]) if mm else "–"
+    values["ref_lal_vs_lal_above"] = str(sum(r["lal_vs_lal"] > 1e-3 for r in records)) if records else "–"
+    for convention in ("lal", "scaled"):
+        t = data["timings"][convention]
+        values[f"ref_compile_{convention}"] = duration(t["compile"])
+        for m in ("10", "60", "150", "400"):
+            values[f"ref_runtime_{convention}_{m}"] = duration(t["runtime"][f"{float(m)}"])
+
+
 def float32_values(values):
     """The float32 study of NRSur7dq4 (``float32_nrsur7dq4.json``)."""
     data = load("float32_nrsur7dq4.json")
@@ -571,6 +600,7 @@ def build(args):
     values["nrsur_rs_max_rel"] = sci(rs_nrsur["max_relative_error"]) if rs_nrsur else "–"
     float32_values(values)
     lean_values(values)
+    reference_values(values)
     mlx_values(values)
     mlx_xpnr_values(values)
     xas_values(values)
