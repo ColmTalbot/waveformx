@@ -187,16 +187,19 @@ def switch(index, branches, operands):
         if not any(operands_batched):
             operands = _broadcast(operands, operands_batched, axis_size)
             operands_batched = [True] * len(operands)
-        zeros = jax.tree_util.tree_map(lambda s: jnp.zeros((axis_size,) + s.shape, s.dtype), shapes)
-        out = None
+        # each branch taken by some binary merges its values into the
+        # output (one set of zeros to start from, and no zeros of their
+        # own for the branches not taken: the output passes through)
+        out = jax.tree_util.tree_map(lambda s: jnp.zeros((axis_size,) + s.shape, s.dtype), shapes)
         for i, branch in enumerate(branches):
-            taken = index == i
-            value = jax.lax.cond(jnp.any(taken), _vmapped(branch, (operands_batched,)), lambda _: zeros, operands)
-            if out is None:
-                out = value
-            else:
-                out = jax.tree_util.tree_map(
+            def merge(args, branch=branch):
+                out, operands, taken = args
+                value = _vmapped(branch, (operands_batched,))(operands)
+                return jax.tree_util.tree_map(
                     lambda new, old: jnp.where(taken.reshape((-1,) + (1,) * (new.ndim - 1)), new, old), value, out)
+
+            taken = index == i
+            out = jax.lax.cond(jnp.any(taken), merge, lambda args: args[0], (out, operands, taken))
         return out, jax.tree_util.tree_map(lambda _: True, out)
 
     return function(jnp.asarray(index, jnp.int32), operands)
