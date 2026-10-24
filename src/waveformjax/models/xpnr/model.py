@@ -261,6 +261,15 @@ def _tree_where(condition, a, b):
     return jax.tree_util.tree_map(lambda x, y: jnp.where(condition, x, y) if isinstance(x, jax.Array) else x, a, b)
 
 
+def _like_input(zero, anchor):
+    """``zero`` (an array of zeros) made to depend on the traced scalar
+    ``anchor`` (non-zero tangents under ``jax.jvp``, batched under
+    ``jax.vmap`` where ``anchor`` is)."""
+    if jnp.issubdtype(zero.dtype, jnp.inexact):
+        return zero + 0.0 * anchor
+    return jnp.where(anchor == anchor, zero, zero)
+
+
 def _spintaylor_setup(base, wf0, m1_si, m2_si, modes, needs_st):
     """The set-up of version 330 up to the grid of the PNR interpolants:
     the SpinTaylor solution, ``IMRPhenomX_Initialize_Euler_Angles``,
@@ -334,7 +343,11 @@ def _spintaylor_setup(base, wf0, m1_si, m2_si, modes, needs_st):
         # needs it, with no steps for the others)
         return cond(run, compute, lambda operands: operands[1], (first, carry, run, inputs)), None
 
-    carry = [jnp.zeros(s.shape, s.dtype) for s in shapes]
+    # (the initial carry depends on the inputs, so that under jax.jvp and
+    # jax.vmap its tangents and batching are those of the iterations: JAX
+    # then traces the body once rather than until they agree)
+    anchor = jnp.asarray(m1_si, jnp.float64)
+    carry = [_like_input(jnp.zeros(s.shape, s.dtype), anchor) for s in shapes]
     carry, _ = jax.lax.scan(step, carry, jnp.arange(2))
     return _combine(carry, meta)
 
