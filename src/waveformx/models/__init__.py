@@ -60,6 +60,7 @@ __all__ = ["APPROXIMANTS", "get"]
 
 #: approximant -> (domain, precessing, module)
 APPROXIMANTS = {
+    "TaylorF2": ("frequency", False, "waveformx.models.taylorf2"),
     "IMRPhenomXAS": ("frequency", False, "waveformx.models.xas"),
     "IMRPhenomXHM": ("frequency", False, "waveformx.models.xhm"),
     "IMRPhenomXPNR": ("frequency", True, "waveformx.models.xpnr"),
