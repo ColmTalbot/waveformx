@@ -30,7 +30,8 @@ from jax import lax
 from .._generated import hm_amp_122019 as gen
 from .._math import dbl_epsilon, fma, real
 
-__all__ = ["cross_zero_p2", "cross_zero_p3", "cross_zero_p4", "cross_zero_p5", "complex_solve_quintic"]
+__all__ = ["cross_zero_p2", "cross_zero_p3", "cross_zero_p4", "cross_zero_p5", "complex_solve_quintic",
+           "changes_sign"]
 
 # pow(10., -15): imaginary parts below this make a root real
 ROOT_THRESHOLD = 1e-15
@@ -387,3 +388,23 @@ def cross_zero_p5(a, fstart, fend):
     z, ok = complex_solve_quintic(a)
     crosses = jnp.any((jnp.abs(z[1::2]) < ROOT_THRESHOLD) & _inside(z[0::2], fstart, fend))
     return crosses, ok
+
+
+#: The points at which :func:`changes_sign` evaluates the polynomial.
+SIGN_POINTS = 257
+
+
+def changes_sign(a, fstart, fend):
+    """Whether ``a0 + a1 f + ... + a5 f^5`` vanishes in ``[fstart, fend]``,
+    from its signs at :data:`SIGN_POINTS` equally spaced points (the lean
+    model's ``CrossZeroP5``, without GSL's root finder): the same answer as
+    the roots except for pairs of roots closer than the spacing (a polynomial
+    that barely touches zero, where the roots' answer depends on rounding
+    too)."""
+    x = jnp.linspace(0.0, 1.0, SIGN_POINTS, dtype=real())
+    f = fstart + (fend - fstart) * x
+    value = a[5]
+    for k in range(4, -1, -1):
+        value = fma(value, f, a[k])
+    positive = value > 0.0
+    return jnp.any(positive) & jnp.any(~positive)

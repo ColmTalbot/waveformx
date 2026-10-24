@@ -49,7 +49,7 @@ def value_and_nd_derivative(f, at, exact=False):
     f = jnp.asarray(f, real())
     # (in float32 the step is below the rounding of f: exact derivatives)
     if exact or real() == np.float32:
-        return jax.jvp(lambda x: at(jnp.stack([x] * 5))[0], (f,), (jnp.ones_like(f),))
+        return jax.jvp(lambda x: at(x[None])[0], (f,), (jnp.ones_like(f),))
     fun, consts = jax.closure_convert(at, jnp.zeros(5, real()))
     return _nd(fun, f, *consts)
 
@@ -87,7 +87,7 @@ def phase_derivatives(fcut, phase_of, exact=False):
     fcut = jnp.asarray(fcut, real())
     if exact or real() == np.float32:
         def phase(x):
-            return phase_of(jnp.stack([x] * 3))[0]
+            return phase_of(x[None])[0]
 
         def derivative(x):
             return jax.jvp(phase, (x,), (jnp.ones_like(x),))[1]

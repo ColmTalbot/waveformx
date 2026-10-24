@@ -33,7 +33,7 @@ from jax import lax
 
 from .._generated import hm_amp_122019 as gen
 from .._generated import hm_fits_122018 as fits
-from .._math import Struct, fma, powers, real
+from .._math import Struct, fma, is_lean, powers, real
 from . import roots
 from .finite_differences import value_and_nd_derivative
 from .inspiral import pn21_coefficients, pn_amp_rescaled, pn_amplitude_coefficients
@@ -485,7 +485,11 @@ def choose_polynomial(choice):
     # zero in [fAmpMatchIN, fAmpMatchIM]
     sg = lax.stop_gradient
     fstart, fend = sg(choice.fstart), sg(choice.fend)
-    cz5, ok5 = roots.cross_zero_p5(sg(jnp.stack(candidates[105])), fstart, fend)
+    if is_lean():
+        # (the lean model: the signs of the quintic rather than GSL's roots)
+        cz5, ok5 = roots.changes_sign(sg(jnp.stack(candidates[105])), fstart, fend), jnp.asarray(True)
+    else:
+        cz5, ok5 = roots.cross_zero_p5(sg(jnp.stack(candidates[105])), fstart, fend)
     cz4 = roots.cross_zero_p4(sg(jnp.stack(candidates[104])), fstart, fend)
     cz3 = roots.cross_zero_p3(sg(jnp.stack(candidates[103])), fstart, fend)
     cz2 = roots.cross_zero_p2(sg(jnp.stack(candidates[102])), fstart, fend)
