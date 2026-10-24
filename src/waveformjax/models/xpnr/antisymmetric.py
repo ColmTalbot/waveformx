@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import jax.scipy.linalg  # noqa: F401
 
 from . import pnr
@@ -25,6 +26,7 @@ from ._generated import inspiral as _inspiral
 from ._generated import intermediate as _intermediate
 from ._generated import ringdown as _ringdown
 from ._math import FRAC_PI_2, FRAC_PI_4, FencedModule, PI, Struct, barrier, fenced, fma, fnms, hz_to_mf, powers
+from ._transforms import cond
 from .amp22 import amp_ansatz, amp_coefficients
 from .phase22 import phase_22, phase_coefficients, phase_xas, time_shift_22
 
@@ -76,48 +78,75 @@ def smooth_amp_ratio(kappa, frequencies):
     if end <= 0:
         return kappa
     df = jnp.diff(frequencies)
-    # window id covers kappa[id .. id + width] with weights df[id .. id + width]
-    ids = jnp.arange(end)
-    window_df = jnp.stack([df[j:j + end] for j in range(width + 1)])  # (width + 1, end)
-    total_df = jnp.zeros(end)
-    for j in range(width + 1):
-        total_df = total_df + window_df[j]
+    # window id covers kappa[id .. id + width] with weights df[id .. id + width]:
+    # its sums from running sums (the same to rounding)
+    zero = jnp.zeros(1)
+    running_df = jnp.concatenate([zero, jnp.cumsum(df)])
+    running_kdf = jnp.concatenate([zero, jnp.cumsum(kappa[:-1] * df)])
+    total_df = running_df[width + 1:width + 1 + end] - running_df[:end]
     # the part of each window that reads values not yet overwritten: j >= half
-    fixed = jnp.zeros(end)
-    for j in range(half, width + 1):
-        fixed = fma(kappa[j:j + end], window_df[j], fixed)
+    fixed = running_kdf[width + 1:width + 1 + end] - running_kdf[half:half + end]
     # u_{id + half} = (sum_{j < half} u_{id + j} w_j + fixed_id) / W_id with
-    # u the averaged values (the original kappa below index half)
-    weights = window_df[:half] / total_df  # (half, end): weight of u_{id + j}
-    rhs = fixed / total_df
-    # solve in blocks of `half` outputs
+    # u the averaged values (the original kappa below index half), solved
+    # in blocks of `half` outputs
     n_blocks = -(-end // half)
     pad = n_blocks * half - end
-    weights = jnp.pad(weights, ((0, 0), (0, pad)))
-    rhs = jnp.pad(rhs, (0, pad))
-    weights = weights.reshape(half, n_blocks, half)  # [j, block, i]
-    rhs = rhs.reshape(n_blocks, half)
-    del ids
+    rhs = jnp.pad(fixed / total_df, (0, pad)).reshape(n_blocks, half)
 
     # within a block, output i reads u_{block * half + i + j}: the previous
     # block's outputs for i + j < half, this block's earlier outputs
     # otherwise; a unit lower-triangular system per block
-    i_index = jnp.arange(half)[:, None]
-    k_index = jnp.arange(half)[None, :]
+    # (numpy constants: the branches below must not close over traced values)
+    i_index = np.arange(half)[:, None]
+    k_index = np.arange(half)[None, :]
     j_previous = k_index - i_index
     j_current = k_index + half - i_index
 
-    def block(previous, inputs):
-        w, r = inputs  # w[j, i]: weight of u_{id + j} for output id = block * half + i
+    def systems(w):
+        # the system of a block (w[j, i]: weight of u_{id + j} for output
+        # id = block * half + i): u = from_previous @ previous + lower @ u + r
         from_previous = jnp.where(j_previous >= 0, w[jnp.clip(j_previous, 0, half - 1), i_index], 0.0)
         lower = jnp.where(k_index < i_index, w[jnp.clip(j_current, 0, half - 1), i_index], 0.0)
-        out = jax.scipy.linalg.solve_triangular(
-            jnp.eye(half) - lower, r + from_previous @ previous, lower=True, unit_diagonal=True
-        )
-        return out, out
+        return from_previous, jnp.eye(half) - lower
 
-    initial = kappa[:half]
-    _, outputs = jax.lax.scan(block, initial, (jnp.moveaxis(weights, 1, 0), rhs))
+    def general(operands):
+        df, total_df, rhs, initial = operands
+        weights = jnp.stack([df[j:j + end] for j in range(half)]) / total_df  # (half, end)
+        weights = jnp.pad(weights, ((0, 0), (0, pad))).reshape(half, n_blocks, half)  # [j, block, i]
+
+        def block(previous, inputs):
+            w, r = inputs
+            from_previous, matrix = systems(w)
+            out = jax.scipy.linalg.solve_triangular(matrix, r + from_previous @ previous, lower=True,
+                                                    unit_diagonal=True)
+            return out, out
+
+        return jax.lax.scan(block, initial, (jnp.moveaxis(weights, 1, 0), rhs))[1]
+
+    def uniform(operands):
+        # equal frequency steps: every block has the same system, solved once
+        # for the previous block's outputs and for all the right-hand sides
+        df, total_df, rhs, initial = operands
+        # (the first block's weights, zero beyond the outputs on short grids)
+        index = np.arange(half)[:, None] + np.arange(half)[None, :]  # [j, i]
+        valid = np.arange(half) < end
+        total = jnp.where(valid, jnp.pad(total_df, (0, pad))[:half], 1.0)
+        w = jnp.where(valid, df[jnp.clip(index, 0, df.shape[0] - 1)] / total, 0.0)
+        from_previous, matrix = systems(w)
+        solved = jax.scipy.linalg.solve_triangular(matrix, jnp.concatenate([from_previous, rhs.T], axis=1),
+                                                   lower=True, unit_diagonal=True)
+        a, c = solved[:, :half], solved[:, half:].T
+
+        def block(previous, c_b):
+            out = jnp.sum(a * previous, axis=1) + c_b
+            return out, out
+
+        return jax.lax.scan(block, initial, c)[1]
+
+    # (steps equal to 1e-12: the weights of every window differ by at most as
+    # much from the first window's)
+    equal_steps = jnp.all(jnp.abs(df - df[0]) <= 1e-12 * jnp.abs(df[0]))
+    outputs = cond(equal_steps, uniform, general, (df, total_df, rhs, kappa[:half]))
     smoothed = outputs.reshape(-1)[:end]
     return kappa.at[half:half + end].set(smoothed)
 
