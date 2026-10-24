@@ -221,8 +221,11 @@ def coefficients(x1, x2, chi1, chi2):
                                                      fit["rho3"] / PI ** 3]
     gamma = [fit["gamma1"], fit["gamma2"], fit["gamma3"]]
     g1, g2, g3 = gamma
-    root = jnp.sqrt(jnp.maximum(1.0 - g2 * g2, 0.0))
-    f_peak = jnp.abs(jnp.where(g2 <= 1.0, f_ring + f_damp * (root - 1.0) * g3 / g2, f_ring - f_damp * g3 / g2))
+    # (LAL drops the square root for gamma2 > 1; its argument is kept
+    # positive there, so that the branch not taken has finite derivatives)
+    below = g2 <= 1.0
+    root = jnp.sqrt(jnp.where(below, 1.0 - g2 * g2, 1.0))
+    f_peak = jnp.abs(jnp.where(below, f_ring + f_damp * (root - 1.0) * g3 / g2, f_ring - f_damp * g3 / g2))
     t0 = dmrd(f_peak)
 
     def amp_ins(mf):
@@ -286,11 +289,19 @@ def table(params, f_min, amp_scale=1.0):
         rows[r][_INDEX[(a, l)]] = rows[r][_INDEX[(a, l)]] + value
 
     log_pis = jnp.log(PI * s)
+    # the powers of (pi M)^(1/3) by products (more accurate than exp and log
+    # in the fast arithmetic of the MLX set-up)
+    u = jnp.cbrt(PI * s)
+    u_pow = [1.0, u]
+    for _ in range(8):
+        u_pow.append(u_pow[-1] * u)
+    u_inv = 1.0 / u
+    u_pow_inv = {1: u_inv, 2: u_inv * u_inv, 3: u_inv * u_inv * u_inv}
     for k, coefficient in enumerate(c["v"]):
         if k < 2:
             continue
         a = (k - 5) / 3.0
-        scale = jnp.exp(a * log_pis)
+        scale = u_pow[k - 5] if k >= 5 else u_pow_inv[5 - k]
         if k in c["l"]:
             coefficient = coefficient + c["l"][k] * log_pis / 3.0
             add(0, a, 1, -c["l"][k] / 3.0 * scale)
@@ -303,7 +314,7 @@ def table(params, f_min, amp_scale=1.0):
     a1, a2, a3, a4, a5 = c["alpha"]
     add(2, 1, 0, -(a1 / eta + c["c_mrd"][1]) * s)
     add(2, -1, 0, a2 / eta / s)
-    add(2, 3 / 4, 0, -4.0 / 3.0 * a3 / eta * jnp.exp(0.75 * log_s))
+    add(2, 3 / 4, 0, -4.0 / 3.0 * a3 / eta * jnp.sqrt(s) * jnp.sqrt(jnp.sqrt(s)))
     add(2, 0, 0, -c["c_mrd"][0])
     for r in range(3):
         add(r, 1, 0, c["t0"] * s)
@@ -328,8 +339,7 @@ def table(params, f_min, amp_scale=1.0):
 
     # the amplitude
     prefactor = K_AMP * amp_scale * jnp.sqrt(m1 * m2) * jnp.exp(-jnp.log(total) / 6.0) / distance
-    log_pis3 = log_pis / 3.0
-    amp_ins = [prefactor * x * jnp.exp(k * log_pis3) for k, x in enumerate(c["rho"])]
+    amp_ins = [prefactor * x * u_pow[k] for k, x in enumerate(c["rho"])]
     g1, g2, g3 = c["gamma"]
     width = g3 * f_damp
     error = c["final_spin"] > 1.0

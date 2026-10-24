@@ -101,11 +101,16 @@ def table(params, amp_scale=1.0):
     v, logs = pn.phasing(x1, x2, chi1, chi2)
     m_sec = total * MTSUN_SI
     log_pim = jnp.log(PI * m_sec)
+    # the powers of (pi M)^(1/3) by products (more accurate than exp and log
+    # in the fast arithmetic of the MLX set-up)
+    u = jnp.cbrt(PI * m_sec)
+    u_inv = 1.0 / u
+    u_pow = {-3: u_inv * u_inv * u_inv, -2: u_inv * u_inv, -1: u_inv, 0: 1.0, 1: u, 2: u * u}
     # -Psi in powers of f: (v_k + l_k log v) v^(k - 5), log v = (log(pi M) + log f) / 3
     rows = [jnp.zeros((), real())] * len(BASIS)
     for k in range(2, 8):
         a = (k - 5) / 3.0
-        s = jnp.exp(a * log_pim)
+        s = u_pow[k - 5]
         coefficient = v[k]
         if k in logs:
             coefficient = coefficient + logs[k] * log_pim / 3.0

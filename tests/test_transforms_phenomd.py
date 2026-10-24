@@ -21,6 +21,8 @@ BINARIES = {
     "unequal": [50.0, 2.0, 0.0, 0.0, 0.9, 0.0, 0.0, 0.3, 300.0, 2.1, 0.3, 30.0],
     # (f_ref = 0: the first frequency)
     "heavy": [150.0, 100.0, 0.0, 0.0, -0.5, 0.0, 0.0, 0.95, 3000.0, 0.4, 2.0, 0.0],
+    # (gamma2 > 1: LAL's peak frequency without its square root)
+    "high_spin": [50.0, 2.0, 0.0, 0.0, 0.995, 0.0, 0.0, 0.3, 300.0, 1.1, 1.7, 0.0],
 }
 _WEIGHTS = np.random.default_rng(5).normal(size=(4, len(FREQUENCIES)))
 
