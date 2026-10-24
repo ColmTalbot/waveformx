@@ -91,6 +91,23 @@ class Built:
                            examples, 3, "xpnr_f2")
 
 
+def _f2_pieces(built):
+    prec, wf, extra, _ = built.e.out_example()
+    modes, n = built.modes, built.n_modes
+    six = _s((len(_stages.SPLINES),))
+    examples = (prec, wf, extra, _s((3,)), _s(), _s((n,)), _s((n,)), _s((n,), np.bool_), _s(), _s(),
+                _s((), np.bool_)) + (six,) * (4 * n)
+
+    def function(p, w, e, g, f, x, k, me, kappa, sa, si, *pieces):
+        return _stages.stage_f2_pieces(p, w, e, g, f, x, k, me, kappa, sa, si, *pieces, modes=modes)
+
+    return StageKernel(function, examples, 4, "xpnr_f2p")
+
+
+Built.f2p = functools.cached_property(_f2_pieces)
+Built.f2p.__set_name__(Built, "f2p")
+
+
 class Parts:
     """The kernels of the arithmetic of the parts by hand at one point
     (:mod:`._stages`), independent of the modes."""
@@ -121,12 +138,12 @@ class Parts:
 
     @functools.cached_property
     def boole(self):
-        return StageKernel(_stages.boole_interval, (_s((3,)), _s(), _s((3, 2)), _s((3, 2)), _s((2,))), 1,
-                           "xpnr_boole")
+        return StageKernel(_stages.boole_interval, (_s((3,)), _s(), _s((7,)), _s((7,))), 1, "xpnr_boole")
 
     @functools.cached_property
-    def spline_point(self):
-        return StageKernel(_stages.spline_point, (_s((3,)), _s(), _s(), _s((2,)), _s((2,))), 1, "xpnr_spline")
+    def spline_point6(self):
+        six = _s((len(_stages.SPLINES),))
+        return StageKernel(_stages.spline_point6, (_s((3,)), _s(), _s(), six, six, six, six), 1, "xpnr_spline")
 
 
 @functools.lru_cache(maxsize=None)

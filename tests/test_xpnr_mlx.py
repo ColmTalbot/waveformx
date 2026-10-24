@@ -421,7 +421,7 @@ def test_interpolants():
         for j, field in enumerate(_stages.SPLINES):
             want = np.asarray(getattr(r64["splines"].tree, field))[:n]
             single = np.asarray(getattr(r32["splines"].tree, field))[:n]
-            got = np.asarray(splines.values[0, :n, j], np.float64)
+            got = np.asarray(splines.table[0, :n, j], np.float64)
             scale = np.max(np.abs(want))
             assert np.max(np.abs(got - want)) <= max(3 * np.max(np.abs(single - want)), 1e-5 * scale), (name, field)
         mapped = mx.array(np.asarray(r32["mapped"].tree[0], np.float32).reshape(1, -1))

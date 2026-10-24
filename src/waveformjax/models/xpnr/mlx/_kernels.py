@@ -229,12 +229,16 @@ class StageKernel:
         arg_of = self._arg_of_leaf()
         rows = list(range(self.n_row_leaves))
         points = [i for i in range(self.n_row_leaves, len(self.in_shapes)) if arg_of[i] not in gathered]
-        g_offset, g_t_offset = {}, {}
-        for a, (column, t_column) in gathered.items():
+        g_offset, g_t_offset, g_where = {}, {}, {}
+        for a, spec in gathered.items():
+            column, t_column = spec[0], spec[1]
+            row_offset = spec[2] if len(spec) > 2 else 0
+            slot = spec[3] if len(spec) > 3 else 0
             start = sum(self.n_leaves[:a])
             col, tcol = column, t_column
             for i in range(start, start + self.n_leaves[a]):
                 g_offset[i] = col
+                g_where[i] = (row_offset, slot)
                 col += _size(self.in_shapes[i])
                 if i in self.float_in:
                     if tcol is None:
@@ -277,8 +281,9 @@ class StageKernel:
             start += out_sizes[i]
         return dict(offset=offset, n_row_in=n_row_in, n_point_in=n_point_in, t_offset=t_offset, n_row_t=n_row_t,
                     n_point_t=n_point_t, out_offset=out_offset, n_out=out_offset[-1], t_out_offset=t_out_offset,
-                    n_out_t=start, g_offset=g_offset, g_t_offset=g_t_offset,
-                    g_width=gspec[1] if gspec else 0, g_t_width=gspec[2] if gspec else 0)
+                    n_out_t=start, g_offset=g_offset, g_t_offset=g_t_offset, g_where=g_where,
+                    g_width=gspec[1] if gspec else 0, g_t_width=gspec[2] if gspec else 0,
+                    g_slots=gspec[3] if gspec else 0)
 
     def _source(self, tangent, gspec=None):
         lay = self._layout(gspec)
@@ -290,7 +295,7 @@ class StageKernel:
         def input_name(index, k, kind):
             if index < n_primal:
                 if index in lay["g_offset"]:
-                    value = f"xg[g_in + {lay['g_offset'][index] + k}]"
+                    value = f"xg[g_in_{_where_name(lay['g_where'][index])} + {lay['g_offset'][index] + k}]"
                 elif index < n_row:
                     value = f"xr[row_in + {lay['offset'][index] + k}]"
                 else:
@@ -299,7 +304,8 @@ class StageKernel:
                 leaf = float_in[index - n_primal]
                 if leaf in lay["g_offset"]:
                     column = lay["g_t_offset"].get(leaf)
-                    value = "0.0f" if column is None else f"tg[(g_t + {column + k}) * n_dir + dir]"
+                    where = _where_name(lay["g_where"][leaf])
+                    value = "0.0f" if column is None else f"tg[(g_t_{where} + {column + k}) * n_dir + dir]"
                 elif leaf < n_row:
                     value = f"tr[(row_t + {lay['t_offset'][leaf] + k}) * n_dir + dir]"
                 else:
@@ -338,13 +344,16 @@ class StageKernel:
             f"size_t out = (size_t)pr * {lay['n_out']};",
         ]
         if gspec:
-            head += [
-                "uint n_table = dims[4];",
-                "uint g_row = (uint)gi[(size_t)b * n_points + point];",
-                f"size_t g_in = ((size_t)b * n_table + g_row) * {lay['g_width']};",
-            ]
-            if tangent:
-                head.append(f"size_t g_t = ((size_t)b * n_table + g_row) * {lay['g_t_width']};")
+            head.append("uint n_table = dims[4];")
+            for row_offset, slot in sorted(set(lay["g_where"].values())):
+                name = _where_name((row_offset, slot))
+                head += [
+                    f"uint g_row_{name} = min((uint)gi[((size_t)b * n_points + point) * {lay['g_slots']} + {slot}]"
+                    f" + {row_offset}u, n_table - 1);",
+                    f"size_t g_in_{name} = ((size_t)b * n_table + g_row_{name}) * {lay['g_width']};",
+                ]
+                if tangent:
+                    head.append(f"size_t g_t_{name} = ((size_t)b * n_table + g_row_{name}) * {lay['g_t_width']};")
         if tangent:
             head += [
                 f"size_t row_t = (size_t)b * {lay['n_row_t']};",
@@ -438,16 +447,20 @@ class StageKernel:
 
         ``gather`` reads arguments at the points from the rows of a table
         rather than from arrays of the points: a dict with ``args`` (``{arg
-        index: (column, tangent column or None)}``, the leaves of the
-        argument in consecutive columns), ``table`` (``(B, M, width)``),
-        ``table_t`` (``(B, M, width_t, P)``, with tangents) and ``index``
-        (``(B, N)``, the row of each point); the gathered arguments are
-        then ignored in ``args``."""
+        index: (column, tangent column or None[, row offset[, slot]])}``,
+        the leaves of the argument in consecutive columns of the row
+        ``index[b, n, slot] + row offset``, clipped to the table), ``table``
+        (``(B, M, width)``), ``table_t`` (``(B, M, width_t, P)``, with
+        tangents) and ``index`` (``(B, N)``, or ``(B, N, slots)``); the
+        gathered arguments are then ignored in ``args``."""
         tangent = bool(n_directions)
         gspec = None
         if gather is not None:
             width_t = gather["table_t"].shape[2] if tangent and gather.get("table_t") is not None else 0
-            gspec = (tuple(sorted(gather["args"].items())), int(gather["table"].shape[2]), int(width_t))
+            index = gather["index"]
+            slots = int(index.shape[2]) if index.ndim == 3 else 1
+            gspec = (tuple(sorted((a, tuple(v)) for a, v in gather["args"].items())), int(gather["table"].shape[2]),
+                     int(width_t), slots)
         kernel, lay = self._kernel(tangent, gspec)
         n_args = len(self.n_leaves)
         n_row_args = self.n_row_args
@@ -515,6 +528,11 @@ class StageKernel:
         if isinstance(out, tuple):
             return tuple(p.tree() for p in out), tuple(p.tangent_tree() for p in out)
         return out.tree(), out.tangent_tree()
+
+
+def _where_name(where):
+    """The name of the row of a gathered input: ``r<offset>s<slot>``."""
+    return f"r{where[0]}s{where[1]}"
 
 
 def _flatten_like(t_tree, tree):

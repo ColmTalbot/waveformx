@@ -74,14 +74,14 @@ def _core(modes, amp_scale):
 
     @mx.custom_function
     def core(params, frequencies):
-        h, _, _ = _pipeline.evaluate(_leaves(params), frequencies, modes, amp_scale)
+        h, _, _ = _pipeline.evaluate_chunked(_leaves(params), frequencies, modes, amp_scale)
         return h
 
     @core.vjp
     def core_vjp(primals, cotangent, output):
         params, frequencies = primals
-        _, _, jacobian = _pipeline.evaluate(_leaves(mx.stop_gradient(params)), frequencies, modes, amp_scale,
-                                            _pipeline.N_PARAMETERS)
+        _, _, jacobian = _pipeline.evaluate_chunked(_leaves(mx.stop_gradient(params)), frequencies, modes,
+                                                    amp_scale, _pipeline.N_PARAMETERS)
         if isinstance(cotangent, (list, tuple)):
             cotangent = cotangent[0]
         terms = jacobian * cotangent[..., None]
@@ -124,7 +124,7 @@ def polarizations_and_jacobian(binary, frequencies, mode_array=None, scaled_stra
     params = mx.stop_gradient(_parameters(binary))
     f = _frequencies(frequencies, params.shape[0])
     modes, amp_scale = _options(mode_array, scaled_strain)
-    h, _, jacobian = _pipeline.evaluate(_leaves(params), f, modes, amp_scale, _pipeline.N_PARAMETERS)
+    h, _, jacobian = _pipeline.evaluate_chunked(_leaves(params), f, modes, amp_scale, _pipeline.N_PARAMETERS)
     hp = h[..., 0] + 1j * h[..., 1]
     hc = h[..., 2] + 1j * h[..., 3]
     jp = jacobian[..., 0, :] + 1j * jacobian[..., 1, :]

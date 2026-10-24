@@ -434,12 +434,12 @@ def uvw(alpha, beta):
     return jnp.stack([sin_beta * jnp.cos(alpha), sin_beta * jnp.sin(alpha), jnp.cos(beta)])
 
 
-def boole_interval(grid, i, values, curvatures, raw):
+def boole_interval(grid, i, here, after):
     """The increments of ``gamma`` and of the unwrapped ``alpha`` over the
     interval ``[i, i + 1]`` (``i`` real) of the grid (``boole`` of
-    :func:`..pnr._geometric_interpolants`): ``values`` and ``curvatures``
-    are ``(u, v, w)`` and their second derivatives at both ends (3 x 2),
-    ``raw`` the ``atan2(v, u)`` at both ends. Zero beyond the grid."""
+    :func:`..pnr._geometric_interpolants`): ``here`` and ``after`` are
+    ``(u, v, w)``, their second derivatives and ``atan2(v, u)`` at both
+    ends (7 each). Zero beyond the grid."""
     i_start, n, h = grid[0], grid[1], grid[2]
     x0 = i_start * h
 
@@ -452,8 +452,8 @@ def boole_interval(grid, i, values, curvatures, raw):
     dx = points - (x0 + i * h)
 
     def piece(k):
-        y0, y1 = values[k, 0], values[k, 1]
-        m0, m1 = curvatures[k, 0], curvatures[k, 1]
+        y0, y1 = here[k], after[k]
+        m0, m1 = here[3 + k], after[3 + k]
         b = (y1 - y0) / h - h * (m1 + 2.0 * m0) / 6.0
         value = y0 + dx * (b + dx * (m0 / 2.0 + dx * (m1 - m0) / (6.0 * h)))
         return value, b + dx * (m0 + (m1 - m0) / (2.0 * h) * dx)
@@ -466,7 +466,7 @@ def boole_interval(grid, i, values, curvatures, raw):
     twist = ux * dv - vx * du
     north = boole_sum(safe_div(twist, r * (r + wx)))
     south = boole_sum(safe_div(twist, r * (r - wx)))
-    d_alpha = pnr._wrap(raw[1] - raw[0])
+    d_alpha = pnr._wrap(after[6] - here[6])
     weight = pa._ramp(wx[2] / r[2], pnr.HEMISPHERE_SOFT)
     d_gamma = fma(weight, north - d_alpha, (1.0 - weight) * (d_alpha - south))
     used = i + 1.0 < n
@@ -487,6 +487,33 @@ def spline_point(grid, x, k, ends, curvatures):
     c = m0 / 2.0
     d = (m1 - m0) / (6.0 * h)
     return y0 + dx * (b + dx * (c + dx * d))
+
+
+def spline_point6(grid, x, k, y0, y1, m0, m1):
+    """The six interpolants (:data:`SPLINES`) at ``x`` in the interval
+    ``k``, from their values and second derivatives at its ends, and
+    whether ``x`` lies on the grid (:func:`..pnr.spline_angles`)."""
+    i_start, n, h = grid[0], grid[1], grid[2]
+    x0 = i_start * h
+    values = jnp.stack([spline_point(grid, x, k, jnp.stack([y0[j], y1[j]]), jnp.stack([m0[j], m1[j]]))
+                        for j in range(len(SPLINES))])
+    inside = (jax.lax.stop_gradient(x) >= x0) & (jax.lax.stop_gradient(x) <= x0 + (n - 1.0) * h)
+    return values, inside
+
+
+def stage_f2_pieces(prec, wf, extra, grid, f, x, k, map_errors, kappa, st_alpha, st_inside, *pieces, modes):
+    """:func:`stage_f2` with the interpolants evaluated at the frequencies
+    ``x`` of the modes (Hz, in the intervals ``k``) from ``pieces``: for
+    each mode, the values and second derivatives of the six interpolants
+    at both ends of its interval (``y0``, ``y1``, ``m0``, ``m1``)."""
+    values, inside = [], []
+    for m in range(len(modes)):
+        y0, y1, m0, m1 = pieces[4 * m:4 * m + 4]
+        v, i = spline_point6(grid, x[m], k[m], y0, y1, m0, m1)
+        values.append(v)
+        inside.append(i)
+    return stage_f2(prec, wf, extra, f, jnp.stack(values), jnp.stack(inside), map_errors, kappa, st_alpha, st_inside,
+                    modes)
 
 
 # ---------------------------------------------------------------------------

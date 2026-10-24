@@ -25,7 +25,7 @@ import mlx.core as mx
 import numpy as np
 
 from . import _build, _smooth
-from ._interpolants import interpolants, spline_values
+from ._interpolants import ends_gather, interpolants, intervals, spline_values
 from ._kernels import Packed
 from ._solution import _call, _next_power_of_two, _run, integrate, st_angles, tables
 
@@ -203,12 +203,7 @@ def finish(st, index, size, frequencies, S, modes, n_directions):
     (mapped, map_errors, mf_as, kappa), f1_t = _call(S.f1, (prec_e, wf_e, frequencies), (None, None, None), batch,
                                                      P, n_points=n_freq)
     n_modes = len(modes)
-    values, inside, dvalues = spline_values(splines, mapped.reshape(batch, n_freq * n_modes),
-                                            None if not P else f1_t[0].reshape(batch, n_freq * n_modes, P), P)
-    values = values.reshape(batch, n_freq, n_modes, 6)
-    inside = inside.reshape(batch, n_freq, n_modes)
-    if dvalues is not None:
-        dvalues = dvalues.reshape(batch, n_freq, n_modes, 6, P)
+    k_modes, k_index = intervals(splines, mapped)
     shared = frequencies.shape[0] == 1
     if (2, 2) in modes:
         kappa_s = _smooth.smooth_amp_ratio(kappa, frequencies)
@@ -221,15 +216,53 @@ def finish(st, index, size, frequencies, S, modes, n_directions):
         kappa_s, dkappa_s = kappa, (f1_t[3] if P else None)
     st_f, st_f_t = st_angles(solution, tab, st_range, st_range_t, rotation, rotation_t, mf_as,
                              f1_t[2] if P else None, P)
-    # F2: the angles, the modes and the twist
-    args = (prec_e, wf_e, extra, frequencies, values, inside, map_errors, kappa_s, st_f[0], st_f[4])
-    targs = (None, None, None, None, dvalues, None, None, dkappa_s, st_f_t[0] if P else None, None)
-    (h, err_f), f2_t = _call(S.f2, args, targs, batch, P, n_points=n_freq)
+    # F2: the interpolants at the frequencies of the modes (read from their
+    # table in the kernel), the angles, the modes and the twist
+    gather = dict(table=splines.table, table_t=splines.dtable, index=k_index, args={})
+    for m in range(n_modes):
+        gather["args"].update(ends_gather(11 + 4 * m, slot=m))
+    args = (prec_e, wf_e, extra, splines.grid, frequencies, mapped, k_modes, map_errors, kappa_s, st_f[0], st_f[4])
+    args = args + (None,) * (4 * n_modes)
+    targs = None
+    if P:
+        targs = (None, None, None, splines.dgrid, None, f1_t[0], None, None, dkappa_s, st_f_t[0], None)
+        targs = targs + (None,) * (4 * n_modes)
+    h_out, err_out = S.f2p.run(args, targs, batch=batch, n_directions=P, n_points=n_freq, gather=gather)
+    h, err_f = h_out.tree(), err_out.tree()
+    f2_t = (h_out.tangent_tree(),) if P else None
     error = error_grid | error_e.tree() | mx.any(err_f, axis=1)
     intermediate = dict(mf_grid=mf_grid, st_grid=st_grid, alpha=alpha, beta=beta, error_grid=error_grid,
                         splines=splines, at_ref=at_ref, prec_e=prec_e, extra=extra, error_e=error_e, mapped=mapped,
-                        values=values, kappa=kappa, kappa_s=kappa_s, st_f=st_f, err_f=err_f)
+                        kappa=kappa, kappa_s=kappa_s, st_f=st_f, err_f=err_f)
     return h, error, (f2_t[0] if P else None), intermediate
+
+
+#: The binaries evaluated together, without and with tangents (memory: the
+#: tangents of the interpolants' values at the frequencies of a batch of 64
+#: take ~0.7 GB at 8000 frequencies).
+CHUNK = {False: 1024, True: 64}
+
+
+def evaluate_chunked(leaves, frequencies, modes, amp_scale, n_directions=0):
+    """:func:`evaluate` in chunks of :data:`CHUNK` binaries."""
+    batch = leaves["mass_1"].shape[0]
+    chunk = CHUNK[bool(n_directions)]
+    if batch <= chunk:
+        return evaluate(leaves, frequencies, modes, amp_scale, n_directions)
+    outs = []
+    for start in range(0, batch, chunk):
+        part = {name: value[start:start + chunk] for name, value in leaves.items()}
+        f = frequencies if frequencies.shape[0] == 1 else frequencies[start:start + chunk]
+        out = evaluate(part, f, modes, amp_scale, n_directions)
+        mx.eval([x for x in out if x is not None])
+        outs.append(out)
+        # (the buffers of a chunk freed for the next: MLX keeps them in its
+        # cache otherwise, and the cache of large chunks slows the device)
+        mx.clear_cache()
+    h = mx.concatenate([o[0] for o in outs])
+    error = mx.concatenate([o[1] for o in outs])
+    jacobian = mx.concatenate([o[2] for o in outs]) if n_directions else None
+    return h, error, jacobian
 
 
 def evaluate(leaves, frequencies, modes, amp_scale, n_directions=0, keep=None):

@@ -27,10 +27,14 @@ __all__ = ["Splines", "interpolants", "spline_values"]
 
 
 class Splines(NamedTuple):
-    values: mx.array  # (B, N, 6): u, v, w, plus, minus, unwrapped
-    curvatures: mx.array
-    dvalues: Optional[mx.array]
-    dcurvatures: Optional[mx.array]
+    """The six interpolants (:data:`._stages.SPLINES`) of a batch: their
+    values and second derivatives on the grid, ``table`` (``(B, N, 12)``:
+    the six values, then the six second derivatives) and its tangents
+    ``dtable`` (``(B, N, 12, P)``), the grid ``(i_start, n, h)`` and its
+    tangents, and ``n`` (int)."""
+
+    table: mx.array
+    dtable: Optional[mx.array]
     grid: mx.array
     dgrid: Optional[mx.array]
     n: mx.array
@@ -50,87 +54,63 @@ def interpolants(alpha, beta, dalpha, dbeta, grid, dgrid, n_grid, n_directions):
         du, dv, dw = dvec[..., 0, :], dvec[..., 1, :], dvec[..., 2, :]
     curv = [_arrays.natural_curvatures(y, n_grid, h, dy, dh) for y, dy in ((u, du), (v, dv), (w, dw))]
     raw, draw = _small_atan2(v, u, dv, du)
-    after = mx.minimum(mx.arange(size) + 1, size - 1)[None, :]
-
-    def ends(y):
-        nxt = mx.take_along_axis(y, mx.broadcast_to(after.reshape(after.shape + (1,) * (y.ndim - 2)),
-                                                     y.shape), axis=1)
-        return mx.stack([y, nxt], axis=2)
-
-    values = mx.stack([ends(u), ends(v), ends(w)], axis=2)  # (B, N, 3, 2)
-    curvatures = mx.stack([ends(c[0]) for c in curv], axis=2)
-    raws = ends(raw)
-    trees = (grid, mx.arange(size, dtype=mx.float32)[None, :], values, curvatures, raws)
-    ttrees = None
+    # the kernel reads both ends of each interval from one table of the grid
+    table = mx.stack([u, v, w, curv[0][0], curv[1][0], curv[2][0], raw], axis=2)
+    dtable = None
     if n_directions:
-        dvalues = mx.stack([ends(du), ends(dv), ends(dw)], axis=2)  # (B, N, 2, P) -> stacked (B, N, 3, 2, P)
-        dcurv = mx.stack([ends(c[1]) for c in curv], axis=2)
-        ttrees = (dgrid, None, dvalues, dcurv, ends(draw))
-    inc, dinc = _boole(parts, trees, ttrees, batch, n_directions, size)
-    d_gamma, d_alpha = inc
+        dtable = mx.stack([du, dv, dw, curv[0][1], curv[1][1], curv[2][1], draw], axis=2)
+    here = mx.broadcast_to(mx.arange(size, dtype=mx.int32)[None, :], (batch, size))
+    gather = dict(args={2: (0, 0, 0, 0), 3: (0, 0, 1, 0)}, table=table, table_t=dtable, index=here)
+    out = parts.boole.run((grid, mx.arange(size, dtype=mx.float32)[None, :], None, None),
+                          (dgrid, None, None, None) if n_directions else None, batch=batch,
+                          n_directions=n_directions, n_points=size, gather=gather)
+    d_gamma, d_alpha = out[0].tree(), out[1].tree()
     zero = mx.zeros((batch, 1))
     gamma = mx.concatenate([zero, mx.cumsum(d_gamma, axis=1)[:, :-1]], axis=1)
     unwrapped = raw[:, :1] + mx.concatenate([zero, mx.cumsum(d_alpha, axis=1)[:, :-1]], axis=1)
     plus, minus = gamma + unwrapped, gamma - unwrapped
     rest = [_arrays.natural_curvatures(y, n_grid, h) for y in (plus, minus, unwrapped)]
-    out_values = mx.stack([u, v, w, plus, minus, unwrapped], axis=2)
-    out_curv = mx.stack([c[0] for c in curv] + [c[0] for c in rest], axis=2)
-    dvals = dcurvs = None
+    out_table = mx.stack([u, v, w, plus, minus, unwrapped] + [c[0] for c in curv] + [c[0] for c in rest], axis=2)
+    out_dtable = None
     if n_directions:
         zero_t = mx.zeros((batch, 1, n_directions))
-        dgamma = mx.concatenate([zero_t, mx.cumsum(dinc[0], axis=1)[:, :-1]], axis=1)
-        dunwrapped = draw[:, :1] + mx.concatenate([zero_t, mx.cumsum(dinc[1], axis=1)[:, :-1]], axis=1)
+        dgamma = mx.concatenate([zero_t, mx.cumsum(out[0].tangent_tree(), axis=1)[:, :-1]], axis=1)
+        dunwrapped = draw[:, :1] + mx.concatenate([zero_t, mx.cumsum(out[1].tangent_tree(), axis=1)[:, :-1]],
+                                                  axis=1)
         dplus, dminus = dgamma + dunwrapped, dgamma - dunwrapped
         rest_t = [_arrays.natural_curvatures(y, n_grid, h, dy, dh)[1]
                   for y, dy in ((plus, dplus), (minus, dminus), (unwrapped, dunwrapped))]
-        dvals = mx.stack([du, dv, dw, dplus, dminus, dunwrapped], axis=2)
-        dcurvs = mx.stack([c[1] for c in curv] + rest_t, axis=2)
-    return Splines(out_values, out_curv, dvals, dcurvs, grid, dgrid, n_grid)
+        out_dtable = mx.stack([du, dv, dw, dplus, dminus, dunwrapped] + [c[1] for c in curv] + rest_t, axis=2)
+    return Splines(out_table, out_dtable, grid, dgrid, n_grid)
 
 
-def _boole(parts, trees, ttrees, batch, n_directions, size):
-    out, dout = _call(parts.boole, trees, ttrees, batch, n_directions, n_points=size)
-    if dout is None:
-        return out, None
-    return out, dout
+def intervals(splines, x):
+    """The interval ``k`` (real and int) of the grid holding each of ``x``
+    (Hz, ``(B, ...)``), clipped to the grid (:func:`..pnr._spline_at`)."""
+    grid = splines.grid
+    shape = (-1,) + (1,) * (x.ndim - 1)
+    i_start, h = grid[:, 0].reshape(shape), grid[:, 2].reshape(shape)
+    n = splines.n.reshape(shape)
+    x0 = i_start * h
+    k = mx.clip(mx.floor((mx.stop_gradient(x) - x0) / h), 0, (n - 2).astype(mx.float32))
+    return k, k.astype(mx.int32)
+
+
+#: The gathered arguments of the values and second derivatives at both ends
+#: of an interval (``(column, tangent column, row offset, slot)``).
+def ends_gather(first_arg, slot=0):
+    return {first_arg: (0, 0, 0, slot), first_arg + 1: (0, 0, 1, slot), first_arg + 2: (6, 6, 0, slot),
+            first_arg + 3: (6, 6, 1, slot)}
 
 
 def spline_values(splines, x, dx, n_directions):
     """The six interpolants at ``x`` (Hz, ``(B, M)``): ``(values (B, M, 6),
     inside (B, M), tangents (B, M, 6, P))``."""
     batch, m = x.shape
-    grid = splines.grid
-    i_start, h = grid[:, 0:1], grid[:, 2:3]
-    n = splines.n[:, None]
-    x0 = i_start * h
-    xs = mx.stop_gradient(x)
-    k = mx.clip(mx.floor((xs - x0) / h), 0, (n - 2).astype(mx.float32))
-    inside = (xs >= x0) & (xs <= x0 + (n.astype(mx.float32) - 1.0) * h)
-    ki = k.astype(mx.int32)
-    size = splines.values.shape[1]
-    k1 = mx.minimum(ki + 1, size - 1)
-    y0, dy0 = _arrays.take(splines.values, ki, splines.dvalues)
-    y1, dy1 = _arrays.take(splines.values, k1, splines.dvalues)
-    c0, dc0 = _arrays.take(splines.curvatures, ki, splines.dcurvatures)
-    c1, dc1 = _arrays.take(splines.curvatures, k1, splines.dcurvatures)
-    # one point per (x, spline)
-    flat = m * 6
-    ends = mx.stack([y0, y1], axis=-1).reshape(batch, flat, 2)
-    curv = mx.stack([c0, c1], axis=-1).reshape(batch, flat, 2)
-    xx = mx.broadcast_to(x[:, :, None], (batch, m, 6)).reshape(batch, flat)
-    kk = mx.broadcast_to(k[:, :, None], (batch, m, 6)).reshape(batch, flat)
-    trees = (grid, xx, kk, ends, curv)
-    ttrees = None
-    if n_directions:
-        dxx = None if dx is None else mx.broadcast_to(dx[:, :, None, :], (batch, m, 6, n_directions)).reshape(
-            batch, flat, n_directions)
-        dends = mx.stack([dy0, dy1], axis=-2).reshape(batch, flat, 2, n_directions)
-        dcurv = mx.stack([dc0, dc1], axis=-2).reshape(batch, flat, 2, n_directions)
-        ttrees = (splines.dgrid, dxx, None, dends, dcurv)
-    out, dout = _call(_build.parts().spline_point, trees, ttrees, batch, n_directions, n_points=flat)
-    out = out.reshape(batch, m, 6)
-    if dout is not None:
-        dout = dout.reshape(batch, m, 6, n_directions)
-    return out, inside, dout
-
-
+    k, ki = intervals(splines, x)
+    gather = dict(args=ends_gather(3), table=splines.table, table_t=splines.dtable, index=ki)
+    args = (splines.grid, x, k, None, None, None, None)
+    targs = (splines.dgrid, dx, None, None, None, None, None) if n_directions else None
+    values, inside = _build.parts().spline_point6.run(args, targs, batch=batch, n_directions=n_directions,
+                                                      n_points=m, gather=gather)
+    return values.tree(), inside.tree(), (values.tangent_tree() if n_directions else None)
