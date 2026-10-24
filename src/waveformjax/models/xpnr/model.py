@@ -53,7 +53,6 @@ from ._transforms import cond, differentiable, switch
 from .antisymmetric import antisymmetric_waveform
 from .internals import errors as wf_errors
 from .internals import waveform_struct
-from .phase22 import phase_coefficients
 from .xas import h22, phif_ref, xas_setup
 
 __all__ = ["DEFAULT_MODES", "lal_order", "ordered_binary", "polarizations", "setup_waveform"]
@@ -391,11 +390,13 @@ def _angle_data(prec, wf, splines, modes, frequencies, version, tuned):
         cos_betas.append(cos_beta)
         epsilons.append(epsilon)
     if (2, 2) in modes and tuned:
-        amp, phase, err = antisymmetric_waveform(prec, wf, frequencies, version)
+        amp, phase, err, xas22 = antisymmetric_waveform(prec, wf, frequencies, version)
         error = error | err
         h_as = amp * jnp.exp(1j * phase)
     else:
         h_as = jnp.zeros(frequencies.shape, jnp.complex128)
+        xas = xas_setup(wf)
+        xas22 = Struct(amp=xas.amp, phase=xas.phase, linb=xas.linb)
     wf_out = Struct(**{name: getattr(wf, name) for name in WF_FIELDS})
     wf_out.hm_release = jnp.asarray(122019)
     if prec.smooth:
@@ -404,21 +405,27 @@ def _angle_data(prec, wf, splines, modes, frequencies, version, tuned):
         wf_out.exact_derivatives = jnp.zeros(())
     return Struct(
         wf=wf_out, alpha=jnp.stack(alphas), cos_beta=jnp.stack(cos_betas), epsilon=jnp.stack(epsilons), h_as=h_as,
-        theta_jn=prec.theta_jn, zeta=prec.zeta_polarization, error=error,
+        theta_jn=prec.theta_jn, zeta=prec.zeta_polarization, error=error, xas22=xas22,
     )
 
 
-def _coprecessing_modes(wf, modes, frequencies):
-    """The co-precessing modes ``h_{l,-m'}`` at ``frequencies`` (no cutoff)."""
+def _coprecessing_modes(wf, modes, frequencies, xas22=None):
+    """The co-precessing modes ``h_{l,-m'}`` at ``frequencies`` (no cutoff).
+    ``xas22`` are the amplitude, phase and time-shift coefficients of the
+    (2,2) mode if computed already (``data.xas22`` of :func:`_angle_data`)."""
     wf = barrier(wf)
     mf = wf.m_sec * frequencies
-    phase22 = phase_coefficients(wf)
+    if xas22 is None:
+        xas = xas_setup(wf)
+    else:
+        xas = Struct(amp=xas22.amp, phase=xas22.phase, linb=xas22.linb, lina=0.0, inveta=1.0 / wf.eta,
+                     amp_prefactor=wf.amp0 * wf.amp_norm)
+    phase22 = xas.phase
     higher = [mode for mode in modes if mode != (2, 2)]
     coefficients = dict(zip(higher, hm.modes_coefficients(wf, phase22, higher)))
     out = []
     for ell, emm in modes:
         if (ell, emm) == (2, 2):
-            xas = xas_setup(wf)
             out.append(h22(mf, wf, xas, phif_ref(wf, xas), mf_cut=jnp.inf))
         else:
             out.append(hm.mode_h(coefficients[(ell, emm)], mf))
@@ -436,7 +443,7 @@ def _twist_polarizations(data, modes, frequencies):
     ylms = {ell: spherical_harmonics(data.theta_jn, ell) for ell in (2, 3, 4)}
     hp = jnp.zeros(frequencies.shape, jnp.complex128)
     hc = jnp.zeros(frequencies.shape, jnp.complex128)
-    for index, ((ell, emm), h) in enumerate(zip(modes, _coprecessing_modes(wf, modes, frequencies))):
+    for index, ((ell, emm), h) in enumerate(zip(modes, _coprecessing_modes(wf, modes, frequencies, data.xas22))):
         twist = materialized(twist_factors(data.alpha[index], data.cos_beta[index], data.epsilon[index], emm))
         p, c = twist_up(ell, emm, twist, ylms[ell], h, 1.0)
         if (ell, emm) == (2, 2):
@@ -669,7 +676,7 @@ def _jframe_modes(binary, frequencies, options, delta_f, f_min, f_max):
                        check_reference=False, fallback=options.version_fallback,
                        extended=options.extended_spintaylor, direct=options.extended_direct_angles,
                        phase_grid=options.extended_phase_grid)
-        hs = dict(zip(modes, _coprecessing_modes(data.wf, modes, frequencies)))
+        hs = dict(zip(modes, _coprecessing_modes(data.wf, modes, frequencies, data.xas22)))
         results.append((jmodes, data, hs))
     else:
         keys = list(groups)

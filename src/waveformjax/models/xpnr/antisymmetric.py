@@ -178,7 +178,8 @@ def antisymmetric_coefficients(prec, wf, version):
 def antisymmetric_waveform(prec, wf, frequencies, version):
     """``IMRPhenomX_PNR_GenerateAntisymmetricWaveform``: amplitude and phase
     of the antisymmetric (2,2) co-precessing mode at ``frequencies`` (Hz),
-    ``h = amp exp(i phase)``, and the error flag."""
+    ``h = amp exp(i phase)``, the error flag and the coefficients of the
+    symmetric (2,2) mode it is built on (``amp22``, ``phase22``, ``linb``)."""
     prec, wf = barrier((prec, wf))
     kappa_at, kappa_rd = _kappa_function(prec, wf)
     mf = hz_to_mf(frequencies, wf.m_tot)
@@ -200,4 +201,5 @@ def antisymmetric_waveform(prec, wf, frequencies, version):
     a = amp_ansatz(mf, p, co.amp22)
     amp_as = kappa * a
     phi_as = jnp.where(mf < co.mf_t, fma(co.a0, mf, phi / 2.0 + alpha_pnr) + co.phi_a0, phi + co.phi_b0)
-    return co.amp_prefactor * p.m_seven_sixths * amp_as, co.phase_offset + phi_as, error
+    xas22 = Struct(amp=co.amp22, phase=co.phase22, linb=co.linb)
+    return co.amp_prefactor * p.m_seven_sixths * amp_as, co.phase_offset + phi_as, error, xas22
