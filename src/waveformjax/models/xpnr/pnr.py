@@ -39,7 +39,7 @@ from ._generated import pnr_fits as _pnr_fits
 from ._generated import qnm as _qnm
 from ._generated import utilities as _utilities
 from ._math import (
-    C_SI, FRAC_PI_2, FRAC_PI_4, G_SI, MTSUN_SI, PI, FencedModule, Struct, barrier, blocked_map, blocked_scan, chunked_map, fenced, fma, fnms, hz_to_mf, mf_to_hz, powers,
+    C_SI, FRAC_PI_2, FRAC_PI_4, G_SI, MTSUN_SI, PI, FencedModule, Struct, barrier, blocked_map, blocked_map_extra, blocked_scan, chunked_map, fenced, fma, fnms, hz_to_mf, mf_to_hz, powers,
     rotate_y, rotate_z, safe_div, safe_sqrt,
 )
 from .hm import qnm as _hm_qnm
@@ -1346,19 +1346,35 @@ def region_alpha_at(prec, wf, mf, ap, version):
     return value, error
 
 
-def region_alpha_many(prec, wf, mf, ap, version, n):
+def region_alpha_many(prec, wf, mf, ap, version, n, st_alpha=None):
     """:func:`region_alpha_at` at the first ``n`` (traced) of many points
     ``mf`` (a 1-d array), by chunks (:func:`~._math.chunked_map`; zeros
-    beyond the chunks needed)."""
+    beyond the chunks needed). ``st_alpha`` is the SpinTaylor ``alpha`` of
+    the splines at ``mf`` and whether it lies within the knots, if computed
+    already (``st_extra`` of :func:`angle_interpolants`)."""
+
+    def put(mf, st_alpha):
+        if st_alpha is not None:
+            # (only alpha is read: the other values are NaN)
+            a, inside = st_alpha
+            nan = jnp.full_like(a, jnp.nan)
+            _st_spline_put(prec, wf, mf, (a, nan, nan, nan, inside))
+
     if mf.shape[0] <= PNR_GRID_CHUNK:
+        put(mf, st_alpha)
         return region_alpha_at(prec, wf, mf, ap, version)
     fallback = isinstance(version, Fallback)
 
     def evaluate(x, args):
         prec, wf, ap, msa = args
+        x, st_alpha = x
+        if st_alpha is not None:
+            a, inside = st_alpha
+            nan = jnp.full_like(a, jnp.nan)
+            _st_spline_put(prec, wf, x, (a, nan, nan, nan, inside))
         return region_alpha_at(prec, wf, x, ap, Fallback(msa) if fallback else version)
 
-    return chunked_map(evaluate, mf, n, PNR_GRID_CHUNK, (prec, wf, ap, version.msa if fallback else None))
+    return chunked_map(evaluate, (mf, st_alpha), n, PNR_GRID_CHUNK, (prec, wf, ap, version.msa if fallback else None))
 
 
 def _held(bp, held, free):
@@ -1662,7 +1678,7 @@ def _phase_f(grid, s):
     return jnp.where(s <= 0.0, low, high)
 
 
-def angle_interpolants(prec, wf, grid, version, active=True):
+def angle_interpolants(prec, wf, grid, version, active=True, extra_mf=None):
     """``IMRPhenomX_PNR_GeneratePNRAngleInterpolants``: the PNR ``alpha`` and
     ``beta`` on the uniform grid, their splines and ``gamma`` integrated
     from them with Boole's rule. Returns a :class:`~._math.Struct` of the
@@ -1672,7 +1688,13 @@ def angle_interpolants(prec, wf, grid, version, active=True):
 
     The grid has room for :data:`PNR_GRID_CAPACITY` points; everything is
     computed in chunks of :data:`PNR_GRID_CHUNK` points, for the chunks
-    holding LAL's ``n`` points only."""
+    holding LAL's ``n`` points only.
+
+    With ``extra_mf`` (a 1-d array of ``Mf``, version 330), the SpinTaylor
+    ``alpha`` of the splines at those points too, in the same loop (one
+    evaluation of the splines to compile): ``st_extra``, the values and
+    whether they lie within the knots, as :func:`_st_spline` gives them
+    (the antisymmetric mode's points, see :func:`region_alpha_many`)."""
     i_start, n, delta_f_int, error = grid
     prec, wf = barrier((prec, wf))
     n_eval = jnp.where(active, n, 0.0)
@@ -1712,17 +1734,53 @@ def angle_interpolants(prec, wf, grid, version, active=True):
         alpha, beta, err = uniform_angles(prec, wf, mf, version_, st_values, smooth)
         return jnp.where(valid, alpha, 0.0), jnp.where(valid, beta, 0.0), jnp.any(err & valid)
 
-    alpha, beta, errors = blocked_map(angles, jnp.arange(n_chunks), jnp.ceil(n_eval / chunk),
-                                      (prec, wf, i_start, n, h, version.msa if fallback else None, node_map))
+    args = (prec, wf, i_start, n, h, version.msa if fallback else None, node_map)
+    st_extra = None
+    if extra_mf is None or version != 330:
+        alpha, beta, errors = blocked_map(angles, jnp.arange(n_chunks), jnp.ceil(n_eval / chunk), args)
+    else:
+        n_extra = -(-extra_mf.shape[0] // chunk)
+        padded = jnp.concatenate([extra_mf, jnp.broadcast_to(extra_mf[-1:], (n_extra * chunk - extra_mf.shape[0],))])
+
+        def angles_or_extra(index, mf_extra, is_extra, args):
+            prec, wf, i_start, n, h, _, node_map = args
+            k = index * chunk + jnp.arange(chunk, dtype=jnp.float64)
+            valid = k < n
+            if node_map is None:
+                mf = hz_to_mf(frequencies(k, i_start, n, h), wf.m_tot)
+            else:
+                mf = hz_to_mf(_phase_f(node_map, node_map.s0 + jnp.minimum(k, n - 1.0) * node_map.ds), wf.m_tot)
+            mf = jnp.where(is_extra, mf_extra, mf)
+            st, rotation, mf_scale, _, context = _st_context(prec, wf)
+            st_values = st_angles.spline(st, rotation, mf, mf_scale, context)
+
+            def on_grid(operands):
+                prec, wf, mf, st_values, valid = operands
+                alpha, beta, err = uniform_angles(prec, wf, mf, version, st_values, smooth)
+                return jnp.where(valid, alpha, 0.0), jnp.where(valid, beta, 0.0), jnp.any(err & valid)
+
+            def skip(operands):
+                mf = operands[2]
+                return jnp.zeros(mf.shape), jnp.zeros(mf.shape), jnp.asarray(False)
+
+            values = cond(is_extra, skip, on_grid, (prec, wf, mf, st_values, valid))
+            return values, (st_values[0], st_values[4])
+
+        (alpha, beta, errors), st_extra = blocked_map_extra(
+            angles_or_extra, jnp.arange(n_chunks), jnp.ceil(n_eval / chunk), padded.reshape(n_extra, chunk), args)
+        st_extra = tuple(x.reshape(-1)[:extra_mf.shape[0]] for x in st_extra)
     error = error | jnp.any(errors)
     alpha, beta = alpha.reshape(-1), beta.reshape(-1)
     if node_map is not None:
         # splines in the index of the nodes
         splines = _geometric_interpolants(alpha, beta, jnp.zeros(()), n, jnp.ones(()), n_eval, error)
         splines.node_map = node_map
+        splines.st_extra = st_extra
         return splines
     if smooth:
-        return _geometric_interpolants(alpha, beta, i_start, n, h, n_eval, error)
+        splines = _geometric_interpolants(alpha, beta, i_start, n, h, n_eval, error)
+        splines.st_extra = st_extra
+        return splines
     m_alpha, m_beta = _uniform_natural_splines([alpha, beta], n, h, n_eval)
 
     # gamma from the minimal rotation condition with Boole's rule, interval
@@ -1756,7 +1814,7 @@ def angle_interpolants(prec, wf, grid, version, active=True):
     gamma = gamma.reshape(-1)
     (m_gamma,) = _uniform_natural_splines([gamma], n, h, n_eval)
     return Struct(alpha=alpha, beta=beta, gamma=gamma, m_alpha=m_alpha, m_beta=m_beta, m_gamma=m_gamma, n=n, x0=x0,
-                  h=h, error=error)
+                  h=h, error=error, st_extra=st_extra)
 
 
 #: Half-width in ``cos(beta)`` of the band around ``beta = pi / 2`` across

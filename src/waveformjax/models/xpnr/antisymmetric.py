@@ -175,11 +175,13 @@ def antisymmetric_coefficients(prec, wf, version):
                   amp_prefactor=wf.amp0 * wf.amp_norm, error=error)
 
 
-def antisymmetric_waveform(prec, wf, frequencies, version):
+def antisymmetric_waveform(prec, wf, frequencies, version, st_alpha=None):
     """``IMRPhenomX_PNR_GenerateAntisymmetricWaveform``: amplitude and phase
     of the antisymmetric (2,2) co-precessing mode at ``frequencies`` (Hz),
     ``h = amp exp(i phase)``, the error flag and the coefficients of the
-    symmetric (2,2) mode it is built on (``amp22``, ``phase22``, ``linb``)."""
+    symmetric (2,2) mode it is built on (``amp22``, ``phase22``, ``linb``).
+    ``st_alpha`` is the SpinTaylor ``alpha`` at the frequencies if computed
+    already (:func:`.pnr.region_alpha_many`)."""
     prec, wf = barrier((prec, wf))
     kappa_at, kappa_rd = _kappa_function(prec, wf)
     mf = hz_to_mf(frequencies, wf.m_tot)
@@ -191,7 +193,7 @@ def antisymmetric_waveform(prec, wf, frequencies, version):
     # frequency there
     used = mf < co.mf_t
     n_used = jnp.max(jnp.where(used, jnp.arange(mf.shape[0]), -1)) + 1
-    alpha_pnr, errors = pnr.region_alpha_many(prec, wf, mf, co.alpha_params, version, n_used)
+    alpha_pnr, errors = pnr.region_alpha_many(prec, wf, mf, co.alpha_params, version, n_used, st_alpha)
     mf_cut = wf.f_max_prime * wf.m_sec
     error = co.error | jnp.any(errors & used & (mf <= mf_cut))
     mf = wf.m_sec * frequencies

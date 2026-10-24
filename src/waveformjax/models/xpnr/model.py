@@ -223,11 +223,12 @@ def _mode_angles_pnr(prec, wf, splines, ell, emm, mf):
     return alpha - prec.alpha_offset, jnp.cos(beta), -gamma - prec.epsilon_offset, map_error | ~inside
 
 
-def _prepare_pnr(prec, wf, grid, version, error, active=True):
+def _prepare_pnr(prec, wf, grid, version, error, active=True, extra_mf=None):
     """The PNR angle interpolants (``IMRPhenomX_PNR_GeneratePNRAngleInterpolants``)
     on ``grid`` (:func:`.pnr.interpolation_grid`), with the offsets at the
-    reference frequency and the remapped J frame."""
-    splines = barrier(pnr.angle_interpolants(prec, wf, grid, version, active))
+    reference frequency and the remapped J frame (and the SpinTaylor
+    ``alpha`` at ``extra_mf``, see :func:`.pnr.angle_interpolants`)."""
+    splines = barrier(pnr.angle_interpolants(prec, wf, grid, version, active, extra_mf))
     error = error | splines.error
     alpha_ref, beta_ref, gamma_ref, inside = pnr.spline_angles(splines, wf.f_ref)
     error = error | ~inside | ~jnp.isfinite(beta_ref)
@@ -390,7 +391,8 @@ def _angle_data(prec, wf, splines, modes, frequencies, version, tuned):
         cos_betas.append(cos_beta)
         epsilons.append(epsilon)
     if (2, 2) in modes and tuned:
-        amp, phase, err, xas22 = antisymmetric_waveform(prec, wf, frequencies, version)
+        amp, phase, err, xas22 = antisymmetric_waveform(prec, wf, frequencies, version,
+                                                        splines.st_extra if version == 330 else None)
         error = error | err
         h_as = amp * jnp.exp(1j * phase)
     else:
@@ -522,7 +524,10 @@ def _pipeline_330(setup, modes, frequencies, active=True):
     """The angle data of version 330 from :func:`_spintaylor_setup`."""
     prec, wf, grid, flags = setup
     prec, wf = barrier((pnr._copy(prec), wf))
-    prec, splines, error = barrier(_prepare_pnr(prec, wf, grid, 330, flags.error, active))
+    # (the antisymmetric mode reads the SpinTaylor alpha at the frequencies:
+    # evaluated with the grid)
+    extra_mf = hz_to_mf(frequencies, wf.m_tot) if (2, 2) in modes else None
+    prec, splines, error = barrier(_prepare_pnr(prec, wf, grid, 330, flags.error, active, extra_mf))
     data = _angle_data(prec, wf, splines, modes, frequencies, 330, True)
     data.error = data.error | error | flags.incomplete
     return data

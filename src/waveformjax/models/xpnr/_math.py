@@ -319,6 +319,50 @@ def blocked_map(function, blocks, n_blocks, args=()):
     return while_loop(test, body, (blocks, args, n_blocks), jnp.zeros((), jnp.int32), out)[1]
 
 
+def blocked_map_extra(function, blocks, n_blocks, extra_blocks, args=()):
+    """:func:`blocked_map` with every one of ``extra_blocks`` (a pytree with
+    a leading axis of static length) done first, in the same loop:
+    ``(values, extra_values) = function(block, extra_block, is_extra,
+    args)`` is called once per iteration, with ``is_extra`` (traced) telling
+    which of its results is kept. Returns the values of the blocks (zeros
+    for those not needed) and the extra values. One body to compile for
+    both kinds of block (``function`` shares what they have in common)."""
+    from ._transforms import while_loop
+
+    count = jax.tree_util.tree_leaves(blocks)[0].shape[0]
+    n_extra = jax.tree_util.tree_leaves(extra_blocks)[0].shape[0]
+    n_blocks = jnp.minimum(jnp.asarray(n_blocks).astype(jnp.int32), count)
+    out_shape, extra_shape = jax.eval_shape(function, _index(blocks, 0), _index(extra_blocks, 0), jnp.asarray(True),
+                                            args)
+    out = jax.tree_util.tree_map(lambda s: jnp.zeros((count,) + s.shape, s.dtype), out_shape)
+    extra_out = jax.tree_util.tree_map(lambda s: jnp.zeros((n_extra,) + s.shape, s.dtype), extra_shape)
+
+    def test(consts, i):
+        return i < consts[3] + n_extra
+
+    def body(consts, i, outs, active):
+        blocks, extra_blocks, args, _ = consts
+        out, extra_out = outs
+        is_extra = i < n_extra
+        b = jnp.clip(i - n_extra, 0, count - 1)
+        e = jnp.clip(i, 0, n_extra - 1)
+        value, extra_value = function(_index(blocks, b), _index(extra_blocks, e), is_extra, args)
+
+        def write(outs, values, index, keep):
+            # (inactive under jax.vmap, or the other kind of block: the
+            # slot written back unchanged)
+            values = jax.tree_util.tree_map(lambda o, v: jnp.where(keep, v, _index(o, index)), outs, values)
+            return jax.tree_util.tree_map(lambda o, v: jax.lax.dynamic_update_index_in_dim(o, v, index, 0), outs,
+                                          values)
+
+        out = write(out, value, b, active & ~is_extra)
+        extra_out = write(extra_out, extra_value, e, active & is_extra)
+        return i + 1, (out, extra_out)
+
+    return while_loop(test, body, (blocks, extra_blocks, args, n_blocks), jnp.zeros((), jnp.int32),
+                      (out, extra_out))[1]
+
+
 def blocked_scan(function, blocks, n_blocks, init, args=()):
     """``value, carry = function(block, carry, args)`` for the first
     ``n_blocks`` (traced) blocks of ``blocks`` in turn, from ``carry =
