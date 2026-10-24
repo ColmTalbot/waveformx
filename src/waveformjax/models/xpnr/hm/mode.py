@@ -22,7 +22,7 @@ from ..internals import waveform_struct
 from .amplitude import amplitude, amplitude_coefficients, amplitude_fits, choose_polynomial, finish_amplitude
 from .inspiral import pn21_coefficients
 from .phase import phase, phase_coefficients, phase_fits, spheroidal_coefficients, spheroidal_to_spherical
-from .variables import HIGHER_MODES, hm_waveform_struct
+from .variables import HIGHER_MODES, hm_waveform_struct, is_mode, mixing_coefficients
 
 __all__ = ["ModeCoefficients", "mode_coefficients", "modes_coefficients", "mode_h", "frequency_sequence_one_mode"]
 
@@ -126,9 +126,10 @@ def _prepare(wf, phase22, ell, emm):
 def _coefficients(wf, phase22, hm, defer=False):
     """The amplitude and phase coefficients of the mode of ``hm``
     (:func:`_prepare`): a :class:`ModeCoefficients` for a static mode, else
-    the pair ``(amp, phase)`` (:func:`modes_coefficients`)."""
+    ``(amp, phase, mix)`` (:func:`modes_coefficients`; ``mix`` the data of
+    the mode mixing of the (3,2))."""
     static = isinstance(hm.ell, int)
-    if hm.mixing_on:
+    if is_mode(hm, 32) is not False:
         spheroidal, timeshift, phiref22 = spheroidal_coefficients(wf, hm, phase22)
         mix = Struct(
             amp22=amp22_module.amp_coefficients(wf),
@@ -156,7 +157,7 @@ def _coefficients(wf, phase22, hm, defer=False):
         mix.rd = amp.rd
     ph = lax.optimization_barrier(phase_coefficients(wf, hm, phase22, mix))
     if not static:
-        return amp, ph
+        return amp, ph, mix
     return _finish(wf, hm, amp, ph, mix, defer)
 
 
@@ -203,8 +204,8 @@ def _split(trees):
 
 
 #: The higher modes whose coefficients are computed together (one copy of
-#: the code under ``jax.vmap``): those without mode mixing.
-SHARED = ((2, 1), (3, 3), (4, 4))
+#: the code under ``jax.vmap``).
+SHARED = ((2, 1), (3, 3), (3, 2), (4, 4))
 
 
 def modes_coefficients(wf, phase22, modes):
@@ -213,10 +214,11 @@ def modes_coefficients(wf, phase22, modes):
     chosen together (:func:`~.amplitude.choose_polynomial` under
     ``jax.vmap``: GSL's root finder and the polynomials compiled once).
 
-    The modes without mode mixing (:data:`SHARED`) are computed together:
-    their fits for each, the rest of their coefficients under ``jax.vmap``
-    with the mode a traced value (:func:`~.variables.is_mode`), which
-    compiles that code once rather than once per mode."""
+    The modes (:data:`SHARED`) are computed together: their fits for each,
+    the rest of their coefficients under ``jax.vmap`` with the mode a traced
+    value (:func:`~.variables.is_mode`), which compiles that code once
+    rather than once per mode (the mode mixing of the (3,2) computed for
+    all and selected)."""
     shared = [mode for mode in modes if mode in SHARED]
     if len(shared) < 2:
         shared = []
@@ -225,7 +227,7 @@ def modes_coefficients(wf, phase22, modes):
         prepared = [_prepare(wf, phase22, ell, emm) for ell, emm in shared]
         tags = tuple(10 * ell + emm for ell, emm in shared)
         hms = []
-        for _, _, hm in prepared:
+        for w, _, hm in prepared:
             hm = hm.copy()
             hm.tags = tags
             hm.ell = float(hm.ell)
@@ -236,6 +238,8 @@ def modes_coefficients(wf, phase22, modes):
             hm.intermediate_amp_veto = jnp.asarray(hm.intermediate_amp_veto)
             hm.ringdown_amp_veto = jnp.asarray(hm.ringdown_amp_veto)
             hm.mode_int = None
+            # (the mixing coefficients for every mode: one structure)
+            hm.mixing_coeffs = mixing_coefficients(w.a_final)
             hms.append(hm)
         # (from the detached inputs of the (2,1), as mode_coefficients)
         pn21 = None
@@ -247,13 +251,12 @@ def modes_coefficients(wf, phase22, modes):
             w, p, h = rebuild(values)
             if pn21 is not None:
                 h.pn21 = pn21
-            amp, ph = _coefficients(w, p, h, defer=True)
-            return jax.tree_util.tree_map(jnp.asarray, (amp, ph))
+            return jax.tree_util.tree_map(jnp.asarray, _coefficients(w, p, h, defer=True))
 
-        amps, phs = jax.vmap(one)(inputs)
+        out = jax.vmap(one)(inputs)
         for k, ((ell, emm), (w, _, hm)) in enumerate(zip(shared, prepared)):
-            amp, ph = jax.tree_util.tree_map(lambda x: x[k], (amps, phs))
-            partial[(ell, emm)] = _finish(w, hm, amp, ph, None, True)
+            amp, ph, mix = jax.tree_util.tree_map(lambda x: x[k], out)
+            partial[(ell, emm)] = _finish(w, hm, amp, ph, mix if hm.mixing_on else None, True)
     for ell, emm in modes:
         if (ell, emm) not in partial:
             partial[(ell, emm)] = mode_coefficients(wf, phase22, ell, emm, defer=True)

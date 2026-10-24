@@ -91,7 +91,8 @@ def intermediate_phase_ansatz(ff, p, hm, ph):
     dphase = fma(ph.c1, p.m_one, ph.c0)
     dphase = fma(ph.c2, p.m_two, dphase)
     dphase = fma(ph.c4, p.m_four, dphase)
-    if is_mode(hm, 32) is True:
+    if is_mode(hm, 32) is not False:
+        # (c3 = 0 for the other modes computed with the (3,2))
         dphase = fma(ph.c3, p.m_three, dphase)
     return dphase + lorentzian
 
@@ -103,7 +104,7 @@ def intermediate_phase_ansatz_int(ff, p, hm, ph):
     phase_ir = fma(ph.c0, ff, ph.c1 * p.log)
     phase_ir = fma(-ph.c2, p.m_one, phase_ir)
     phase_ir = fma(-(1.0 / 3.0 * ph.c4), p.m_three, phase_ir)
-    if is_mode(hm, 32) is True:
+    if is_mode(hm, 32) is not False:
         phase_ir = fma(-(0.5 * ph.c3), p.m_two, phase_ir)
     return fma(ph.c_l, jnp.arctan((ff - frd) / fda), phase_ir)
 
@@ -145,6 +146,7 @@ def spheroidal_coefficients(wf, hm, phase22):
         rows.append([1.0, lorentzian, ffm2, ffm2 * ffm2])
     alpha0_s, alpha_l_s, alpha2_s, alpha4_s = _solve(rows, values)
     ph = Struct(alpha0_s=alpha0_s, alpha_l_s=alpha_l_s, alpha2_s=alpha2_s, alpha4_s=alpha4_s, phi0_s=0.0)
+    hm = Struct(f_ring=fringlm, f_damp=fdamplm, mixing_on=True)
 
     # time shift of the spheroidal ansatz
     fref_rd = wf.f_ring + wf.f_damp
@@ -262,7 +264,6 @@ def phase_coefficients(wf, hm, phase22, mix=None):
     diagonal = ell == emm
     eta = wf.eta
     eta_m1 = 1.0 / eta
-    n_inter = hm.n_colloc_pts_inter_phase
 
     # IMRPhenomXHM_Intermediate_CollocPtsFreqs (version 122019)
     fring = hm.f_ring
@@ -347,7 +348,10 @@ def phase_coefficients(wf, hm, phase22, mix=None):
         lorentzian = fdamp / (fdamp * fdamp + (ff - fring) * (ff - fring))
         return [1.0, lorentzian, ffm1, ffm2, ffm2 * ffm2, ffm1 * ffm2]
 
-    if not hm.mixing_on:
+    # (the mode's own ringdown ansatz: the rescaled 22 one, or the
+    # spheroidal one with mode mixing, both where the mode is one of several)
+    plain = Struct(f_ring=fring, f_damp=fdamp, mixing_on=False)
+    if is32 is not True:
         # the collocation points according to spin and mass ratio
         cond_a = eta < hm.eta_emr
         if diagonal is not False:
@@ -367,21 +371,24 @@ def phase_coefficients(wf, hm, phase22, mix=None):
         ph.alpha2 = 1.0 / (fring * fring) * wlm * hm_ringdown.phase_22_alpha2(wf)
         ph.alpha_l = eta_m1 * hm_ringdown.phase_22_alpha_l(wf)
         p_rd = powers(fcut_rd)
-        phi0_rd = ringdown_phase_ansatz_int(fcut_rd, p_rd, hm, ph)
-        dphi0_rd = ringdown_phase_ansatz(fcut_rd, p_rd, hm, ph)
+        phi0_rd = ringdown_phase_ansatz_int(fcut_rd, p_rd, plain, ph)
+        dphi0_rd = ringdown_phase_ansatz(fcut_rd, p_rd, plain, ph)
         x = _solve([row(ff)[:5] for ff, _ in chosen], [v for _, v in chosen]) + [0.0]
-    else:
+    if is32 is not False:
         # derivatives of the rotated spheroidal ringdown phase at fcut_rd by
         # finite differences
         def rotated_phase(ff):
             re, im = spheroidal_to_spherical(ff, powers(ff), mix, mix.rd)
             return jnp.arctan2(im, re)
 
-        phi0_rd, dphi0_rd, d2phi0_rd = phase_derivatives(fcut_rd, rotated_phase, "exact_derivatives" in wf)
+        phi0_mix, dphi0_mix, d2phi0_rd = phase_derivatives(fcut_rd, rotated_phase, "exact_derivatives" in wf)
         comparable = eta > hm.eta_emr
         freqs = list(freqs)
+        values = list(values)
+        # (six collocation points with mode mixing)
+        n_inter = 6
         freqs[n_inter - 2] = jnp.where(comparable, fcut_rd, freqs[n_inter - 2])
-        values[n_inter - 2] = jnp.where(comparable, dphi0_rd, values[n_inter - 2])
+        values[n_inter - 2] = jnp.where(comparable, dphi0_mix, values[n_inter - 2])
         freqs[n_inter - 1] = fcut_rd
         values[n_inter - 1] = d2phi0_rd
         rows = [row(freqs[i]) for i in range(6)]
@@ -394,7 +401,13 @@ def phase_coefficients(wf, hm, phase22, mix=None):
         ffm5 = ffm3 * ffm2
         den = fdamp * fdamp + (ff - fring) * (ff - fring)
         rows[5] = [0.0, -2.0 * fdamp * (ff - fring) / (den * den), -ffm2, -2.0 * ffm3, -4.0 * ffm5, -3.0 * ffm4]
-        x = _solve(rows, values)
+        x_mix = _solve(rows, values)
+        if is32 is True:
+            x, phi0_rd, dphi0_rd = x_mix, phi0_mix, dphi0_mix
+        else:
+            x = [jnp.where(is32, a, b) for a, b in zip(x_mix, x)]
+            phi0_rd = jnp.where(is32, phi0_mix, phi0_rd)
+            dphi0_rd = jnp.where(is32, dphi0_mix, dphi0_rd)
 
     ph.c0 = x[0]
     ph.c_l = x[1]
@@ -402,12 +415,11 @@ def phase_coefficients(wf, hm, phase22, mix=None):
     ph.c2 = x[3]
     ph.c4 = x[4]
     if is32 is not False:
-        assert is32 is True, "the (3,2) mode is computed on its own"
-        ph.c3 = x[5]
+        ph.c3 = where_mode(is32, x[5], 0.0)
         # for extreme mass ratios glue the intermediate and ringdown regions
         p_rd = powers(fcut_rd)
         glued = ph.c0 + dphi0_rd - intermediate_phase_ansatz(fcut_rd, p_rd, hm, ph)
-        ph.c0 = jnp.where(eta < hm.eta_emr, glued, ph.c0)
+        ph.c0 = jnp.where(both(is32, eta < hm.eta_emr), glued, ph.c0)
 
     # glue inspiral and intermediate
     p_in = powers(fcut_insp)
@@ -423,7 +435,7 @@ def phase_coefficients(wf, hm, phase22, mix=None):
     falign = jnp.where(eta > hm.eta_emr, 0.6 * m_over_2 * wf.f_meco, m_over_2 * wf.f_meco)
     p_falign = powers(falign)
     phaseshift = 0.0
-    if hm.mixing_on:
+    if is32 is True:
         timeshift = mix.timeshift
         phiref22 = mix.phiref22
         (phase_22_falign,) = _phase_22_at(phase22, two_over_m * falign)
@@ -431,6 +443,9 @@ def phase_coefficients(wf, hm, phase22, mix=None):
         timeshift = phase22_module.time_shift_22(phase22, wf)
         phase_22_mf_ref, phase_22_falign = _phase_22_at(phase22, wf.mf_ref, two_over_m * falign)
         phiref22 = _phi_ref_22(wf, phase_22_mf_ref, timeshift, phaseshift)
+        if is32 is not False:
+            timeshift = jnp.where(is32, mix.timeshift, timeshift)
+            phiref22 = jnp.where(is32, mix.phiref22, phiref22)
     phi22 = fma(1.0 / eta, phase_22_falign, phaseshift) + phiref22
     phi_lm = fma(ph.c1_insp, falign, inspiral.phase_ansatz_int(falign, p_falign, ph)) + ph.c_insp
     deltaphi_lm = fma(-(3.0 * FRAC_PI_4), 1.0 - m_over_2, fma(m_over_2, phi22, timeshift * falign)) - phi_lm

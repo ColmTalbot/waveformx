@@ -358,15 +358,20 @@ def amplitude_coefficients(wf, hm, rotate=None, defer=False):
     f3 = freqs_inter[1]
     f4 = f_im
     p4 = powers(f4)
-    if hm.mixing_on:
+    if is32 is not True:
+        rd_f4 = rd_amp_ansatz(f4, amp)
+        d4 = rd_amp_dansatz(f4, amp)
+    if is32 is not False:
+        # the spherical ringdown of the (3,2), with mode mixing
         def rotated(x):
             re, im = rotate(x, amp.rd)
             return jnp.hypot(re, im)
 
-        rd_f4, d4 = value_and_nd_derivative(f4, rotated, exact)
-    else:
-        rd_f4 = rd_amp_ansatz(f4, amp)
-        d4 = rd_amp_dansatz(f4, amp)
+        rd_mix, d_mix = value_and_nd_derivative(f4, rotated, exact)
+        if is32 is True:
+            rd_f4, d4 = rd_mix, d_mix
+        else:
+            rd_f4, d4 = jnp.where(is32, rd_mix, rd_f4), jnp.where(is32, d_mix, d4)
     # derivatives of the inverse of the full amplitudes
     d1 = 7.0 / 6.0 * jnp.power(f1, 1.0 / 6.0) / insp_f1 - jnp.power(f1, 7.0 / 6.0) * d1 / (insp_f1 * insp_f1)
     d4 = 7.0 / 6.0 * jnp.power(f4, 1.0 / 6.0) / rd_f4 - jnp.power(f4, 7.0 / 6.0) * d4 / (rd_f4 * rd_f4)
