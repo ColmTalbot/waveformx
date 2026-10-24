@@ -201,7 +201,8 @@ def test_time_domain_conversion_matches_lal(lal, name, keywords, delta_t, f_min,
     binary = binary_of(keywords)
     plan = _from_fd.td_plan(_from_fd.params_of(binary), delta_t, f_min, _models.XPNR.cutoff(binary))
     model = LALModel(lal, keywords, plan.fd, mode_array)
-    hp, hc, nzeros = _from_fd.time_domain(binary, plan, model, WaveformOptions(mode_array=mode_array))
+    options = WaveformOptions(mode_array=mode_array, scaled_strain=False)
+    hp, hc, nzeros = _from_fd.time_domain(binary, plan, model, options)
     stop = plan.first + plan.length - int(nzeros)
     lp, lc = lalsim.SimInspiralTD(*lal_arguments(lal_module, keywords), delta_t, f_min, keywords["f_ref"],
                                   lal_dict(lal, mode_array), lalsim.IMRPhenomXPNR)
@@ -224,7 +225,8 @@ def test_conditioned_frequency_domain_matches_lal(lal, name, keywords, delta_f, 
     lal_module, lalsim = lal
     binary = binary_of(keywords)
     plan = _from_fd.fd_plan(_from_fd.params_of(binary), delta_f, f_min, f_max, _models.XPNR.cutoff(binary))
-    hp, hc = _from_fd.conditioned_fd(binary, plan, f_min, LALModel(lal, keywords, plan), WaveformOptions())
+    hp, hc = _from_fd.conditioned_fd(binary, plan, f_min, LALModel(lal, keywords, plan),
+                                     WaveformOptions(scaled_strain=False))
     lp, lc = lalsim.SimInspiralFD(*lal_arguments(lal_module, keywords), delta_f, f_min, f_max, keywords["f_ref"],
                                   lal_dict(lal), lalsim.IMRPhenomXPNR)
     assert len(hp) == lp.data.length and plan.delta_f == lp.deltaF
@@ -276,7 +278,8 @@ XPNR_TOLERANCE = {((2, 2), (2, -2)): (1e-7, 1e-13), None: (1e-4, 1e-9)}
 @pytest.mark.parametrize("delta_t, f_min", [(1 / 4096, 20.0), (1 / 2048, 15.0)])
 def test_simulate_td_matches_lal(lal, mode_array, delta_t, f_min):
     lal_module, lalsim = lal
-    result = wf.simulate_td("IMRPhenomXPNR", delta_t, f_min, mode_array=mode_array, pnr_parity_fix=False, **XPNR)
+    result = wf.simulate_td("IMRPhenomXPNR", delta_t, f_min, mode_array=mode_array, pnr_parity_fix=False,
+                            scaled_strain=False, **XPNR)
     lp, lc = lalsim.SimInspiralTD(*lal_arguments(lal_module, XPNR), delta_t, f_min, XPNR["f_ref"],
                                   lal_dict(lal, mode_array), lalsim.IMRPhenomXPNR)
     assert len(result.hplus) == lp.data.length

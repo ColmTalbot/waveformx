@@ -29,8 +29,9 @@ import functools
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
-from .._math import PI, fma
+from .._math import PI, fma, real
 
 __all__ = ["value_and_nd_derivative", "phase_derivatives"]
 
@@ -45,10 +46,11 @@ def value_and_nd_derivative(f, at, exact=False):
     with step 1e-9 (the exact derivative with ``exact``). ``at`` maps an
     array of frequencies to values (it is evaluated on five frequencies at
     once); the tangents are exact."""
-    f = jnp.asarray(f, jnp.float64)
-    if exact:
+    f = jnp.asarray(f, real())
+    # (in float32 the step is below the rounding of f: exact derivatives)
+    if exact or real() == np.float32:
         return jax.jvp(lambda x: at(jnp.stack([x] * 5))[0], (f,), (jnp.ones_like(f),))
-    fun, consts = jax.closure_convert(at, jnp.zeros(5))
+    fun, consts = jax.closure_convert(at, jnp.zeros(5, real()))
     return _nd(fun, f, *consts)
 
 
@@ -82,8 +84,8 @@ def phase_derivatives(fcut, phase_of, exact=False):
     1e-7``, reduced modulo ``2 pi`` to ``(-2 pi, 0]``, and central
     differences (the exact derivatives with ``exact``); the tangents are
     exact."""
-    fcut = jnp.asarray(fcut, jnp.float64)
-    if exact:
+    fcut = jnp.asarray(fcut, real())
+    if exact or real() == np.float32:
         def phase(x):
             return phase_of(jnp.stack([x] * 3))[0]
 
@@ -93,7 +95,7 @@ def phase_derivatives(fcut, phase_of, exact=False):
         value = jnp.fmod(phase(fcut), 2.0 * PI)
         value = jnp.where(value > 0.0, value - 2.0 * PI, value)
         return value, derivative(fcut), jax.jvp(derivative, (fcut,), (jnp.ones_like(fcut),))[1]
-    fun, consts = jax.closure_convert(phase_of, jnp.zeros(3))
+    fun, consts = jax.closure_convert(phase_of, jnp.zeros(3, real()))
     return _phase(fun, fcut, *consts)
 
 

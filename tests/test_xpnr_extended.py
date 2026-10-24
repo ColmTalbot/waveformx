@@ -29,11 +29,11 @@ from waveformjax.exceptions import PrecessionVersionUnavailableError
 from waveformjax.models.xpnr import MODEL, model, pnr
 from waveformjax.models.xpnr.api import _prescription
 
-LAL = WaveformOptions(version_fallback=True)
-STRICT = WaveformOptions(version_fallback=False)
-EXTENDED = WaveformOptions(extended_spintaylor=True)
-SPLINES = WaveformOptions(extended_spintaylor=True, extended_direct_angles=False)
-PHASE_GRID = WaveformOptions(extended_spintaylor=True, extended_phase_grid=True)
+LAL = WaveformOptions(version_fallback=True, scaled_strain=False)
+STRICT = WaveformOptions(version_fallback=False, scaled_strain=False)
+EXTENDED = WaveformOptions(extended_spintaylor=True, scaled_strain=False)
+SPLINES = WaveformOptions(extended_spintaylor=True, extended_direct_angles=False, scaled_strain=False)
+PHASE_GRID = WaveformOptions(extended_spintaylor=True, extended_phase_grid=True, scaled_strain=False)
 MTSUN_SI = 4.925490947641267e-06
 
 
@@ -309,7 +309,7 @@ def test_smooth_interpolants_do_not_depend_on_the_branch_of_alpha(case):
 # transforms
 # ---------------------------------------------------------------------------
 
-OPTIONS_22 = WaveformOptions(mode_array=((2, 2), (2, -2)), extended_spintaylor=True)
+OPTIONS_22 = WaveformOptions(mode_array=((2, 2), (2, -2)), extended_spintaylor=True, scaled_strain=False)
 GRID = jnp.asarray(np.geomspace(20.0, 400.0, 96))
 _WEIGHTS = np.random.default_rng(3).normal(size=(2, len(GRID), 2))
 NAMES = ["mass_1", "mass_2", "spin_1x", "spin_1y", "spin_1z", "spin_2x", "spin_2y", "spin_2z", "luminosity_distance",
@@ -359,7 +359,8 @@ def test_gradient_finite_and_matches_finite_differences(which):
 
 
 def test_phase_grid_gradients_finite():
-    options = WaveformOptions(mode_array=((2, 2), (2, -2)), extended_spintaylor=True, extended_phase_grid=True)
+    options = WaveformOptions(mode_array=((2, 2), (2, -2)), extended_spintaylor=True, extended_phase_grid=True,
+                              scaled_strain=False)
 
     def loss(x):
         b = Binary(mass_1=x[0], mass_2=x[1], spin_1=x[2:5], spin_2=x[5:8], luminosity_distance=x[8],

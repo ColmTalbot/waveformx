@@ -33,7 +33,7 @@ from jax import lax
 
 from .._generated import hm_amp_122019 as gen
 from .._generated import hm_fits_122018 as fits
-from .._math import Struct, fma, powers
+from .._math import Struct, fma, powers, real
 from . import roots
 from .finite_differences import value_and_nd_derivative
 from .inspiral import pn21_coefficients, pn_amp_rescaled, pn_amplitude_coefficients
@@ -88,7 +88,7 @@ def _make_polynomial_coefficients(version):
         matrix = jnp.stack([jnp.stack(row) for row in rows])
         scaled = jnp.linalg.solve(matrix, jnp.stack(rhs))
         delta = scaled / scale ** jnp.arange(n)
-        return jnp.concatenate([delta, jnp.zeros(6 - n)])
+        return jnp.concatenate([delta, jnp.zeros(6 - n, real())])
 
     return coefficients
 
@@ -101,7 +101,7 @@ def polynomial_coefficients(inputs, version):
     polynomial of reconstruction ``version`` (101, 102, 1032, 104, 1042,
     105) for the collocation data ``inputs`` (``v1`` ... ``v4``, ``d1``,
     ``d4``, ``f1`` ... ``f4``), ``IMRPhenomXHM_Intermediate_Amp_delta*``."""
-    x = jnp.stack([jnp.asarray(inputs[name] if isinstance(inputs, dict) else getattr(inputs, name), jnp.float64)
+    x = jnp.stack([jnp.asarray(inputs[name] if isinstance(inputs, dict) else getattr(inputs, name), real())
                    for name in _INPUTS])
     delta = _POLYNOMIAL_COEFFICIENTS[version](x)
     return [delta[k] for k in range(6)]
@@ -457,7 +457,7 @@ def amplitude_coefficients(wf, hm, rotate=None, defer=False):
     amp.poly_inputs = inputs
     # what choose_polynomial needs (computed later for several modes at once
     # with defer)
-    amp.choice = Struct(x=jnp.stack([jnp.asarray(getattr(inputs, name), jnp.float64) for name in _INPUTS]),
+    amp.choice = Struct(x=jnp.stack([jnp.asarray(getattr(inputs, name), real()) for name in _INPUTS]),
                         f3_105=freqs_inter[1], fstart=f_amp_match_in, fend=f_im, version=version)
     if not defer:
         amp = finish_amplitude(amp, choose_polynomial(amp.choice))

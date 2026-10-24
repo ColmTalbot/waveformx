@@ -42,6 +42,14 @@ The package has the same interface as the Python bindings of
     samples of it (`extended_direct_angles`), which is much faster for
     light binaries; a coarser grid for interpolating the angles
     (`extended_phase_grid`) makes light binaries faster still.
+  - Its output is the strain multiplied by 10^21, so that it can be used in
+    single precision; the option `scaled_strain=False` gives the strain
+    itself, as LALSimulation does.
+  - Its pure function runs in single precision (float32) when the binary's
+    parameters are float32, including its derivatives. The extended variant
+    stays close to its double-precision waveform there; the default model,
+    which repeats LALSimulation's integration of the precession equations
+    step by step, is much less accurate in single precision.
 - **NRSur7dq4** (time domain): numerical-relativity surrogate for precessing
   binaries with higher modes. It gives LALSimulation's polarizations and
   modes, with the same length and start time; its pure function evaluates

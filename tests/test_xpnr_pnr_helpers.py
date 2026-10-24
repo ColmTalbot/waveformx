@@ -279,7 +279,9 @@ def test_arctan_window(lib):
                            rng.uniform(np.pi - 0.0101, np.pi + 0.3, 300), [0.01, np.pi - 0.01, 0.0, np.pi]])
     reference = doubles(lib, "IMRPhenomX_PNR_arctan_window", 1)(beta)
     value = jax.jit(pa.arctan_window)(beta)
-    assert np.max(np.abs(np.asarray(value) - reference)) <= 4e-16
+    # (two ulps at pi: the power is formed as a ratio, which stays within
+    # the range of float32, rather than as LAL's quotient of 500th powers)
+    assert np.max(np.abs(np.asarray(value) - reference)) <= 9e-16
 
 
 def test_attach_mr_beta(lib):

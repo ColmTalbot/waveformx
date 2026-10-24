@@ -37,12 +37,14 @@ import jax
 import jax.numpy as jnp
 from jax.custom_derivatives import SymbolicZero
 
+from ._math import precision_of
+
 __all__ = ["cond", "differentiable", "switch", "while_loop"]
 
 
-def _leaves(binary):
+def _leaves(binary, dtype):
     leaves, treedef = jax.tree_util.tree_flatten(binary)
-    return [jnp.asarray(leaf, jnp.float64) for leaf in leaves], treedef
+    return [jnp.asarray(leaf, dtype) for leaf in leaves], treedef
 
 
 def _vmappable(single, batched):
@@ -96,7 +98,7 @@ def _jacobian_function(single, batched, active):
     axis of the outputs), from ``jax.jvp`` along each parameter."""
 
     def single_jacobian(binary, frequencies):
-        leaves, treedef = _leaves(binary)
+        leaves, treedef = _leaves(binary, precision_of(binary))
         params, rebuild = _parameters(leaves, active)
 
         def along(direction):
@@ -106,7 +108,7 @@ def _jacobian_function(single, batched, active):
         return jax.vmap(along, out_axes=(None, -1))(jnp.eye(params.shape[-1], dtype=params.dtype))
 
     def batched_jacobian(binaries, frequencies, frequencies_batched):
-        leaves, treedef = _leaves(binaries)
+        leaves, treedef = _leaves(binaries, precision_of(binaries))
         params, rebuild = _parameters(leaves, active, batched=True)
 
         def along(direction):
@@ -292,7 +294,7 @@ def differentiable(single, batched=None):
             if active not in jacobians:
                 jacobians[active] = _jacobian_function(single, batched, active)
             out, jac = jacobians[active](binary, frequencies)
-            direction = jnp.concatenate([jnp.asarray(t, jnp.float64).reshape(-1)
+            direction = jnp.concatenate([jnp.asarray(t, precision_of(binary)).reshape(-1)
                                          for t, a in zip(t_leaves, active) if a])
             t_out = jax.tree_util.tree_map(lambda j: j @ direction.astype(j.dtype), jac)
         else:
@@ -306,7 +308,9 @@ def differentiable(single, batched=None):
     function.defjvp(rule, symbolic_zeros=True)
 
     def call(binary, frequencies):
-        leaves, treedef = _leaves(binary)
-        return function(jax.tree_util.tree_unflatten(treedef, leaves), jnp.asarray(frequencies, jnp.float64))
+        # (float32 for a binary of float32 parameters, see _math.precision)
+        dtype = precision_of(binary)
+        leaves, treedef = _leaves(binary, dtype)
+        return function(jax.tree_util.tree_unflatten(treedef, leaves), jnp.asarray(frequencies, dtype))
 
     return call

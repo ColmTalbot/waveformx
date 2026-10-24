@@ -28,7 +28,7 @@ import jax.numpy as jnp
 from jax import lax
 
 from .._generated import hm_amp_122019 as gen
-from .._math import DBL_EPSILON, fma
+from .._math import dbl_epsilon, fma, real
 
 __all__ = ["cross_zero_p2", "cross_zero_p3", "cross_zero_p4", "cross_zero_p5", "complex_solve_quintic"]
 
@@ -61,7 +61,7 @@ def cross_zero_p2(a, fstart, fend):
 
 
 def _complex(re, im):
-    return lax.complex(jnp.asarray(re, jnp.float64), jnp.asarray(im, jnp.float64))
+    return lax.complex(jnp.asarray(re, real()), jnp.asarray(im, real()))
 
 
 def _cpow_one_third(z):
@@ -149,7 +149,7 @@ def _balance(m, nc):
                 return col_norm * 4.0, f * 2.0, count + 1
             return col_norm / 4.0, f / 2.0, count + 1
 
-        col_norm, f, _ = lax.while_loop(more, body, (col_norm, jnp.asarray(f, jnp.float64), jnp.asarray(0)))
+        col_norm, f, _ = lax.while_loop(more, body, (col_norm, jnp.asarray(f, real()), jnp.asarray(0)))
         return col_norm, f
 
     def sweep(state):
@@ -222,7 +222,7 @@ def _qr_companion(h, nc):
         # look for a small sub-diagonal element (the largest e <= n)
         e = jnp.asarray(1)
         for k in range(2, nc + 1):
-            small = jnp.abs(H(h, k, k - 1)) <= DBL_EPSILON * (jnp.abs(H(h, k - 1, k - 1)) + jnp.abs(H(h, k, k)))
+            small = jnp.abs(H(h, k, k - 1)) <= dbl_epsilon() * (jnp.abs(H(h, k - 1, k - 1)) + jnp.abs(H(h, k, k)))
             e = jnp.where((k <= n) & small, k, e)
         x = Hd(h, n, n)
         one_root = active & (e == n)
@@ -272,7 +272,7 @@ def _qr_companion(h, nc):
                 a1 = jnp.abs(H(h_it, m_, m_ - 1))
                 a2 = jnp.abs(H(h_it, m_ - 1, m_ - 1))
                 a3 = jnp.abs(H(h_it, m_ + 1, m_ + 1))
-                stop = a1 * (jnp.abs(q_) + jnp.abs(r_)) <= DBL_EPSILON * jnp.abs(p_) * (a2 + a3)
+                stop = a1 * (jnp.abs(q_) + jnp.abs(r_)) <= dbl_epsilon() * jnp.abs(p_) * (a2 + a3)
             stop = (m_ == e) | stop
             take = (m_ >= e) & (m_ <= n - 2) & stop
             m = jnp.where(take, m_, m)
@@ -350,7 +350,7 @@ def _qr_companion(h, nc):
         _, _, n, _, _, failed, count = state
         return (n > 0) & ~failed & (count < QR_STEPS)
 
-    state = (h, jnp.asarray(0.0), jnp.asarray(nc), jnp.asarray(0), jnp.zeros(2 * nc), jnp.asarray(False),
+    state = (h, jnp.asarray(0.0), jnp.asarray(nc), jnp.asarray(0), jnp.zeros(2 * nc, real()), jnp.asarray(False),
              jnp.asarray(0))
     h, t, n, its, z, failed, _ = lax.while_loop(active, step, state)
     return z, ~failed & (n == 0)
@@ -361,10 +361,10 @@ def complex_solve_quintic(a):
     the packed roots ``[re0, im0, ..., re4, im4]`` (in GSL's order, but for
     rounding) and whether GSL succeeds (leading coefficient non-zero and the
     QR iteration converging)."""
-    a = [jnp.asarray(c, jnp.float64) for c in a]
+    a = [jnp.asarray(c, real()) for c in a]
     nc = 5
     lead = jnp.where(a[nc] == 0.0, 1.0, a[nc])
-    m = jnp.zeros((nc, nc))
+    m = jnp.zeros((nc, nc), real())
     for i in range(1, nc):
         m = m.at[i, i - 1].set(1.0)
     for i in range(nc):

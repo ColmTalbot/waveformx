@@ -16,6 +16,7 @@ taken.
 
 from __future__ import annotations
 
+import contextlib
 import functools
 
 import jax
@@ -27,7 +28,8 @@ __all__ = [
     "MSUN_SI", "MTSUN_SI", "MRSUN_SI", "PC_SI", "MPC_SI", "G_SI", "C_SI", "REAL4_EPS",
     "fma", "fms", "fnms", "Struct", "powers", "POWERS_OF_LALPI", "safe_div", "safe_sqrt",
     "safe_log", "safe_arccos", "where", "dot", "cross", "norm", "rotate_y", "rotate_z",
-    "hz_to_mf", "mf_to_hz", "materialized",
+    "hz_to_mf", "mf_to_hz", "materialized", "real", "integer", "complex_", "precision", "precision_of", "mass_unit",
+    "g_si", "tiny", "dbl_min", "dbl_epsilon", "narrowed",
 ]
 
 PI = float(np.pi)
@@ -49,6 +51,88 @@ MTSUN_SI = 4.925490947641266978197229498498379006e-6
 G_SI = 6.67430e-11
 C_SI = 299792458.0
 REAL4_EPS = 1.1920928955078125e-07
+
+
+# The floating-point type of the evaluation being traced: float32 for a
+# binary of float32 parameters, else float64 (see :func:`precision`).
+_PRECISION = [np.dtype(np.float64)]
+
+
+def real():
+    """The real floating-point type of the evaluation being traced."""
+    return _PRECISION[-1]
+
+
+def integer():
+    """The integer type of counts and indices that meet the real numbers of
+    the evaluation (int32 in float32, where int64 would promote them to
+    float64)."""
+    return np.dtype(np.int32) if _PRECISION[-1] == np.float32 else np.dtype(np.int64)
+
+
+def complex_():
+    """The complex type of the evaluation being traced."""
+    return np.dtype(np.complex64) if _PRECISION[-1] == np.float32 else np.dtype(np.complex128)
+
+
+def mass_unit():
+    """The unit of the masses LAL gives in kg: kg in float64 (LAL's round
+    trips through ``MSUN_SI``, which keep its arithmetic), the solar mass in
+    float32, where ``MSUN_SI`` squared (which XLA's constant folding can
+    form) is beyond the range."""
+    return 1.0 if _PRECISION[-1] == np.float32 else MSUN_SI
+
+
+def g_si():
+    """The gravitational constant for masses in :func:`mass_unit`."""
+    return G_SI * MSUN_SI if _PRECISION[-1] == np.float32 else G_SI
+
+
+def tiny():
+    """A floor far below the values of the model (1e-300 in float64), still
+    a normal number in float32."""
+    return 1e-37 if _PRECISION[-1] == np.float32 else 1e-300
+
+
+def dbl_min():
+    """``DBL_MIN`` of the evaluation's precision (``FLT_MIN`` in float32)."""
+    return float(np.finfo(_PRECISION[-1]).tiny)
+
+
+def dbl_epsilon():
+    """``DBL_EPSILON`` of the evaluation's precision (``FLT_EPSILON`` in
+    float32)."""
+    return float(np.finfo(_PRECISION[-1]).eps)
+
+
+def narrowed(dtype):
+    """``dtype`` with float64 and complex128 replaced by the types of the
+    evaluation (the constants of the structs are weakly typed float64)."""
+    dtype = np.dtype(dtype)
+    if dtype == np.float64:
+        return real()
+    if dtype == np.complex128:
+        return complex_()
+    return dtype
+
+
+def precision_of(tree):
+    """float32 if the floating-point leaves of ``tree`` (a binary) are all
+    float32, else float64."""
+    leaves = [leaf for leaf in jax.tree_util.tree_leaves(tree) if jnp.issubdtype(jnp.result_type(leaf), jnp.floating)]
+    narrow = leaves and all(jnp.result_type(leaf) == np.float32 for leaf in leaves)
+    return np.dtype(np.float32) if narrow else np.dtype(np.float64)
+
+
+@contextlib.contextmanager
+def precision(dtype):
+    """Trace an evaluation in ``dtype`` (float32 or float64): :func:`real`
+    and :func:`complex_` give its types."""
+    _PRECISION.append(np.dtype(dtype))
+    try:
+        yield
+    finally:
+        _PRECISION.pop()
 
 
 def fma(a, b, c):

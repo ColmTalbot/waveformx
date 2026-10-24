@@ -21,7 +21,7 @@ from ._generated import inspiral as _inspiral
 from ._generated import intermediate as _intermediate
 from ._generated import ringdown as _ringdown
 from ._generated import utilities as _utilities
-from ._math import EGAMMA, FencedModule, LN_2, PI, POWERS_OF_LALPI, Struct, fenced, fma, powers
+from ._math import EGAMMA, FencedModule, LN_2, PI, POWERS_OF_LALPI, Struct, fenced, fma, powers, real
 
 inspiral = FencedModule(_inspiral)
 intermediate = FencedModule(_intermediate)
@@ -43,8 +43,8 @@ GPOINTS5 = (0.0, 0.5 - _S, 0.5, 0.5 + _S, 1.0)
 
 def _solve(rows, values):
     """``gsl_linalg_LU_solve`` of the small collocation systems."""
-    matrix = jnp.stack([jnp.stack([jnp.asarray(x, dtype=jnp.float64) for x in row]) for row in rows])
-    rhs = jnp.stack([jnp.asarray(v, dtype=jnp.float64) for v in values])
+    matrix = jnp.stack([jnp.stack([jnp.asarray(x, dtype=real()) for x in row]) for row in rows])
+    rhs = jnp.stack([jnp.asarray(v, dtype=real()) for v in values])
     solution = jnp.linalg.solve(matrix, rhs)
     return [solution[i] for i in range(len(values))]
 

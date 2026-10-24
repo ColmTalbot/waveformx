@@ -132,8 +132,10 @@ def main():
         weights = 1 / psd(frequencies)
         record = dict(case, index=index)
         results = {
-            "jax": evaluate(lambda: wf.polarizations("IMRPhenomXPNR", frequencies, pnr_parity_fix=False, **keywords)),
-            "jax_fix": evaluate(lambda: wf.polarizations("IMRPhenomXPNR", frequencies, **keywords)),
+            "jax": evaluate(lambda: wf.polarizations("IMRPhenomXPNR", frequencies, pnr_parity_fix=False,
+                                                          scaled_strain=False, **keywords)),
+            "jax_fix": evaluate(lambda: wf.polarizations("IMRPhenomXPNR", frequencies, scaled_strain=False,
+                                                              **keywords)),
             "lal": evaluate(lambda: lal_sequence(keywords, frequencies)),
         }
         if rs is not None:

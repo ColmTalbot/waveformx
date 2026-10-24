@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 
-from ._math import FRAC_PI_4, MPC_SI, MSUN_SI, Struct, fenced, fma, powers
+from ._math import FRAC_PI_4, Struct, fenced, fma, mass_unit, powers
 from .amp22 import amp_coefficients, amp_ansatz
 from .internals import waveform_struct
 from .phase22 import phase_22, phase_coefficients, phase_xas, time_shift_22
@@ -54,8 +54,8 @@ def frequency_sequence(frequencies, m1, m2, chi1, chi2, distance, phi0, f_ref):
     masses and the distance in Mpc: the (2,2) mode at ``frequencies``."""
     frequencies = jnp.asarray(frequencies)
     wf = waveform_struct(
-        m1 * MSUN_SI, m2 * MSUN_SI, chi1, chi2, 0.0, f_ref, phi0, frequencies[0], frequencies[-1],
-        distance * MPC_SI, 0.0,
+        m1 * mass_unit(), m2 * mass_unit(), chi1, chi2, 0.0, f_ref, phi0, frequencies[0], frequencies[-1],
+        distance, 0.0,
     )
     xas = xas_setup(wf)
     return h22(wf.m_sec * frequencies, wf, xas, phif_ref(wf, xas))

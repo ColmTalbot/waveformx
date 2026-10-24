@@ -19,7 +19,7 @@ from __future__ import annotations
 import jax.numpy as jnp
 
 from .._generated import hm_qnm, utilities
-from .._math import PI, Struct, fnms
+from .._math import PI, Struct, fnms, real
 
 __all__ = ["HIGHER_MODES", "hm_waveform_struct", "qnm_fits", "mixing_coefficients", "is_mode", "both", "where_mode"]
 
@@ -81,7 +81,7 @@ def qnm_fits(ell, emm):
 def _single(x):
     """A double rounded to single precision (LAL stores the mixing
     coefficients as ``COMPLEX8``)."""
-    return jnp.asarray(x, jnp.float64).astype(jnp.float32).astype(jnp.float64)
+    return jnp.asarray(x, real()).astype(jnp.float32).astype(real())
 
 
 def mixing_coefficients(af):

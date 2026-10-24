@@ -36,7 +36,9 @@ import jax
 import jax.numpy as jnp
 
 from ._generated.utilities import final_spin_2017
-from ._math import C_SI, FRAC_PI_2, G_SI, MSUN_SI, PI, POWERS_OF_LALPI, Struct, hz_to_mf, rotate_y, rotate_z
+from ._math import (
+    C_SI, FRAC_PI_2, PC_SI, PI, POWERS_OF_LALPI, Struct, g_si, hz_to_mf, mass_unit, real, rotate_y, rotate_z,
+)
 from .internals import set_ringdown_frequencies, waveform_struct
 from .msa import acos_safe, msa_system, phi_zeta_costhetal
 from .msa import final_spin as msa_final_spin
@@ -231,12 +233,14 @@ def chirp_time_bound(f_start, m1, m2, s1, s2):
     eta = mu / m
     chi = jnp.abs(jnp.where(jnp.abs(s1) > jnp.abs(s2), s1, s2))
     # XLALSimInspiralTaylorT2Timing_0PNCoeff, _2PNCoeff, _4PNCoeff
-    total_mass = m * (G_SI / C_SI ** 3.0)
+    total_mass = m * (g_si() / C_SI ** 3.0)
     c0 = jnp.abs(-5. * total_mass / (256. * eta))
     c2 = 7.43 / 2.52 + 11. / 3. * eta
     c3 = (226.0 / 15.0) * chi
     c4 = 30.58673 / 5.08032 + 54.29 / 5.04 * eta + 61.7 / 7.2 * eta * eta
-    v = jnp.cbrt(PI * G_SI * m * f_start) / C_SI
+    # (LAL: cbrt(pi G m f) / c, which XLA turns into a power of c beyond
+    # the range of float32)
+    v = jnp.cbrt(PI * total_mass * f_start)
     return c0 * v ** -8 * (1.0 + (c2 + (c3 + c4 * v) * v) * v * v)
 
 
@@ -326,7 +330,7 @@ def polarization_angle(inclination, phi_ref, theta_j_sf, phi_j_sf, kappa, nx_jf,
 
 def pi_gm(m1_si, m2_si):
     """``pPrec->piGM = pi G M / c^3`` (s) for the masses in kg."""
-    return PI * (m1_si + m2_si) * (G_SI / C_SI) / (C_SI * C_SI)
+    return PI * (m1_si + m2_si) * (g_si() / C_SI) / (C_SI * C_SI)
 
 
 def angle_offsets(wf, use_msa, msa, nnlo, alpha0, epsilon0, mprime=2):
@@ -375,8 +379,8 @@ def precession_struct(wf, m1_si, m2_si, chi1, chi2, version=223):
     """
     if version not in (102, 223):
         raise ValueError("only PhenomXPrecVersion 102 and 223 are supported")
-    chi1 = [jnp.asarray(c, dtype=float) for c in chi1]
-    chi2 = [jnp.asarray(c, dtype=float) for c in chi2]
+    chi1 = [jnp.asarray(c, dtype=real()) for c in chi1]
+    chi2 = [jnp.asarray(c, dtype=real()) for c in chi2]
     m1 = m1_si / wf.m_tot_si
     m2 = m2_si / wf.m_tot_si
     m = m1 + m2
@@ -457,17 +461,19 @@ def check_masses_and_spins(m1, m2, chi1, chi2):
     """``XLALIMRPhenomXPCheckMassesAndSpins``: the bodies ordered with the
     first strictly heavier (equal masses are swapped)."""
     keep = m1 > m2
-    chi1 = [jnp.asarray(c, dtype=float) for c in chi1]
-    chi2 = [jnp.asarray(c, dtype=float) for c in chi2]
+    chi1 = [jnp.asarray(c, dtype=real()) for c in chi1]
+    chi2 = [jnp.asarray(c, dtype=real()) for c in chi2]
     return (jnp.where(keep, m1, m2), jnp.where(keep, m2, m1), [jnp.where(keep, a, b) for a, b in zip(chi1, chi2)],
             [jnp.where(keep, b, a) for a, b in zip(chi1, chi2)])
 
 
 def _angles_setup(frequencies, m1, m2, chi1, chi2, inclination, f_ref, version):
-    frequencies = jnp.asarray(frequencies, dtype=float)
-    m1_si, m2_si, chi1, chi2 = check_masses_and_spins(m1 * MSUN_SI, m2 * MSUN_SI, chi1, chi2)
+    frequencies = jnp.asarray(frequencies, dtype=real())
+    m1_si, m2_si, chi1, chi2 = check_masses_and_spins(m1 * mass_unit(), m2 * mass_unit(), chi1, chi2)
     f_ref = jnp.where(f_ref == 0.0, frequencies[0], f_ref)
-    wf = waveform_struct(m1_si, m2_si, chi1[2], chi2[2], 0.0, f_ref, 0.0, frequencies[0], frequencies[-1], 1.0,
+    # (the distance does not matter: 1 m, in Mpc)
+    wf = waveform_struct(m1_si, m2_si, chi1[2], chi2[2], 0.0, f_ref, 0.0, frequencies[0], frequencies[-1],
+                         1.0e-6 / PC_SI,
                          inclination)
     prec, wf = precession_struct(wf, m1_si, m2_si, chi1, chi2, version)
     return frequencies, prec, wf

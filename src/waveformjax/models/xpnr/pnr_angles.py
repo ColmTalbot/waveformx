@@ -53,7 +53,7 @@ import jax
 import jax.numpy as jnp
 from jax import lax
 
-from ._math import NAN, PI, Struct, fma, fnms, safe_sqrt
+from ._math import NAN, PI, Struct, fma, fnms, safe_sqrt, tiny, real
 
 __all__ = [
     "PNR_Q_WINDOW_LOWER", "PNR_CHI_WINDOW_LOWER", "PNR_Q_WINDOW_UPPER", "PNR_CHI_WINDOW_UPPER",
@@ -105,7 +105,7 @@ def _params(names, interp, fields):
     if unknown:
         raise TypeError(f"unknown fields {sorted(unknown)}")
     shape = jnp.broadcast_shapes(*(jnp.shape(x) for x in jax.tree_util.tree_leaves(fields)))
-    zero = jnp.zeros(shape) if shape else 0.0
+    zero = jnp.zeros(shape, real()) if shape else 0.0
     values = {name: zero for name in names}
     values[interp] = (zero,) * 4
     values.update(fields)
@@ -466,7 +466,10 @@ def arctan_window(beta):
 
     LAL's constants are kept (its ``pi / 2`` is two ulps above
     ``FRAC_PI_2``); ``pow(beta - pi / 2, 1 / p)`` of a negative base with
-    the even exponent 500 is ``|beta - pi / 2|^500``."""
+    the even exponent 500 is ``|beta - pi / 2|^500``. LAL's ``atan2(|beta -
+    pi / 2|^500, 7.3e97)`` is computed as ``atan((|beta - pi / 2| / 7.3e97^(1 /
+    500))^500)``, whose power stays below 1.5 (both of LAL's overflow in
+    float32)."""
     window_border = 0.01
     inside = (beta <= window_border) | (beta >= PI - window_border)
     p = 0.002
@@ -475,8 +478,8 @@ def arctan_window(beta):
     pi_by_2_1oq = 7.308338225719002e97
     windowed = jnp.where(inside, beta, 0.0)
     sign = jnp.where(windowed < pi_by_2, -1.0, 1.0)
-    power = jnp.abs(windowed - pi_by_2) ** (1.0 / p)
-    value = fma(sign * pi_by_2_1mp, jnp.arctan2(power, pi_by_2_1oq) ** p, pi_by_2)
+    ratio = (jnp.abs(windowed - pi_by_2) / pi_by_2_1oq ** p) ** (1.0 / p)
+    value = fma(sign * pi_by_2_1mp, jnp.arctan(ratio) ** p, pi_by_2)
     return jnp.where(inside, value, beta)
 
 
@@ -608,7 +611,7 @@ def _bracketed_roots(a, b, c, d, iterations=110):
     s1 = jnp.where(qa != 0.0, s1, jnp.inf * jnp.sign(-q))
     s2 = qc / jnp.where(q != 0.0, q, 1.0)
     lo_s, hi_s = jnp.minimum(s1, s2), jnp.maximum(s1, s2)
-    bound = 1.0 + jnp.maximum(jnp.maximum(jnp.abs(b), jnp.abs(c)), jnp.abs(d)) / jnp.maximum(jnp.abs(a), 1e-300)
+    bound = 1.0 + jnp.maximum(jnp.maximum(jnp.abs(b), jnp.abs(c)), jnp.abs(d)) / jnp.maximum(jnp.abs(a), tiny())
     bound = jnp.maximum(bound, jnp.maximum(jnp.abs(jnp.where(jnp.isfinite(lo_s), lo_s, 0.0)),
                                            jnp.abs(jnp.where(jnp.isfinite(hi_s), hi_s, 0.0))) + 1.0)
     intervals = [(jnp.where(jnp.isfinite(hi_s), hi_s, -bound), jnp.full_like(a, bound)),
@@ -818,7 +821,7 @@ def chi_calc(m1, l, j0, l0, chi_parr, beta):  # noqa: E741
     s_perp = (j0 - (l0 - l)) * jnp.sin(beta)
     chi_p = s_perp / (m1 * m1)
     # (a finite derivative for non-spinning binaries)
-    return safe_sqrt(fma(chi_parr, chi_parr, chi_p * chi_p), 1e-300)
+    return safe_sqrt(fma(chi_parr, chi_parr, chi_p * chi_p), tiny())
 
 
 def pn_waveform_beta(mf, iota, m1, m2, chi, costheta):
@@ -952,4 +955,4 @@ def alphadot_cosbeta(alphadot, beta):
 def sqrt_one_minus_square(x):
     """``sqrt(1 - x^2)`` (e.g. a sine from a cosine), with a finite
     derivative at ``|x| = 1`` (aligned spins)."""
-    return safe_sqrt(fnms(x, x, 1.0), 1e-300)
+    return safe_sqrt(fnms(x, x, 1.0), tiny())

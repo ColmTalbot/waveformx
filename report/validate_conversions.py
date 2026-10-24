@@ -93,8 +93,8 @@ def call_package(package, approximant, function, keywords, arguments, mode_array
     options = dict(mode_array=mode_array)
     if approximant == "IMRPhenomXPNR":
         options["pnr_parity_fix"] = False
-    elif package is wf:
-        # NRSur7dq4 gives the strain times 1e21 by default
+    if package is wf:
+        # waveformjax gives the strain times 1e21 by default
         options["scaled_strain"] = False
     if function == "td":
         out = package.simulate_td(approximant, *arguments, **options, **keywords)

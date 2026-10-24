@@ -20,7 +20,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from .._generated import spintaylor_coefficients as _pn
-from .._math import MSUN_SI, MTSUN_SI, PI, REAL4_EPS, FencedModule, Struct, fenced, fma, fnms
+from .._math import MTSUN_SI, PI, REAL4_EPS, FencedModule, Struct, fenced, fma, fnms, mass_unit
 
 pn = FencedModule(_pn)
 
@@ -44,8 +44,8 @@ def coefficients(m1_si, m2_si, f_start, f_end):
     ``XLALSimSpinTaylorEnergySpinDerivativeSetup``) for black holes:
     the coefficients of the equations of motion and of the stopping test.
     Masses in kg, frequencies (of the gravitational wave) in Hz."""
-    m1 = m1_si / MSUN_SI
-    m2 = m2_si / MSUN_SI
+    m1 = m1_si / mass_unit()
+    m2 = m2_si / mass_unit()
     total_mass = m1 + m2
     m1m = m1 / total_mass
     m2m = m2 / total_mass
@@ -342,4 +342,4 @@ def stopping_test(c, y, dydt, prev_domega):
 
 
 def mass_in_seconds(m_si):
-    return m_si / MSUN_SI * MTSUN_SI
+    return m_si / mass_unit() * MTSUN_SI

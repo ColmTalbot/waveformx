@@ -29,7 +29,7 @@ import pytest
 from waveformjax import Binary, WaveformOptions
 from waveformjax.models.xpnr import MODEL
 
-OPTIONS = WaveformOptions(mode_array=((2, 2), (2, -2)), version_fallback=True)
+OPTIONS = WaveformOptions(mode_array=((2, 2), (2, -2)), version_fallback=True, scaled_strain=False)
 FREQUENCIES = jnp.asarray(np.geomspace(20.0, 400.0, 96))
 NAMES = ["mass_1", "mass_2", "spin_1x", "spin_1y", "spin_1z", "spin_2x", "spin_2y", "spin_2z", "luminosity_distance",
          "inclination", "phi_ref", "f_ref"]

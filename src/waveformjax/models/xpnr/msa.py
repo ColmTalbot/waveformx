@@ -44,8 +44,9 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
-from ._math import DBL_EPSILON, DBL_MIN, PI, Struct, cross, dot, fenced
+from ._math import PI, Struct, cross, dbl_epsilon, dbl_min, dot, fenced, real, tiny
 
 __all__ = [
     "msa_system", "system", "phi_zeta_costhetal", "cos_theta_l_with", "s_norm", "psi_terms", "msa_error",
@@ -54,14 +55,11 @@ __all__ = [
 ]
 
 TWOPI = 2.0 * PI
-GSL_SQRT_DBL_EPSILON = 1.0 / 67108864.0  # 2^-26
-GSL_DBL_MAX = 1.7976931348623157e308
-# floor of the arguments of square roots and logarithms (keeps their
-# derivatives finite at zero; changes values only below 1e-300)
-TINY = 1e-300
+# (the arguments of square roots and logarithms are floored at _math.tiny(),
+# which keeps their derivatives finite at zero)
 # iterations of the AGM in sn (GSL's N = 16 stores at most 15 steps) and of
 # Carlson's duplication in R_F (GSL stops at a relative spread of 1e-3, which
-# takes at most ~15 steps for arguments allowed by GSL, x + y >= 5 DBL_MIN)
+# takes at most ~15 steps for arguments allowed by GSL, x + y >= 5 dbl_min())
 ELLJAC_N = 16
 ELLINT_RF_ITERATIONS = 40
 
@@ -73,17 +71,17 @@ ELLINT_RF_ITERATIONS = 40
 
 def _sqrt(x):
     """``sqrt(x)`` for ``x >= 0`` with a finite derivative at zero."""
-    return jnp.sqrt(jnp.maximum(x, TINY))
+    return jnp.sqrt(jnp.maximum(x, tiny()))
 
 
 def _sqrt_abs(x):
     """``sqrt(fabs(x))`` with a finite derivative at zero."""
-    return jnp.sqrt(jnp.maximum(jnp.abs(x), TINY))
+    return jnp.sqrt(jnp.maximum(jnp.abs(x), tiny()))
 
 
 def _log_abs(x):
     """``log(fabs(x))`` with a finite derivative at zero."""
-    return jnp.log(jnp.maximum(jnp.abs(x), TINY))
+    return jnp.log(jnp.maximum(jnp.abs(x), tiny()))
 
 
 def _div(numerator, denominator):
@@ -133,17 +131,17 @@ def elljac_sn(u, m):
 
     The AGM runs a fixed 15 steps (GSL's maximum) with the steps after
     convergence masked, so that the result is that of GSL."""
-    u, m = jnp.broadcast_arrays(jnp.asarray(u, dtype=float), jnp.asarray(m, dtype=float))
+    u, m = jnp.broadcast_arrays(jnp.asarray(u, dtype=real()), jnp.asarray(m, dtype=real()))
     domain = jnp.abs(m) > 1.0
-    small = jnp.abs(m) < 2.0 * DBL_EPSILON
-    near_one = jnp.abs(m - 1.0) < 2.0 * DBL_EPSILON
+    small = jnp.abs(m) < 2.0 * dbl_epsilon()
+    near_one = jnp.abs(m - 1.0) < 2.0 * dbl_epsilon()
     general = ~(domain | small | near_one)
     m_safe = jnp.where(general, m, 0.5)
 
     sqrt_1mm = jnp.sqrt(1.0 - m_safe)
 
     def converging(mu, nu):
-        return jnp.abs(mu - nu) > 4.0 * DBL_EPSILON * jnp.abs(mu + nu)
+        return jnp.abs(mu - nu) > 4.0 * dbl_epsilon() * jnp.abs(mu + nu)
 
     def agm_step(carry, _):
         mu, nu, n, active = carry
@@ -202,9 +200,9 @@ def ellint_rf(x, y, z):
     """Carlson's ``R_F(x, y, z)``, ``gsl_sf_ellint_RF_e`` with
     ``GSL_PREC_DOUBLE`` (NaN for GSL's domain errors). The duplication runs
     a fixed number of steps, masked after GSL's stopping criterion."""
-    x, y, z = jnp.broadcast_arrays(*(jnp.asarray(a, dtype=float) for a in (x, y, z)))
-    lolim = 5.0 * DBL_MIN
-    uplim = 0.2 * GSL_DBL_MAX
+    x, y, z = jnp.broadcast_arrays(*(jnp.asarray(a, dtype=real()) for a in (x, y, z)))
+    lolim = 5.0 * dbl_min()
+    uplim = 0.2 * float(np.finfo(real()).max)  # (GSL_DBL_MAX)
     errtol = 0.001
     domain = (x < 0.0) | (y < 0.0) | (z < 0.0)
     domain = domain | (x + y < lolim) | (x + z < lolim) | (y + z < lolim)
@@ -224,9 +222,9 @@ def ellint_rf(x, y, z):
         xn, yn, zn, mu, xndev, yndev, zndev, done = carry
         # (floored at DBL_MIN, below GSL's lower limit of the arguments, for a
         # finite derivative at x = 0)
-        xnroot = jnp.sqrt(jnp.maximum(xn, DBL_MIN))
-        ynroot = jnp.sqrt(jnp.maximum(yn, DBL_MIN))
-        znroot = jnp.sqrt(jnp.maximum(zn, DBL_MIN))
+        xnroot = jnp.sqrt(jnp.maximum(xn, dbl_min()))
+        ynroot = jnp.sqrt(jnp.maximum(yn, dbl_min()))
+        znroot = jnp.sqrt(jnp.maximum(zn, dbl_min()))
         lamda = xnroot * (ynroot + znroot) + ynroot * znroot
         new = (xn + lamda) * 0.25, (yn + lamda) * 0.25, (zn + lamda) * 0.25
         new = new + deviations(*new)
@@ -253,10 +251,10 @@ def ellint_kcomp(k):
     """The complete elliptic integral of the first kind ``K(k)``,
     ``gsl_sf_ellint_Kcomp_e`` with ``GSL_PREC_DOUBLE`` (modulus ``k``; GSL
     2.8 evaluates ``1 - k^2`` as ``(1 - k)(1 + k)``)."""
-    k = jnp.asarray(k, dtype=float)
+    k = jnp.asarray(k, dtype=real())
     k2 = k * k
     domain = k2 >= 1.0
-    near_one = (k2 >= 1.0 - GSL_SQRT_DBL_EPSILON) & ~domain
+    near_one = (k2 >= 1.0 - dbl_epsilon() ** 0.5) & ~domain
     # Abramowitz & Stegun 17.3.34
     y = jnp.where(near_one, (1.0 - k) * (1.0 + k), 0.5)
     a = (1.38629436112, 0.09666344259, 0.03590092383)
@@ -274,7 +272,7 @@ def ellint_f(phi, k):
     """The incomplete elliptic integral of the first kind ``F(phi, k)``,
     ``gsl_sf_ellint_F(phi, k, GSL_PREC_DOUBLE)`` (Legendre form, modulus
     ``k``), with GSL's reduction of ``phi`` to ``(-pi/2, pi/2]``."""
-    phi, k = jnp.broadcast_arrays(jnp.asarray(phi, dtype=float), jnp.asarray(k, dtype=float))
+    phi, k = jnp.broadcast_arrays(jnp.asarray(phi, dtype=real()), jnp.asarray(k, dtype=real()))
     nc = jnp.floor(phi / PI + 0.5)
     phi = phi - nc * PI
     sin_phi = jnp.sin(phi)
@@ -303,7 +301,7 @@ _L_SPINORBIT = (-14. / 6., -3. / 2., -11. / 2., 133. / 72., -33. / 8., 7. / 4.)
 
 def _vpowers(v):
     """Powers of the orbital velocity shared by the MSA functions."""
-    v = jnp.asarray(v, dtype=float)
+    v = jnp.asarray(v, dtype=real())
     v2 = v * v
     v3 = v * v2
     invv = 1.0 / v
@@ -333,9 +331,9 @@ def msa_system(eta, m1, m2, m1_2, m2_2, chi1, chi2, pi_gm, f_ref):
     (``|Omega_z^(5)| > 1000``, after which LAL uses the NNLO angles of
     version 102). The system is complete and finite either way.
     """
-    eta = jnp.asarray(eta, dtype=float)
-    chi1 = [jnp.asarray(c, dtype=float) for c in chi1]
-    chi2 = [jnp.asarray(c, dtype=float) for c in chi2]
+    eta = jnp.asarray(eta, dtype=real())
+    chi1 = [jnp.asarray(c, dtype=real()) for c in chi1]
+    chi2 = [jnp.asarray(c, dtype=real()) for c in chi2]
     eta2 = eta * eta
     eta3 = eta * eta2
     eta4 = eta * eta3
@@ -707,7 +705,7 @@ def s_norm(system, v, roots_):
     """``IMRPhenomX_Return_SNorm_MSA``: the total spin magnitude, Eq. 23,
     at the orbital velocity ``v`` given the roots of the cubic."""
     s32, smi2, spl2 = roots_
-    v = jnp.asarray(v, dtype=float)
+    v = jnp.asarray(v, dtype=real())
     oscillating = ~(jnp.abs(smi2 - spl2) < 1.0e-5)
     # Eq. 25
     m = (smi2 - spl2) / jnp.where(oscillating, s32 - spl2, 1.0)

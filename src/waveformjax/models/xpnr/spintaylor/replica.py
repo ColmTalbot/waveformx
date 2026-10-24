@@ -28,7 +28,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from .._math import DBL_MIN, Struct, isolated_step
+from .._math import Struct, dbl_min, isolated_step, real, integer
 from .._transforms import while_loop
 from . import dynamics
 
@@ -37,6 +37,8 @@ __all__ = ["evolve", "evolve_recorded", "omega", "sample", "sample_full", "steps
 
 ABSOLUTE_TOLERANCE = 1.0e-12
 RELATIVE_TOLERANCE = 1.0e-12
+#: The tolerances in float32, where LAL's are below the rounding.
+FLOAT32_TOLERANCE = 1.0e-5
 RETRIES = 6
 
 # Runge-Kutta-Fehlberg coefficients of GSL's rkf45.c
@@ -69,6 +71,7 @@ STAGES = np.array([
 def _weighted(row, ks):
     """``row[0] k1 + row[1] k2 + ...``, summed in that order (the terms of
     LAL's sums, and exact zeros)."""
+    row = jnp.asarray(row, real())
     acc = row[0] * ks[0]
     for j in range(1, len(ks)):
         acc = acc + row[j] * ks[j]
@@ -83,7 +86,7 @@ def _rkf45(c, y, h, k1):
     The six evaluations of the derivatives are the iterations of a loop
     (one copy of the equations to compile rather than six), with the
     stages ``k1 .. k6`` carried as separate small arrays."""
-    stages = jnp.asarray(STAGES)
+    stages = jnp.asarray(STAGES, real())
 
     def stage(s, carry):
         ks, ok = carry
@@ -102,10 +105,13 @@ def _rkf45(c, y, h, k1):
 def _hadjust(y, yerr, h):
     """``std_control_hadjust`` with ``a_y = 1``, ``a_dydt = 0``: the new step
     and whether it was decreased."""
-    d0 = RELATIVE_TOLERANCE * jnp.abs(y) + ABSOLUTE_TOLERANCE
+    if real() == np.float32:
+        d0 = FLOAT32_TOLERANCE * (jnp.abs(y) + 1.0)
+    else:
+        d0 = RELATIVE_TOLERANCE * jnp.abs(y) + ABSOLUTE_TOLERANCE
     r = jnp.abs(yerr) / jnp.abs(d0)
     # GSL_MAX_DBL never selects a NaN
-    rmax = jnp.max(jnp.where(jnp.isnan(r), DBL_MIN, jnp.maximum(r, DBL_MIN)))
+    rmax = jnp.max(jnp.where(jnp.isnan(r), dbl_min(), jnp.maximum(r, dbl_min())))
     decrease = jnp.maximum(0.9 / jnp.power(rmax, 1.0 / 5.0), 0.2)
     increase = jnp.clip(0.9 / jnp.power(rmax, 1.0 / 6.0), 1.0, 5.0)
     h_new = jnp.where(rmax > 1.1, decrease * h, jnp.where(rmax < 0.5, increase * h, h))
@@ -138,19 +144,19 @@ def evolve(c, y0, deltat, max_iterations):
     k_init, _ = dynamics.derivatives(c, y0)
     zero = jnp.zeros_like(y0)
     state = Struct(
-        iteration=jnp.zeros((), jnp.int64),
-        t=jnp.zeros(()),
+        iteration=jnp.zeros((), integer()),
+        t=jnp.zeros((), real()),
         y=y0,
         dydt=k_init,
         h=jnp.asarray(deltat, dtype=y0.dtype),
         retries=jnp.asarray(RETRIES),
-        prev_domega=jnp.zeros(()),
-        tintp=jnp.zeros(()),
-        n_samples=jnp.ones(()),
+        prev_domega=jnp.zeros((), real()),
+        tintp=jnp.zeros((), real()),
+        n_samples=jnp.ones((), real()),
         done=jnp.asarray(False),
         code=jnp.asarray(0),
-        last_t0=jnp.zeros(()),
-        last_h=jnp.zeros(()),
+        last_t0=jnp.zeros((), real()),
+        last_h=jnp.zeros((), real()),
         last_y0=y0,
         last_y1=y0,
         last_k1=k_init,
@@ -290,20 +296,20 @@ def evolve_recorded(c, y0, deltat, max_iterations, capacity, components=None, ri
     nc = nv if components is None else components
     columns = np.concatenate([[0, 1], 2 + np.arange(nc), 2 + nv + np.arange(nc), 2 + 2 * nv + np.arange(nc)])
     state = Struct(
-        iteration=jnp.zeros((), jnp.int64),
-        accepted=jnp.zeros((), jnp.int64),
-        t=jnp.zeros(()),
+        iteration=jnp.zeros((), integer()),
+        accepted=jnp.zeros((), integer()),
+        t=jnp.zeros((), real()),
         y=y0,
         dydt=k_init,
         h=jnp.asarray(deltat, dtype=y0.dtype),
         retries=jnp.asarray(RETRIES),
-        prev_domega=jnp.zeros(()),
-        tintp=jnp.zeros(()),
-        n_samples=jnp.ones(()),
+        prev_domega=jnp.zeros((), real()),
+        tintp=jnp.zeros((), real()),
+        n_samples=jnp.ones((), real()),
         done=jnp.asarray(False),
         code=jnp.asarray(0),
     )
-    records = (jnp.zeros((capacity, 2 + 3 * nc)),) + ((jnp.zeros((ring, 2 + 3 * nv)),) if ring else ())
+    records = (jnp.zeros((capacity, 2 + 3 * nc), real()),) + ((jnp.zeros((ring, 2 + 3 * nv), real()),) if ring else ())
 
     def test(consts, s):
         return (~s.done) & (s.iteration < consts[2]) & (s.accepted < capacity)
@@ -318,7 +324,7 @@ def evolve_recorded(c, y0, deltat, max_iterations, capacity, components=None, ri
         elif components is None:
             old_row = records[0][jnp.minimum(s.accepted, capacity - 1)]
         else:
-            old_row = jnp.zeros(2 + 3 * nv)
+            old_row = jnp.zeros(2 + 3 * nv, real())
         new, row = isolated_step(lambda state, c, deltat: _attempt(c, state, deltat), s, (c, deltat), old_row)
         # written at every attempt: a rejected one is overwritten by the
         # next accepted step (inactive under jax.vmap: written back unchanged)

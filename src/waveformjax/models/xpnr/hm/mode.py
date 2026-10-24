@@ -17,7 +17,7 @@ from jax import lax
 from .. import amp22 as amp22_module
 from .. import phase22 as phase22_module
 from .. import xas
-from .._math import MPC_SI, MSUN_SI, Struct, powers
+from .._math import Struct, mass_unit, powers, real
 from ..internals import waveform_struct
 from .amplitude import amplitude, amplitude_coefficients, amplitude_fits, choose_polynomial, finish_amplitude
 from .inspiral import pn21_coefficients
@@ -284,7 +284,7 @@ def mode_h(coefficients, mf):
     ringdown of the (3,2) (as in LAL's one-mode functions)."""
     c = coefficients
     view = _view(c)
-    mf = jnp.asarray(mf, jnp.float64)
+    mf = jnp.asarray(mf, real())
     p = powers(mf)
     rotation = spheroidal_to_spherical(mf, p, c.mix, c.amp.rd) if view.mixing_on else None
     amp = amplitude(mf, p, c.amp, view, rotation)
@@ -308,13 +308,13 @@ def frequency_sequence_one_mode(frequencies, mass_1, mass_2, chi_1, chi_2, ell, 
     (``f_cut`` at ``Mf = 0.3``, 0.33 for ``chi_eff > 0.99``). ``(2, +-2)``
     is ``XLALSimIMRPhenomXASFrequencySequence`` (conjugated for ``emm >
     0``)."""
-    frequencies = jnp.asarray(frequencies, jnp.float64)
+    frequencies = jnp.asarray(frequencies, real())
     if (ell, abs(emm)) == (2, 2):
         h = xas.frequency_sequence(frequencies, mass_1, mass_2, chi_1, chi_2, distance, phi_ref, f_ref)
         return jnp.conj(h) if emm > 0 else h
     wf = waveform_struct(
-        mass_1 * MSUN_SI, mass_2 * MSUN_SI, chi_1, chi_2, 0.0, f_ref, phi_ref, frequencies[0], frequencies[-1],
-        distance * MPC_SI, 0.0,
+        mass_1 * mass_unit(), mass_2 * mass_unit(), chi_1, chi_2, 0.0, f_ref, phi_ref, frequencies[0], frequencies[-1],
+        distance, 0.0,
     )
     wf.hm_release = RELEASE
     coefficients = mode_coefficients(wf, phase22_module.phase_coefficients(wf), ell, abs(emm))

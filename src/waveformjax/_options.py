@@ -101,10 +101,10 @@ class WaveformOptions:
       (default ``False``), rather than on LAL's uniform grid: far fewer
       points for light binaries, at the cost of a larger difference from
       LAL.
-    * ``scaled_strain``: whether NRSur7dq4 returns the strain multiplied by
+    * ``scaled_strain``: whether the models return the strain multiplied by
       ``1e21`` (default ``True``), which keeps the strain, its square and
       its derivatives within the range of float32; ``False`` gives the
-      strain itself, as LAL. IMRPhenomXPNR always gives the strain itself.
+      strain itself, as LAL.
     """
 
     precession_version: int = 320
@@ -144,6 +144,14 @@ class WaveformOptions:
 
 
 OPTION_NAMES = tuple(field.name for field in dataclasses.fields(WaveformOptions))
+
+#: The factor of the strain unless ``scaled_strain`` is false.
+STRAIN_SCALE = 1e21
+
+
+def strain_scale(options: WaveformOptions) -> float:
+    """:data:`STRAIN_SCALE` if ``options.scaled_strain``, else 1."""
+    return STRAIN_SCALE if options.scaled_strain else 1.0
 
 
 def _check_names(options: Iterable[str]) -> None:

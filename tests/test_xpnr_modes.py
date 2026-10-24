@@ -56,7 +56,7 @@ def binary_of(case):
 def options_of(case, parity_fix):
     modes = case.get("mode_array")
     return WaveformOptions(mode_array=None if modes is None else [tuple(m) for m in modes], pnr_parity_fix=parity_fix,
-                           version_fallback=True)
+                           version_fallback=True, scaled_strain=False)
 
 
 def tolerance_of(case, ell):

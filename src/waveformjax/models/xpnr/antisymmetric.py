@@ -25,7 +25,7 @@ from . import pnr
 from ._generated import inspiral as _inspiral
 from ._generated import intermediate as _intermediate
 from ._generated import ringdown as _ringdown
-from ._math import FRAC_PI_2, FRAC_PI_4, FencedModule, PI, Struct, barrier, fenced, fma, fnms, hz_to_mf, powers
+from ._math import FRAC_PI_2, FRAC_PI_4, FencedModule, PI, Struct, barrier, fenced, fma, fnms, hz_to_mf, powers, real
 from ._transforms import cond
 from .amp22 import amp_ansatz, amp_coefficients
 from .phase22 import phase_22, phase_coefficients, phase_xas, time_shift_22
@@ -80,7 +80,7 @@ def smooth_amp_ratio(kappa, frequencies):
     df = jnp.diff(frequencies)
     # window id covers kappa[id .. id + width] with weights df[id .. id + width]:
     # its sums from running sums (the same to rounding)
-    zero = jnp.zeros(1)
+    zero = jnp.zeros(1, real())
     running_df = jnp.concatenate([zero, jnp.cumsum(df)])
     running_kdf = jnp.concatenate([zero, jnp.cumsum(kappa[:-1] * df)])
     total_df = running_df[width + 1:width + 1 + end] - running_df[:end]
@@ -107,7 +107,7 @@ def smooth_amp_ratio(kappa, frequencies):
         # id = block * half + i): u = from_previous @ previous + lower @ u + r
         from_previous = jnp.where(j_previous >= 0, w[jnp.clip(j_previous, 0, half - 1), i_index], 0.0)
         lower = jnp.where(k_index < i_index, w[jnp.clip(j_current, 0, half - 1), i_index], 0.0)
-        return from_previous, jnp.eye(half) - lower
+        return from_previous, jnp.eye(half, dtype=real()) - lower
 
     def general(operands):
         df, total_df, rhs, initial = operands

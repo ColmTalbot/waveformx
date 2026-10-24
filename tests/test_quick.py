@@ -36,7 +36,7 @@ CASE = json.loads((Path(__file__).parent / "data" / "imrphenomxpnr_parityfix.jso
 FREQUENCIES = jnp.asarray(CASE["frequencies"])
 DOMINANT = ((2, 2), (2, -2))
 # (without the parity fix: LAL's released model, as installed)
-EXTENDED = WaveformOptions(extended_spintaylor=True, mode_array=DOMINANT, pnr_parity_fix=False)
+EXTENDED = WaveformOptions(extended_spintaylor=True, mode_array=DOMINANT, pnr_parity_fix=False, scaled_strain=False)
 
 
 def binary_of(case, **changes):
@@ -50,7 +50,7 @@ def binary_of(case, **changes):
 
 @functools.lru_cache(maxsize=None)
 def default_model():
-    return jax.jit(lambda b: MODEL.polarizations(b, FREQUENCIES, WaveformOptions()))
+    return jax.jit(lambda b: MODEL.polarizations(b, FREQUENCIES, WaveformOptions(scaled_strain=False)))
 
 
 @functools.lru_cache(maxsize=None)

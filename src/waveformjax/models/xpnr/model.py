@@ -46,9 +46,13 @@ import functools
 import jax
 import jax.numpy as jnp
 
+from ..._options import strain_scale
 from . import hm, pnr
 from . import pnr_angles as pa
-from ._math import MPC_SI, MSUN_SI, PI, Struct, barrier, hz_to_mf, materialized, mf_to_hz, safe_sqrt
+from ._math import (
+    PI, Struct, barrier, complex_, hz_to_mf, mass_unit, materialized, mf_to_hz, narrowed, precision, precision_of, real,
+    safe_sqrt,
+)
 from ._transforms import cond, differentiable, switch
 from .antisymmetric import antisymmetric_waveform
 from .internals import errors as wf_errors
@@ -78,11 +82,11 @@ def coprecessing_modes(mode_array):
 def ordered_binary(binary):
     """``XLALIMRPhenomXPCheckMassesAndSpins``: the bodies ordered with the
     first strictly heavier (equal masses are swapped), as traced values."""
-    m1 = jnp.asarray(binary.mass_1, dtype=jnp.float64)
-    m2 = jnp.asarray(binary.mass_2, dtype=jnp.float64)
-    s1 = jnp.asarray(binary.spin_1, dtype=jnp.float64)
-    s2 = jnp.asarray(binary.spin_2, dtype=jnp.float64)
-    keep = m1 * MSUN_SI > m2 * MSUN_SI
+    m1 = jnp.asarray(binary.mass_1, dtype=real())
+    m2 = jnp.asarray(binary.mass_2, dtype=real())
+    s1 = jnp.asarray(binary.spin_1, dtype=real())
+    s2 = jnp.asarray(binary.spin_2, dtype=real())
+    keep = m1 > m2
     return (
         jnp.where(keep, m1, m2),
         jnp.where(keep, m2, m1),
@@ -91,17 +95,17 @@ def ordered_binary(binary):
     )
 
 
-def setup_waveform(binary, delta_f, f_min, f_max):
+def setup_waveform(binary, delta_f, f_min, f_max, amp_scale=1.0):
     """``IMRPhenomXSetWaveformVariables`` as the precessing drivers call it
     (ordered bodies, the 122019 release of the higher modes)."""
     m1, m2, chi1, chi2 = ordered_binary(binary)
     wf = waveform_struct(
-        m1 * MSUN_SI, m2 * MSUN_SI, chi1[2], chi2[2], delta_f, jnp.asarray(binary.f_ref, dtype=jnp.float64),
-        jnp.asarray(binary.phi_ref, dtype=jnp.float64), f_min, f_max,
-        jnp.asarray(binary.luminosity_distance, dtype=jnp.float64) * MPC_SI,
-        jnp.asarray(binary.inclination, dtype=jnp.float64),
+        m1 * mass_unit(), m2 * mass_unit(), chi1[2], chi2[2], delta_f, jnp.asarray(binary.f_ref, dtype=real()),
+        jnp.asarray(binary.phi_ref, dtype=real()), f_min, f_max,
+        jnp.asarray(binary.luminosity_distance, dtype=real()),
+        jnp.asarray(binary.inclination, dtype=real()), amp_scale,
     )
-    return wf, m1 * MSUN_SI, m2 * MSUN_SI, [chi1[0], chi1[1], chi1[2]], [chi2[0], chi2[1], chi2[2]]
+    return wf, m1 * mass_unit(), m2 * mass_unit(), [chi1[0], chi1[1], chi1[2]], [chi2[0], chi2[1], chi2[2]]
 
 
 # ---------------------------------------------------------------------------
@@ -320,7 +324,7 @@ def _spintaylor_setup(base, wf0, m1_si, m2_si, modes, needs_st):
         return prec, wf, grid, flags
 
     false = jnp.asarray(False)
-    start = Struct(f0=jnp.zeros(()), again=false, failed=false, incomplete=false, error=false)
+    start = Struct(f0=jnp.zeros((), real()), again=false, failed=false, incomplete=false, error=false)
     inputs = (base, wf0, m1_si, m2_si)
     holder = {}
 
@@ -334,7 +338,7 @@ def _spintaylor_setup(base, wf0, m1_si, m2_si, modes, needs_st):
     def compute(operands):
         first, carry, run, inputs = operands
         values, _ = _partition(body(first, _combine(carry, meta), run, *inputs))
-        return [jnp.asarray(v).astype(s.dtype) for v, s in zip(values, shapes)]
+        return [jnp.asarray(v).astype(narrowed(s.dtype)) for v, s in zip(values, shapes)]
 
     def step(carry, index):
         first = index == 0
@@ -347,8 +351,8 @@ def _spintaylor_setup(base, wf0, m1_si, m2_si, modes, needs_st):
     # (the initial carry depends on the inputs, so that under jax.jvp and
     # jax.vmap its tangents and batching are those of the iterations: JAX
     # then traces the body once rather than until they agree)
-    anchor = jnp.asarray(m1_si, jnp.float64)
-    carry = [_like_input(jnp.zeros(s.shape, s.dtype), anchor) for s in shapes]
+    anchor = jnp.asarray(m1_si, real())
+    carry = [_like_input(jnp.zeros(s.shape, narrowed(s.dtype)), anchor) for s in shapes]
     carry, _ = jax.lax.scan(step, carry, jnp.arange(2))
     return _combine(carry, meta)
 
@@ -397,7 +401,7 @@ def _angle_data(prec, wf, splines, modes, frequencies, version, tuned):
         error = error | err
         h_as = amp * jnp.exp(1j * phase)
     else:
-        h_as = jnp.zeros(frequencies.shape, jnp.complex128)
+        h_as = jnp.zeros(frequencies.shape, complex_())
         xas = xas_setup(wf)
         xas22 = Struct(amp=xas.amp, phase=xas.phase, linb=xas.linb)
     wf_out = Struct(**{name: getattr(wf, name) for name in WF_FIELDS})
@@ -405,7 +409,7 @@ def _angle_data(prec, wf, splines, modes, frequencies, version, tuned):
     if prec.smooth:
         # (a marker: the higher modes take exact derivatives where LAL takes
         # finite differences, see hm.finite_differences)
-        wf_out.exact_derivatives = jnp.zeros(())
+        wf_out.exact_derivatives = jnp.zeros((), real())
     return Struct(
         wf=wf_out, alpha=jnp.stack(alphas), cos_beta=jnp.stack(cos_betas), epsilon=jnp.stack(epsilons), h_as=h_as,
         theta_jn=prec.theta_jn, zeta=prec.zeta_polarization, error=error, xas22=xas22,
@@ -444,8 +448,8 @@ def _twist_polarizations(data, modes, frequencies):
     keep = mf <= wf.f_max_prime * wf.m_sec
     vanishing_odd = (wf.q == 1.0) & (wf.chi1l == wf.chi2l)
     ylms = {ell: spherical_harmonics(data.theta_jn, ell) for ell in (2, 3, 4)}
-    hp = jnp.zeros(frequencies.shape, jnp.complex128)
-    hc = jnp.zeros(frequencies.shape, jnp.complex128)
+    hp = jnp.zeros(frequencies.shape, complex_())
+    hc = jnp.zeros(frequencies.shape, complex_())
     for index, ((ell, emm), h) in enumerate(zip(modes, _coprecessing_modes(wf, modes, frequencies, data.xas22))):
         twist = materialized(twist_factors(data.alpha[index], data.cos_beta[index], data.epsilon[index], emm))
         p, c = twist_up(ell, emm, twist, ylms[ell], h, 1.0)
@@ -477,7 +481,7 @@ def _twist_jframe(data, modes, jmodes, frequencies, hs):
     ells = {ell for ell, _ in jmodes}
     selected = [(i, mode) for i, mode in enumerate(modes) if mode[0] in ells]
     hs = [hs[mode] for _, mode in selected]
-    zero = jnp.zeros(frequencies.shape, jnp.complex128)
+    zero = jnp.zeros(frequencies.shape, complex_())
     positive = [zero for _ in jmodes]
     negative = [zero for _ in jmodes]
     for (index, (ell, emm)), h in zip(selected, hs):
@@ -538,7 +542,7 @@ def _pipeline_330(setup, modes, frequencies, active=True):
 
 
 def _decide(binary, frequencies, delta_f, f_min, f_max, modes, parity_fix, mode_range_=None, check_reference=True,
-            fallback=True, extended=False, smooth=None, direct=True, phase_grid=False):
+            fallback=True, extended=False, smooth=None, direct=True, phase_grid=False, amp_scale=1.0):
     """Set up the binary and compute the angle data of the prescription LAL
     would use. Without ``fallback`` (static), only the SpinTaylor angles
     (version 330) are computed, with the error flag set where LAL would use
@@ -551,7 +555,7 @@ def _decide(binary, frequencies, delta_f, f_min, f_max, modes, parity_fix, mode_
     phase grid of the PNR interpolants (:func:`.pnr.angle_interpolants`)."""
     fallback = fallback and not extended
     smooth = extended if smooth is None else smooth
-    wf, m1_si, m2_si, chi1, chi2 = setup_waveform(binary, delta_f, f_min, f_max)
+    wf, m1_si, m2_si, chi1, chi2 = setup_waveform(binary, delta_f, f_min, f_max, amp_scale)
     wf.hm_release = 122019
     error = wf_errors(wf)
     if check_reference:
@@ -603,14 +607,20 @@ def _decide(binary, frequencies, delta_f, f_min, f_max, modes, parity_fix, mode_
 
 
 def _polarizations(binary, frequencies, options):
+    with precision(precision_of(binary)):
+        return _polarizations_in(binary, frequencies, options)
+
+
+def _polarizations_in(binary, frequencies, options):
     pnr.clear_cache()
-    frequencies = jnp.asarray(frequencies, dtype=jnp.float64)
+    frequencies = jnp.asarray(frequencies, dtype=real())
     modes = coprecessing_modes(options.mode_array)
     data = _decide(binary, frequencies, 0.0, frequencies[0], frequencies[-1], modes, options.pnr_parity_fix,
                    fallback=options.version_fallback, extended=options.extended_spintaylor,
-                   direct=options.extended_direct_angles, phase_grid=options.extended_phase_grid)
+                   direct=options.extended_direct_angles, phase_grid=options.extended_phase_grid,
+                   amp_scale=strain_scale(options))
     hp, hc = _twist_polarizations(data, modes, frequencies)
-    nan = jnp.asarray(jnp.nan + 1j * jnp.nan, jnp.complex128)
+    nan = jnp.asarray(jnp.nan + 1j * jnp.nan, complex_())
     return jnp.where(data.error, nan, hp), jnp.where(data.error, nan, hc)
 
 
@@ -668,8 +678,13 @@ def jframe_modes(binary, frequencies, options, delta_f=0.0, f_min=None, f_max=No
 
 
 def _jframe_modes(binary, frequencies, options, delta_f, f_min, f_max):
+    with precision(precision_of(binary)):
+        return _jframe_modes_in(binary, frequencies, options, delta_f, f_min, f_max)
+
+
+def _jframe_modes_in(binary, frequencies, options, delta_f, f_min, f_max):
     pnr.clear_cache()
-    frequencies = jnp.asarray(frequencies, dtype=jnp.float64)
+    frequencies = jnp.asarray(frequencies, dtype=real())
     modes = coprecessing_modes(options.mode_array)
     custom = options.mode_array is not None
     if f_min is None:
@@ -684,7 +699,7 @@ def _jframe_modes(binary, frequencies, options, delta_f, f_min, f_max):
         data = _decide(binary, frequencies, delta_f, f_min, f_max, modes, parity_fix, mode_range_=key,
                        check_reference=False, fallback=options.version_fallback,
                        extended=options.extended_spintaylor, direct=options.extended_direct_angles,
-                       phase_grid=options.extended_phase_grid)
+                       phase_grid=options.extended_phase_grid, amp_scale=strain_scale(options))
         hs = dict(zip(modes, _coprecessing_modes(data.wf, modes, frequencies, data.xas22)))
         results.append((jmodes, data, hs))
     else:
@@ -692,7 +707,7 @@ def _jframe_modes(binary, frequencies, options, delta_f, f_min, f_max):
         ells = sorted({ell for ell, _ in modes})
         by_ell = {ell: [mode for mode in modes if mode[0] == ell] for ell in ells}
         width = max(len(v) for v in by_ell.values())
-        zero = jnp.zeros(frequencies.shape, jnp.complex128)
+        zero = jnp.zeros(frequencies.shape, complex_())
 
         def modes_of(ell):
             def evaluate(wf):
@@ -706,11 +721,12 @@ def _jframe_modes(binary, frequencies, options, delta_f, f_min, f_max):
             data = _decide(binary, frequencies, delta_f, f_min, f_max, modes, parity_fix,
                            mode_range_=(key[0], key[1], key[2]), check_reference=False,
                            fallback=options.version_fallback, extended=options.extended_spintaylor,
-                           direct=options.extended_direct_angles, phase_grid=options.extended_phase_grid)
+                           direct=options.extended_direct_angles, phase_grid=options.extended_phase_grid,
+                           amp_scale=strain_scale(options))
             hs = jax.lax.switch(ell_index, [modes_of(ell) for ell in ells], data.wf)
             return data, hs
 
-        params = jnp.asarray(keys, dtype=jnp.float64)
+        params = jnp.asarray(keys, dtype=real())
         ell_index = jnp.asarray([ells.index(key[2]) for key in keys])
         datas, hs_all = jax.lax.map(one, (params, ell_index))
         for g, key in enumerate(keys):
@@ -718,7 +734,7 @@ def _jframe_modes(binary, frequencies, options, delta_f, f_min, f_max):
             hs = {mode: hs_all[g, i] for i, mode in enumerate(by_ell[key[2]])}
             results.append((groups[key], data, hs))
     out = {}
-    nan = jnp.asarray(jnp.nan + 1j * jnp.nan, jnp.complex128)
+    nan = jnp.asarray(jnp.nan + 1j * jnp.nan, complex_())
     for jmodes, data, hs in results:
         pos, neg = _twist_jframe(data, modes, tuple(jmodes), frequencies, hs)
         for index, mode in enumerate(jmodes):

@@ -48,7 +48,8 @@ def vector_of(keywords):
 
 @functools.lru_cache(maxsize=None)
 def td_function():
-    return wf.simulate_td_function("IMRPhenomXPNR", 1 / 1024, 25.0, mode_array=DOMINANT, **XPNR)
+    return wf.simulate_td_function("IMRPhenomXPNR", 1 / 1024, 25.0, mode_array=DOMINANT, scaled_strain=False,
+                                   **XPNR)
 
 
 @functools.lru_cache(maxsize=None)
@@ -79,7 +80,7 @@ def test_td_function_is_simulate_td():
     simulate_td, which has LAL's length and epoch (test_conversions.py), to
     the rounding of another compilation amplified by the high-pass filter."""
     function = td_function()
-    reference = wf.simulate_td("IMRPhenomXPNR", 1 / 1024, 25.0, mode_array=DOMINANT, **XPNR)
+    reference = wf.simulate_td("IMRPhenomXPNR", 1 / 1024, 25.0, mode_array=DOMINANT, scaled_strain=False, **XPNR)
     assert function.epoch == reference.epoch and len(function) == len(reference.hplus)
     hp, hc = td_compiled("call")(vector_of(XPNR))
     for a, b in ((hp, reference.hplus), (hc, reference.hcross)):

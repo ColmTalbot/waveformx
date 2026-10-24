@@ -39,8 +39,9 @@ from ._generated import pnr_fits as _pnr_fits
 from ._generated import qnm as _qnm
 from ._generated import utilities as _utilities
 from ._math import (
-    C_SI, FRAC_PI_2, FRAC_PI_4, G_SI, MTSUN_SI, PI, FencedModule, Struct, barrier, blocked_map, blocked_map_extra, blocked_scan, chunked_map, fenced, fma, fnms, hz_to_mf, mf_to_hz, powers,
-    rotate_y, rotate_z, safe_div, safe_sqrt,
+    C_SI, FRAC_PI_2, MTSUN_SI, PI, FencedModule, Struct, barrier, blocked_map, blocked_map_extra, blocked_scan,
+    chunked_map, fenced, fma, fnms, g_si, hz_to_mf, integer, mf_to_hz, real, rotate_y, rotate_z, safe_div, safe_sqrt,
+    tiny,
 )
 from .hm import qnm as _hm_qnm
 from ._transforms import cond
@@ -62,11 +63,11 @@ def _copy(struct):
 
 def hypot2(x, y):
     """``sqrt(x^2 + y^2)`` (with a finite derivative at zero)."""
-    return safe_sqrt(fma(x, x, y * y), 1e-300)
+    return safe_sqrt(fma(x, x, y * y), tiny())
 
 
 def chi_in_plane(chi1, chi2):
-    return safe_sqrt(fma(chi2[1], chi2[1], fma(chi2[0], chi2[0], fma(chi1[0], chi1[0], chi1[1] * chi1[1]))), 1e-300)
+    return safe_sqrt(fma(chi2[1], chi2[1], fma(chi2[0], chi2[0], fma(chi1[0], chi1[0], chi1[1] * chi1[1]))), tiny())
 
 
 def atan2_tol(a, b, tol=MAX_TOL_ATAN):
@@ -152,9 +153,9 @@ def common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, parity_fix, extended
     m2_2 = m2 * m2
     q = m1 / m2
     eta = wf.eta
-    pi_gm = PI * (m1_si + m2_si) * (G_SI / C_SI) / (C_SI * C_SI)
-    chi1_norm = safe_sqrt(fma(chi1z, chi1z, fma(chi1x, chi1x, chi1y * chi1y)), 1e-300)
-    chi2_norm = safe_sqrt(fma(chi2z, chi2z, fma(chi2x, chi2x, chi2y * chi2y)), 1e-300)
+    pi_gm = PI * (m1_si + m2_si) * (g_si() / C_SI) / (C_SI * C_SI)
+    chi1_norm = safe_sqrt(fma(chi1z, chi1z, fma(chi1x, chi1x, chi1y * chi1y)), tiny())
+    chi2_norm = safe_sqrt(fma(chi2z, chi2z, fma(chi2x, chi2x, chi2y * chi2y)), tiny())
     s1x = chi1x * m1_2
     s1y = chi1y * m1_2
     s2x = chi2x * m2_2
@@ -196,8 +197,8 @@ def common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, parity_fix, extended
         chi1_evolved=list(chi1),
         chi2_evolved=list(chi2),
         pnr_inspiral_scaling=jnp.asarray(False),
-        pnr_hm_mflow=jnp.zeros(()),
-        pnr_hm_mfhigh=jnp.zeros(()),
+        pnr_hm_mflow=jnp.zeros((), real()),
+        pnr_hm_mfhigh=jnp.zeros((), real()),
         parity_fix=parity_fix,
         extended=extended,
         smooth=smooth,
@@ -206,8 +207,8 @@ def common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, parity_fix, extended
         pole=jnp.asarray(1.0 - 1e-15 if smooth else 1.0),
         all_two_spin=jnp.asarray(smooth),
         transition_q=jnp.asarray(pa.PNR_Q_WINDOW_UPPER + (Q_SMOOTH_WIDTH if smooth else 0.0)),
-        q12_weight=jnp.zeros(()),
-        scaling_weight=jnp.zeros(()),
+        q12_weight=jnp.zeros((), real()),
+        scaling_weight=jnp.zeros((), real()),
         error_spin=(chi1_norm > 1.0) | (chi2_norm > 1.0),
     )
     prec.l = _prec.three_pn(eta, wf.delta, chi1z, chi2z)
@@ -377,8 +378,8 @@ def set_pnr_variables(prec, wf, version):
     xfperp = qfactor * qfactor * chi_mag * pa.sqrt_one_minus_square(costheta)
     xf = hypot2(xfparr, xfperp)
     prec.costheta_final_single_spin = jnp.where(xf > 1.0e-6, safe_div(xfparr, xf), 0.0)
-    prec.pnr_hm_mflow = jnp.zeros(())
-    prec.pnr_hm_mfhigh = jnp.zeros(())
+    prec.pnr_hm_mflow = jnp.zeros((), real())
+    prec.pnr_hm_mfhigh = jnp.zeros((), real())
     scaling = (q > pa.PNR_Q_WINDOW_UPPER) | (prec.chi_single_spin > pa.PNR_CHI_WINDOW_UPPER)
     if prec.smooth:
         # beyond q = 12, from LAL's angles at the edge of the transition
@@ -411,7 +412,7 @@ def set_coprec_params(prec, wf, tuned, version):
         coprec_a1 = jnp.where(a1 <= 0.8, a1, 0.8)
     coprec_a1 = jnp.where(coprec_a1 >= 0.2, coprec_a1, 0.2)
     e, a = coprec_eta, coprec_a1
-    zero = jnp.zeros(())
+    zero = jnp.zeros((), real())
     fit = lambda f: jnp.where(tuned, f(theta_ls, e, a), zero)  # noqa: E731
     wf.coprec = Struct(
         dev=dev,
@@ -591,7 +592,7 @@ def polarization_angle(prec, wf, nx_jf, nz_jf):
 def rotate_to_l_frame(lx, ly, lz, s1, s2):
     """The spins in the frame of ``L`` (lalsuite !2593)."""
     lperp_sq = fma(lx, lx, ly * ly)
-    lperp = safe_sqrt(lperp_sq, 1e-300)
+    lperp = safe_sqrt(lperp_sq, tiny())
     lnorm = jnp.sqrt(fma(lz, lz, lperp_sq))
     cos_theta, sin_theta = lz / lnorm, lperp / lnorm
     has_perp = lperp > 0.0
@@ -633,8 +634,8 @@ def finish_setup(prec, wf, version, st=None):
             prec.chi1_evolved = rotate_y(-theta, rotate_z(-phi, st.s1_end))
             prec.chi2_evolved = rotate_y(-theta, rotate_z(-phi, st.s2_end))
     else:
-        prec.fmin_integration = jnp.zeros(())
-        prec.mfmin_integration = jnp.zeros(())
+        prec.fmin_integration = jnp.zeros((), real())
+        prec.mfmin_integration = jnp.zeros((), real())
     set_pnr_variables(prec, wf, 330 if version == 330 else 223)
     wf = set_coprec_params(prec, wf, pnr_on, version)
     if isinstance(version, Fallback) or version == 223:
@@ -1265,7 +1266,7 @@ def populate_structs(prec, wf, version):
     if isinstance(version, Fallback) or version >= 200:
         chi = prec.chi_single_spin
         costheta = prec.costheta_single_spin
-        chi1 = [chi * safe_sqrt(1.0 - costheta * costheta, 1e-300), jnp.zeros_like(chi), chi * costheta]
+        chi1 = [chi * safe_sqrt(1.0 - costheta * costheta, tiny()), jnp.zeros_like(chi), chi * costheta]
         system = _msa.system(msa_inputs(prec, wf, chi1, [jnp.zeros_like(chi)] * 3))
         prec.single = Struct(
             msa=system, error=_msa.msa_error(system), l_102=_prec.three_pn(wf.eta, wf.delta, chi1[2], 0.0)
@@ -1502,7 +1503,7 @@ def uniform_angles(prec, wf, mf, version, st_values=None, smooth=False):
 
         def skip(operands):
             mf = operands[2]
-            return jnp.zeros(mf.shape), jnp.zeros(mf.shape, bool)
+            return jnp.zeros(mf.shape, real()), jnp.zeros(mf.shape, bool)
 
         return cond(needed, run, skip, (prec, wf, mf, bp, version.msa if fallback else None, st_values, extra))
 
@@ -1635,7 +1636,7 @@ def _uniform_natural_splines(ys, n, h, n_eval):
 
 def _spline_at(y, m, n, x0, h, x):
     """Value and derivative of the uniform spline at ``x``."""
-    k = jnp.clip(jnp.floor((x - x0) / h), 0, n - 2).astype(jnp.int64)
+    k = jnp.clip(jnp.floor((x - x0) / h), 0, n - 2).astype(integer())
     xk = x0 + k * h
     y0, y1 = y[k], y[k + 1]
     m0, m1 = m[k], m[k + 1]
@@ -1725,7 +1726,7 @@ def angle_interpolants(prec, wf, grid, version, active=True, extra_mf=None, n_ex
     def angles(index, args):
         prec, wf, i_start, n, h, msa, node_map = args
         version_ = Fallback(msa) if fallback else version
-        k = index * chunk + jnp.arange(chunk, dtype=jnp.float64)
+        k = index * chunk + jnp.arange(chunk, dtype=real())
         valid = k < n
         if node_map is None:
             mf = hz_to_mf(frequencies(k, i_start, n, h), wf.m_tot)
@@ -1750,7 +1751,7 @@ def angle_interpolants(prec, wf, grid, version, active=True, extra_mf=None, n_ex
 
         def angles_or_extra(index, mf_extra, is_extra, args):
             prec, wf, i_start, n, h, _, node_map = args
-            k = index * chunk + jnp.arange(chunk, dtype=jnp.float64)
+            k = index * chunk + jnp.arange(chunk, dtype=real())
             valid = k < n
             if node_map is None:
                 mf = hz_to_mf(frequencies(k, i_start, n, h), wf.m_tot)
@@ -1767,7 +1768,7 @@ def angle_interpolants(prec, wf, grid, version, active=True, extra_mf=None, n_ex
 
             def skip(operands):
                 mf = operands[2]
-                return jnp.zeros(mf.shape), jnp.zeros(mf.shape), jnp.asarray(False)
+                return jnp.zeros(mf.shape, real()), jnp.zeros(mf.shape, real()), jnp.asarray(False)
 
             values = cond(is_extra, skip, on_grid, (prec, wf, mf, st_values, valid))
             return values, (st_values[0], st_values[4])
@@ -1781,7 +1782,7 @@ def angle_interpolants(prec, wf, grid, version, active=True, extra_mf=None, n_ex
     alpha, beta = alpha.reshape(-1), beta.reshape(-1)
     if node_map is not None:
         # splines in the index of the nodes
-        splines = _geometric_interpolants(alpha, beta, jnp.zeros(()), n, jnp.ones(()), n_eval, error)
+        splines = _geometric_interpolants(alpha, beta, jnp.zeros((), real()), n, jnp.ones((), real()), n_eval, error)
         splines.node_map = node_map
         splines.st_extra = st_extra
         return splines
@@ -1799,8 +1800,8 @@ def angle_interpolants(prec, wf, grid, version, active=True, extra_mf=None, n_ex
         # the intervals [k, k + 1] of the chunk: values at k and k + 1
         i = index * chunk + jnp.arange(chunk)
         here, after = jnp.clip(i, 0, cap - 1), jnp.clip(i + 1, 0, cap - 1)
-        t1 = frequencies(here.astype(jnp.float64), i_start, n, h)
-        t2 = frequencies(after.astype(jnp.float64), i_start, n, h)
+        t1 = frequencies(here.astype(real()), i_start, n, h)
+        t2 = frequencies(after.astype(real()), i_start, n, h)
         y0, y1, m0, m1 = alpha[here], alpha[after], m_alpha[here], m_alpha[after]
         yb0, yb1, mb0, mb1 = beta[here], beta[after], m_beta[here], m_beta[after]
         points = jnp.stack([t2, fma(3.0, t1, t2) / 4.0, (t1 + t2) / 2.0, t1, fma(3.0, t2, t1) / 4.0])
@@ -1814,10 +1815,10 @@ def angle_interpolants(prec, wf, grid, version, active=True, extra_mf=None, n_ex
         increments = jnp.where(i + 1 < n, 1.0 / 90.0 * (t2 - t1) * total_f, 0.0)
         # gamma at the chunk's points: the integral up to each
         sums = jnp.cumsum(increments)
-        gamma = total + jnp.concatenate([jnp.zeros(1), sums[:-1]])
+        gamma = total + jnp.concatenate([jnp.zeros(1, real()), sums[:-1]])
         return gamma, total + sums[-1]
 
-    gamma, _ = blocked_scan(boole, jnp.arange(n_chunks), jnp.ceil(n_eval / chunk), jnp.zeros(()),
+    gamma, _ = blocked_scan(boole, jnp.arange(n_chunks), jnp.ceil(n_eval / chunk), jnp.zeros((), real()),
                             (alpha, m_alpha, beta, m_beta, i_start, n, h, x0))
     gamma = gamma.reshape(-1)
     (m_gamma,) = _uniform_natural_splines([gamma], n, h, n_eval)
@@ -1879,8 +1880,8 @@ def _geometric_interpolants(alpha, beta, i_start, n, h, n_eval, error):
         cap = u.shape[0]
         i = index * chunk + jnp.arange(chunk)
         here, after = jnp.clip(i, 0, cap - 1), jnp.clip(i + 1, 0, cap - 1)
-        t1 = frequencies(here.astype(jnp.float64), i_start, n, h)
-        t2 = frequencies(after.astype(jnp.float64), i_start, n, h)
+        t1 = frequencies(here.astype(real()), i_start, n, h)
+        t2 = frequencies(after.astype(real()), i_start, n, h)
         points = jnp.stack([t2, fma(3.0, t1, t2) / 4.0, (t1 + t2) / 2.0, t1, fma(3.0, t2, t1) / 4.0])
         dx = points - (x0 + i * h)
 
@@ -1894,7 +1895,7 @@ def _geometric_interpolants(alpha, beta, i_start, n, h, n_eval, error):
             return 1.0 / 90.0 * (t2 - t1) * fma(7.0, f[0], fma(32.0, f[1], fma(12.0, f[2], fma(7.0, f[3], 32.0 * f[4]))))
 
         (ux, du), (vx, dv), (wx, _) = piece(u, m_u), piece(v, m_v), piece(w, m_w)
-        r = safe_sqrt(ux * ux + vx * vx + wx * wx, 1e-300)
+        r = safe_sqrt(ux * ux + vx * vx + wx * wx, tiny())
         twist = ux * dv - vx * du
         north = boole_sum(safe_div(twist, r * (r + wx)))
         south = boole_sum(safe_div(twist, r * (r - wx)))
@@ -1904,10 +1905,10 @@ def _geometric_interpolants(alpha, beta, i_start, n, h, n_eval, error):
         used = i + 1 < n
         increments = jnp.stack([jnp.where(used, d_gamma, 0.0), jnp.where(used, d_alpha, 0.0)])
         sums = jnp.cumsum(increments, axis=1)
-        values = totals[:, None] + jnp.concatenate([jnp.zeros((2, 1)), sums[:, :-1]], axis=1)
+        values = totals[:, None] + jnp.concatenate([jnp.zeros((2, 1), real()), sums[:, :-1]], axis=1)
         return values, totals + sums[:, -1]
 
-    first = jnp.stack([jnp.zeros(()), raw[0]])
+    first = jnp.stack([jnp.zeros((), real()), raw[0]])
     values, _ = blocked_scan(boole, jnp.arange(n_chunks), jnp.ceil(n_eval / chunk), first,
                              (u, m_u, v, m_v, w, m_w, raw, i_start, n, h, x0))
     # (chunks, 2, chunk) -> (2, capacity)
@@ -1938,13 +1939,13 @@ def spline_angles(splines, f):
 
         u, v, w = at("u"), at("v"), at("w")
         a = st_angles.small_atan2(v, u)
-        b = st_angles._atan2(safe_sqrt(u * u + v * v, 1e-300), w)
+        b = st_angles._atan2(safe_sqrt(u * u + v * v, tiny()), w)
         # alpha on the branch of the unwrapped spline (which matters only
         # in the band, where both forms of gamma are used and alpha is
         # smooth)
         unwrapped = at("unwrapped")
         a_u = unwrapped + _wrap(a - unwrapped)
-        weight = pa._ramp(w / safe_sqrt(u * u + v * v + w * w, 1e-300), HEMISPHERE_SOFT)
+        weight = pa._ramp(w / safe_sqrt(u * u + v * v + w * w, tiny()), HEMISPHERE_SOFT)
         gamma = fma(weight, at("plus") - a_u, (1.0 - weight) * (at("minus") + a_u))
         return a, b, gamma, inside
     a, _ = _spline_at(splines.alpha, splines.m_alpha, splines.n, splines.x0, splines.h, f)

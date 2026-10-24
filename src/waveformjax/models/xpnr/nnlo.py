@@ -18,7 +18,7 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 
-from ._math import PI, Struct, fenced
+from ._math import PI, Struct, fenced, real
 from .msa import acos_safe
 
 __all__ = ["coefficients", "nnlo_coefficients", "evaluate", "nnlo_evaluate", "nnlo_angles", "nnlo_cos_beta",
@@ -116,7 +116,7 @@ def evaluate(c, omega, logomega, omega_cbrt, omega_cbrt2):
 
 def nnlo_evaluate(c, omega):
     """:func:`evaluate` at the orbital frequency ``omega``."""
-    omega = jnp.asarray(omega, dtype=float)
+    omega = jnp.asarray(omega, dtype=real())
     omega_cbrt = jnp.cbrt(omega)
     return evaluate(c, omega, jnp.log(omega), omega_cbrt, omega_cbrt * omega_cbrt)
 

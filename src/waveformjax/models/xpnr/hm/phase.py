@@ -30,7 +30,7 @@ import jax.numpy as jnp
 from .. import phase22 as phase22_module
 from .._generated import hm_amp_122019, hm_inspiral, hm_intermediate, hm_ringdown
 from .._generated import ringdown as ringdown22
-from .._math import FRAC_PI_4, PI, Struct, fma, powers
+from .._math import FRAC_PI_4, PI, Struct, fma, powers, real
 from . import inspiral
 from .finite_differences import phase_derivatives
 from .variables import both, is_mode, where_mode
@@ -45,8 +45,8 @@ __all__ = [
 
 def _solve(rows, values):
     """``gsl_linalg_LU_solve`` of a small collocation system."""
-    matrix = jnp.stack([jnp.stack([jnp.asarray(x, dtype=jnp.float64) for x in row]) for row in rows])
-    rhs = jnp.stack([jnp.asarray(v, dtype=jnp.float64) for v in values])
+    matrix = jnp.stack([jnp.stack([jnp.asarray(x, dtype=real()) for x in row]) for row in rows])
+    rhs = jnp.stack([jnp.asarray(v, dtype=real()) for v in values])
     solution = jnp.linalg.solve(matrix, rhs)
     return [solution[i] for i in range(len(values))]
 
