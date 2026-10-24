@@ -39,15 +39,18 @@ from . import model
 __all__ = ["polarizations", "options"]
 
 
-def options(mode_array=None, scaled_strain=True):
+def options(mode_array=None, scaled_strain=True, reference_mf=None):
     """The :class:`~waveformjax.WaveformOptions` of the lean model."""
-    return WaveformOptions(lean=True, mode_array=mode_array, scaled_strain=scaled_strain)
+    return WaveformOptions(lean=True, mode_array=mode_array, scaled_strain=scaled_strain, reference_mf=reference_mf)
 
 
-def polarizations(binary, frequencies, mode_array=None, scaled_strain=True):
+def polarizations(binary, frequencies, mode_array=None, scaled_strain=True, reference_mf=None):
     """``(h_+, h_x)`` of the lean IMRPhenomXPNR at ``frequencies`` (Hz,
     positive and increasing): pure, for ``jax.jit``, ``jax.vmap``,
     ``jax.grad``, ``jax.jvp`` and ``jax.jacfwd`` with respect to the binary
     (forward-mode Jacobians, see :func:`.model.polarizations`); float32 for
-    a binary of float32 parameters. NaN where the model fails."""
-    return model.polarizations(binary, frequencies, options(mode_array, scaled_strain))
+    a binary of float32 parameters. NaN where the model fails. With
+    ``reference_mf`` (``WaveformOptions.reference_mf``), the binary is given
+    at the mass-scaled reference frequency ``reference_mf / M`` (and
+    ``binary.f_ref`` must be zero)."""
+    return model.polarizations(binary, frequencies, options(mode_array, scaled_strain, reference_mf))

@@ -33,22 +33,23 @@ from ._math import lean as lean_mode
 __all__ = ["MODEL", "XPNRModel"]
 
 
-@functools.partial(jax.jit, static_argnums=(3, 4, 5, 6))
-def _prescription(binary, f_min, f_max, modes, parity_fix, extended=False, lean=False):
+@functools.partial(jax.jit, static_argnums=(3, 4, 5, 6, 7))
+def _prescription(binary, f_min, f_max, modes, parity_fix, extended=False, lean=False, reference_mf=None):
     """The flags deciding LAL's prescription and LAL's errors, for
     :meth:`XPNRModel.validate` (``f_min``, ``f_max`` the first and last
     frequencies; ``extended``: those of the extended SpinTaylor angles,
-    ``lean``: of the lean model)."""
+    ``lean``: of the lean model, ``reference_mf``: its mass-scaled
+    reference frequency)."""
     with lean_mode(lean):
-        return _prescription_in(binary, f_min, f_max, modes, parity_fix or lean, extended or lean, lean)
+        return _prescription_in(binary, f_min, f_max, modes, parity_fix or lean, extended or lean, lean, reference_mf)
 
 
-def _prescription_in(binary, f_min, f_max, modes, parity_fix, extended, lean):
+def _prescription_in(binary, f_min, f_max, modes, parity_fix, extended, lean, reference_mf):
     pnr.clear_cache()
-    wf, m1_si, m2_si, chi1, chi2 = model.setup_waveform(binary, 0.0, f_min, f_max)
+    wf, m1_si, m2_si, chi1, chi2 = model.setup_waveform(binary, 0.0, f_min, f_max, reference_mf=reference_mf)
     wf.hm_release = 122019
     base, wf0 = pnr.common_setup(wf, m1_si, m2_si, chi1, chi2, pnr.mode_range(modes), parity_fix, extended, lean,
-                                 True, False, lean)
+                                 True, False, lean, reference=reference_mf is not None)
 
     def st_flags(_):
         st = pnr.spintaylor_solution(base, wf0, m1_si, m2_si)
@@ -101,7 +102,8 @@ class XPNRModel:
                 raise InvalidParameterError(f"mode array contains unavailable mode ({ell}, {emm})")
         flags = {k: np.asarray(v) for k, v in _prescription(binary, frequencies[0], frequencies[-1], modes,
                                                              options.pnr_parity_fix,
-                                                             options.extended_spintaylor, options.lean).items()}
+                                                             options.extended_spintaylor, options.lean,
+                                                             options.reference_mf).items()}
         if flags["mass_ratio"]:
             raise InvalidParameterError("IMRPhenomXPNR is not valid at mass ratios beyond 1000")
         if flags["final_mass"]:
@@ -111,7 +113,13 @@ class XPNRModel:
         if flags["meco"]:
             raise InvalidParameterError("f_MECO cannot be greater than f_ISCO")
         f_ref = float(flags["f_ref"])
-        if not frequencies[0] <= f_ref <= frequencies[-1]:
+        if options.reference_mf is not None:
+            if float(binary.f_ref) != 0.0:
+                raise InvalidParameterError(
+                    "with reference_mf, the reference frequency is reference_mf / M: f_ref must be zero "
+                    "(waveformjax.to_mass_scaled_reference converts a binary given at f_ref)"
+                )
+        elif not frequencies[0] <= f_ref <= frequencies[-1]:
             raise InvalidParameterError("f_min <= f_ref <= f_max is required when using tuned angles")
         if flags["cutoff"]:
             raise InvalidParameterError("the cutoff frequency lies below f_min")

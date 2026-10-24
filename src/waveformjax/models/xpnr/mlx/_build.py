@@ -4,8 +4,8 @@
 """The generated kernels of the stages of the lean model
 (:mod:`._stages`) for a set of co-precessing modes: traced in float32 from
 shapes alone (no JAX compilation), each stage at the structure of the
-previous one's outputs. Built once per set of modes and strain scale
-(:func:`stages`)."""
+previous one's outputs. Built once per set of modes, strain scale and
+reference convention (:func:`stages`)."""
 
 from __future__ import annotations
 
@@ -36,17 +36,18 @@ def summary_example():
 class Built:
     """The kernels of the stages (built on first use)."""
 
-    def __init__(self, modes, amp_scale):
+    def __init__(self, modes, amp_scale, reference_mf=None):
         self.modes = modes
         self.amp_scale = amp_scale
+        self.reference_mf = reference_mf
         self.n_modes = len(modes)
 
     @functools.cached_property
     def a(self):
         leaves = {name: _s((3,) if name.startswith("spin") else ()) for name in _stages.BINARY_FIELDS}
-        modes, amp_scale = self.modes, self.amp_scale
-        return StageKernel(lambda l, f0, f1: _stages.stage_a(l, f0, f1, modes, amp_scale), (leaves, _s(), _s()), 3,
-                           "xpnr_a")
+        modes, amp_scale, reference_mf = self.modes, self.amp_scale, self.reference_mf
+        return StageKernel(lambda l, f0, f1: _stages.stage_a(l, f0, f1, modes, amp_scale, reference_mf),
+                           (leaves, _s(), _s()), 3, "xpnr_a")
 
     @functools.cached_property
     def c1(self):
@@ -153,7 +154,7 @@ def parts():
 
 
 @functools.lru_cache(maxsize=None)
-def stages(modes, amp_scale):
-    """The :class:`Built` kernels for the co-precessing ``modes`` (a tuple)
-    and the scale of the strain."""
-    return Built(tuple(modes), float(amp_scale))
+def stages(modes, amp_scale, reference_mf=None):
+    """The :class:`Built` kernels for the co-precessing ``modes`` (a tuple),
+    the scale of the strain and the mass-scaled reference frequency."""
+    return Built(tuple(modes), float(amp_scale), None if reference_mf is None else float(reference_mf))

@@ -248,17 +248,17 @@ def finish(st, index, size, frequencies, S, modes, n_directions):
 CHUNK = {False: 1024, True: 64}
 
 
-def evaluate_chunked(leaves, frequencies, modes, amp_scale, n_directions=0):
+def evaluate_chunked(leaves, frequencies, modes, amp_scale, n_directions=0, reference_mf=None):
     """:func:`evaluate` in chunks of :data:`CHUNK` binaries."""
     batch = leaves["mass_1"].shape[0]
     chunk = CHUNK[bool(n_directions)]
     if batch <= chunk:
-        return evaluate(leaves, frequencies, modes, amp_scale, n_directions)
+        return evaluate(leaves, frequencies, modes, amp_scale, n_directions, reference_mf=reference_mf)
     outs = []
     for start in range(0, batch, chunk):
         part = {name: value[start:start + chunk] for name, value in leaves.items()}
         f = frequencies if frequencies.shape[0] == 1 else frequencies[start:start + chunk]
-        out = evaluate(part, f, modes, amp_scale, n_directions)
+        out = evaluate(part, f, modes, amp_scale, n_directions, reference_mf=reference_mf)
         mx.eval([x for x in out if x is not None])
         outs.append(out)
         # (the buffers of a chunk freed for the next: MLX keeps them in its
@@ -270,7 +270,7 @@ def evaluate_chunked(leaves, frequencies, modes, amp_scale, n_directions=0):
     return h, error, jacobian
 
 
-def evaluate(leaves, frequencies, modes, amp_scale, n_directions=0, keep=None):
+def evaluate(leaves, frequencies, modes, amp_scale, n_directions=0, keep=None, reference_mf=None):
     """The polarizations of a batch: ``leaves`` the fields of the binaries
     (``(B,)``, spins ``(B, 3)``, float32 MLX arrays), ``frequencies``
     ``(1, N)`` (shared) or ``(B, N)``. Returns ``(h, error, jacobian)``
@@ -278,8 +278,9 @@ def evaluate(leaves, frequencies, modes, amp_scale, n_directions=0, keep=None):
     ``Im h_x``; NaN where the model fails), ``error`` ``(B,)`` and the
     Jacobian ``(B, N, 4, P)`` along the first ``n_directions`` parameters
     (``None`` for none). ``keep`` (a dict) collects the intermediate
-    values (of the set-up, and of the last group of binaries)."""
-    S = _build.stages(tuple(modes), float(amp_scale))
+    values (of the set-up, and of the last group of binaries);
+    ``reference_mf`` the mass-scaled reference frequency, if any."""
+    S = _build.stages(tuple(modes), float(amp_scale), reference_mf)
     P = n_directions
     batch = leaves["mass_1"].shape[0]
     n_freq = frequencies.shape[1]

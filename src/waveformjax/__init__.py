@@ -51,7 +51,7 @@ from ._api import (  # noqa: E402
 )
 from ._binary import COLUMNS, Binary, parameter_table  # noqa: E402
 from ._harmonics import spin_weighted_spherical_harmonic  # noqa: E402
-from ._options import WaveformOptions  # noqa: E402
+from ._options import REFERENCE_MF, WaveformOptions  # noqa: E402
 from ._results import (  # noqa: E402
     BatchPolarizations,
     BatchTimeSeries,
@@ -72,6 +72,8 @@ from .exceptions import (  # noqa: E402
     WaveformError,
 )
 
+from .models.xpnr.reference import to_mass_scaled_reference, to_physical_reference  # noqa: E402
+
 __version__ = "0.1.0"
 
 __all__ = [
@@ -80,6 +82,9 @@ __all__ = [
     "is_frequency_domain",
     "is_precessing",
     "WaveformOptions",
+    "REFERENCE_MF",
+    "to_mass_scaled_reference",
+    "to_physical_reference",
     "Binary",
     "COLUMNS",
     "parameter_table",

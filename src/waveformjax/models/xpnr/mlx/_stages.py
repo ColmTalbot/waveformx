@@ -87,20 +87,25 @@ def _binary(leaves):
 # ---------------------------------------------------------------------------
 
 
-def stage_a(leaves, f_min, f_max, modes, amp_scale):
+def stage_a(leaves, f_min, f_max, modes, amp_scale, reference_mf=None):
     """``model._decide`` of the lean model up to the integration: returns
     ``(base, wf0, ode, error)`` with ``ode`` the inputs of
     :func:`..spintaylor.lean.solution` (``m1``, ``m2`` in solar masses, the
     spins ``chi1``, ``chi2``, ``f_ref``, ``f_low``, ``f_cut``, whether the
-    integration is needed and whether its start is valid)."""
+    integration is needed and whether its start is valid);
+    ``reference_mf`` the mass-scaled reference frequency, if any."""
     pnr.clear_cache()
     binary = _binary(leaves)
-    wf, m1, m2, chi1, chi2 = model.setup_waveform(binary, 0.0, f_min, f_max, amp_scale)
+    wf, m1, m2, chi1, chi2 = model.setup_waveform(binary, 0.0, f_min, f_max, amp_scale, reference_mf)
     wf.hm_release = 122019
     error = wf_errors(wf)
-    error = error | ~((wf.f_ref >= f_min) & (wf.f_ref <= f_max))
+    if reference_mf is None:
+        error = error | ~((wf.f_ref >= f_min) & (wf.f_ref <= f_max))
+    else:
+        error = error | (binary.f_ref != 0.0)
     mode_range = pnr.mode_range(modes)
-    base, wf0 = pnr.common_setup(wf, m1, m2, chi1, chi2, mode_range, True, True, True, True, False, True, mode_range)
+    base, wf0 = pnr.common_setup(wf, m1, m2, chi1, chi2, mode_range, True, True, True, True, False, True, mode_range,
+                                 reference_mf is not None)
     error = error | base.error_spin | (wf0.f_max_prime <= wf0.f_min)
     needs_st = base.pnr_on & ~base.nnlo_from_start
     flow_safe = jnp.where(base.st_flow_ok, base.st_flow_lean, wf0.f_min)
@@ -649,7 +654,7 @@ def _const(tree):
 
 
 @functools.lru_cache(maxsize=None)
-def _compiled(dtype_name, modes, amp_scale):
+def _compiled(dtype_name, modes, amp_scale, reference_mf=None):
     """The stages and the parts by hand as jitted JAX functions (in the
     precision ``dtype_name``)."""
     dtype = np.dtype(dtype_name)
@@ -658,7 +663,7 @@ def _compiled(dtype_name, modes, amp_scale):
         return Staged(function, dtype)
 
     def a(leaves, f):
-        return stage_a(leaves, f[0], f[-1], modes, amp_scale)
+        return stage_a(leaves, f[0], f[-1], modes, amp_scale, reference_mf)
 
     def b(ode):
         sol = st_lean.solution(ode.m1, ode.m2, list(ode.chi1), list(ode.chi2), ode.f_ref, ode.f_low, ode.f_cut,
@@ -725,19 +730,19 @@ def _compiled(dtype_name, modes, amp_scale):
 N_PARAMETERS = 12
 
 
-def reference(binary, frequencies, mode_array=None, scaled_strain=True, keep=False, tangents=False):
+def reference(binary, frequencies, mode_array=None, scaled_strain=True, keep=False, tangents=False, reference_mf=None):
     """The lean polarizations from the stages composed in JAX (eagerly,
     stage by stage, with the sizes of the binary), in the precision of the
     binary: ``(h_+, h_x)``, and with ``keep`` also a dict of the
     intermediate values of every stage (:class:`Dual`, with their
     derivatives along the twelve parameters of the binary if
-    ``tangents``)."""
+    ``tangents``; ``reference_mf`` the mass-scaled reference frequency)."""
     from ...._options import STRAIN_SCALE
     from .._math import precision_of
 
     dtype = precision_of(binary)
     modes = model.coprecessing_modes(mode_array)
-    st = _compiled(dtype.name, modes, STRAIN_SCALE if scaled_strain else 1.0)
+    st = _compiled(dtype.name, modes, STRAIN_SCALE if scaled_strain else 1.0, reference_mf)
     leaves = {name: jnp.asarray(value, dtype) for name, value in binary_leaves(binary).items()}
     if tangents:
         eye = np.eye(N_PARAMETERS)

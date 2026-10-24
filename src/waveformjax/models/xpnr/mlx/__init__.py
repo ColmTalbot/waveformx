@@ -28,8 +28,10 @@ The functions take a :class:`~waveformjax.Binary` of numbers or arrays
 (converted to float32 MLX arrays): one binary, or a batch along a leading
 axis of its fields (``mass_1`` of shape ``(B,)``, ``spin_1`` of shape
 ``(B, 3)``; fields without the axis are shared). Every output is the
-strain multiplied by ``1e21`` unless ``scaled_strain`` is false. Where the
-model fails (where the JAX lean model returns NaN) the result is NaN.
+strain multiplied by ``1e21`` unless ``scaled_strain`` is false;
+``reference_mf`` selects the mass-scaled reference frequency
+(``WaveformOptions.reference_mf``). Where the model fails (where the JAX
+lean model returns NaN) the result is NaN.
 """
 
 from __future__ import annotations
@@ -37,15 +39,15 @@ from __future__ import annotations
 __all__ = ["polarizations", "polarizations_and_jacobian"]
 
 
-def polarizations(binary, frequencies, mode_array=None, scaled_strain=True):
+def polarizations(binary, frequencies, mode_array=None, scaled_strain=True, reference_mf=None):
     """``(h_+, h_x)`` of the lean IMRPhenomXPNR (see :func:`._api.polarizations`)."""
     from ._api import polarizations as function
 
-    return function(binary, frequencies, mode_array, scaled_strain)
+    return function(binary, frequencies, mode_array, scaled_strain, reference_mf)
 
 
-def polarizations_and_jacobian(binary, frequencies, mode_array=None, scaled_strain=True):
+def polarizations_and_jacobian(binary, frequencies, mode_array=None, scaled_strain=True, reference_mf=None):
     """``(h_+, h_x)`` and their Jacobian (see :func:`._api.polarizations_and_jacobian`)."""
     from ._api import polarizations_and_jacobian as function
 
-    return function(binary, frequencies, mode_array, scaled_strain)
+    return function(binary, frequencies, mode_array, scaled_strain, reference_mf)

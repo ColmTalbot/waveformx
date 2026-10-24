@@ -10,7 +10,7 @@ from typing import Any, Iterable, Mapping, Optional, Tuple
 
 from .exceptions import InvalidParameterError
 
-__all__ = ["WaveformOptions", "OPTION_NAMES", "parse_options"]
+__all__ = ["WaveformOptions", "OPTION_NAMES", "REFERENCE_MF", "parse_options"]
 
 PRECESSION_VERSIONS = {"nnlo": 102, "msa": 223, "spintaylor": 320, "spin_taylor": 320}
 
@@ -47,6 +47,22 @@ def _mode_array(value: Any) -> Optional[Tuple[Tuple[int, int], ...]]:
             raise TypeError("mode_array must be a sequence of (l, m) pairs or None") from None
         modes.append((ell, emm))
     return tuple(modes)
+
+
+def _reference_mf(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise TypeError("reference_mf must be a float or None")
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        raise TypeError("reference_mf must be a float or None") from None
+    if not 0.0 < value < 0.015:
+        raise InvalidParameterError(
+            f"reference_mf = {value} must lie in (0, 0.015): the inspiral of some binaries ends at M f = 0.015"
+        )
+    return value
 
 
 def _bool(value: Any, name: str) -> bool:
@@ -110,6 +126,18 @@ class WaveformOptions:
       LAL's physics (fits, ansatzes, the discrete choices of the higher
       modes) is kept. It agrees with the extended model to its
       integration error; the other precession options are ignored.
+    * ``reference_mf``: with ``lean``, the reference frequency of the
+      binary in units of the total mass, ``M f_ref`` (default ``None``:
+      LAL's convention, ``Binary.f_ref`` in Hz). The spins, the
+      inclination and ``phi_ref`` are then given at ``f_ref =
+      reference_mf / M``, late in the inspiral for every binary
+      (:data:`REFERENCE_MF` is the recommended value), and the waveform
+      works for every mode array and every binary, whether ``f_ref`` lies
+      inside the frequencies or not. ``Binary.f_ref`` must then be zero (the
+      waveform is NaN otherwise, and its derivative with respect to it
+      zero). :func:`waveformjax.to_mass_scaled_reference` and
+      :func:`waveformjax.to_physical_reference` convert binaries between
+      the two conventions.
     * ``scaled_strain``: whether the models return the strain multiplied by
       ``1e21`` (default ``True``), which keeps the strain, its square and
       its derivatives within the range of float32; ``False`` gives the
@@ -125,6 +153,7 @@ class WaveformOptions:
     extended_phase_grid: bool = False
     lean: bool = False
     scaled_strain: bool = True
+    reference_mf: Optional[float] = None
 
     def __post_init__(self):
         object.__setattr__(self, "precession_version", _precession_version(self.precession_version))
@@ -136,6 +165,9 @@ class WaveformOptions:
         _bool(self.extended_phase_grid, "extended_phase_grid")
         _bool(self.lean, "lean")
         _bool(self.scaled_strain, "scaled_strain")
+        object.__setattr__(self, "reference_mf", _reference_mf(self.reference_mf))
+        if self.reference_mf is not None and not self.lean:
+            raise InvalidParameterError("reference_mf needs the lean IMRPhenomXPNR (lean=True)")
 
     @staticmethod
     def lalsimulation_defaults() -> "WaveformOptions":
@@ -155,6 +187,10 @@ class WaveformOptions:
 
 
 OPTION_NAMES = tuple(field.name for field in dataclasses.fields(WaveformOptions))
+
+#: The recommended ``reference_mf``: late in the inspiral, which ends at
+#: ``M f >= 0.015`` for mass ratios up to 30 and spins up to 0.99.
+REFERENCE_MF = 0.01
 
 #: The factor of the strain unless ``scaled_strain`` is false.
 STRAIN_SCALE = 1e21

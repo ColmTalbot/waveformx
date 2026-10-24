@@ -19,7 +19,7 @@ import functools
 import mlx.core as mx
 import numpy as np
 
-from ...._options import STRAIN_SCALE
+from ...._options import STRAIN_SCALE, WaveformOptions
 from .. import model
 from . import _pipeline
 
@@ -69,19 +69,20 @@ def _frequencies(frequencies, batch):
 
 
 @functools.lru_cache(maxsize=None)
-def _core(modes, amp_scale):
+def _core(modes, amp_scale, reference_mf):
     """``f(params (B, 12), frequencies) -> (B, N, 4)`` with its custom VJP."""
 
     @mx.custom_function
     def core(params, frequencies):
-        h, _, _ = _pipeline.evaluate_chunked(_leaves(params), frequencies, modes, amp_scale)
+        h, _, _ = _pipeline.evaluate_chunked(_leaves(params), frequencies, modes, amp_scale,
+                                             reference_mf=reference_mf)
         return h
 
     @core.vjp
     def core_vjp(primals, cotangent, output):
         params, frequencies = primals
         _, _, jacobian = _pipeline.evaluate_chunked(_leaves(mx.stop_gradient(params)), frequencies, modes,
-                                                    amp_scale, _pipeline.N_PARAMETERS)
+                                                    amp_scale, _pipeline.N_PARAMETERS, reference_mf)
         if isinstance(cotangent, (list, tuple)):
             cotangent = cotangent[0]
         terms = jacobian * cotangent[..., None]
@@ -93,29 +94,33 @@ def _core(modes, amp_scale):
     return core
 
 
-def _options(mode_array, scaled_strain):
+def _options(mode_array, scaled_strain, reference_mf):
+    # (the checks of WaveformOptions)
+    reference_mf = WaveformOptions(lean=True, reference_mf=reference_mf).reference_mf
     modes = model.coprecessing_modes(mode_array)
-    return tuple(modes), STRAIN_SCALE if scaled_strain else 1.0
+    return tuple(modes), STRAIN_SCALE if scaled_strain else 1.0, reference_mf
 
 
-def polarizations(binary, frequencies, mode_array=None, scaled_strain=True):
+def polarizations(binary, frequencies, mode_array=None, scaled_strain=True, reference_mf=None):
     """``(h_+, h_x)`` (complex64 MLX arrays) of the lean IMRPhenomXPNR at
     ``frequencies`` (Hz, positive and increasing; ``(N,)`` or, for a batch,
     ``(B, N)``): ``(N,)`` each for one binary, ``(B, N)`` for a batch (a
     :class:`~waveformjax.Binary` whose fields have a leading axis). The
     strain is multiplied by ``1e21`` unless ``scaled_strain`` is false;
     NaN where the model fails. Differentiable with ``mx.grad`` with
-    respect to the fields of the binary."""
+    respect to the fields of the binary. With ``reference_mf``
+    (``WaveformOptions.reference_mf``), the binary is given at the
+    mass-scaled reference frequency ``reference_mf / M`` (``f_ref`` zero)."""
     binary, has_batch = batched(binary)
     params = _parameters(binary)
     f = _frequencies(frequencies, params.shape[0])
-    h = _core(*_options(mode_array, scaled_strain))(params, f)
+    h = _core(*_options(mode_array, scaled_strain, reference_mf))(params, f)
     hp = h[..., 0] + 1j * h[..., 1]
     hc = h[..., 2] + 1j * h[..., 3]
     return (hp, hc) if has_batch else (hp[0], hc[0])
 
 
-def polarizations_and_jacobian(binary, frequencies, mode_array=None, scaled_strain=True):
+def polarizations_and_jacobian(binary, frequencies, mode_array=None, scaled_strain=True, reference_mf=None):
     """``(h_+, h_x)`` and their forward-mode Jacobian with respect to the
     twelve parameters of the binary (``mass_1``, ``mass_2``, ``spin_1``,
     ``spin_2``, ``luminosity_distance``, ``inclination``, ``phi_ref``,
@@ -123,8 +128,9 @@ def polarizations_and_jacobian(binary, frequencies, mode_array=None, scaled_stra
     binary, has_batch = batched(binary)
     params = mx.stop_gradient(_parameters(binary))
     f = _frequencies(frequencies, params.shape[0])
-    modes, amp_scale = _options(mode_array, scaled_strain)
-    h, _, jacobian = _pipeline.evaluate_chunked(_leaves(params), f, modes, amp_scale, _pipeline.N_PARAMETERS)
+    modes, amp_scale, reference_mf = _options(mode_array, scaled_strain, reference_mf)
+    h, _, jacobian = _pipeline.evaluate_chunked(_leaves(params), f, modes, amp_scale, _pipeline.N_PARAMETERS,
+                                                reference_mf)
     hp = h[..., 0] + 1j * h[..., 1]
     hc = h[..., 2] + 1j * h[..., 3]
     jp = jacobian[..., 0, :] + 1j * jacobian[..., 1, :]

@@ -122,7 +122,7 @@ def mode_range(modes):
 
 
 def common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, parity_fix, extended=False, smooth=False, direct=True,
-                 phase_grid=False, lean=False, grid_range=None):
+                 phase_grid=False, lean=False, grid_range=None, reference=False):
     """The part of ``IMRPhenomXGetAndSetPrecessionVariables`` before the
     SpinTaylor integration: the spin quantities, the decisions on the
     prescription that do not need the integration, and the start of the
@@ -140,7 +140,10 @@ def common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, parity_fix, extended
     ``grid_range`` (static, :func:`mode_range` of the modes of the grid of
     the PNR interpolants) lowers the start of its one integration by the
     ratio of the largest ``m``, where the grid reaches lower than
-    ``mode_range_`` (the J-frame modes; LAL integrates again there).
+    ``mode_range_`` (the J-frame modes; LAL integrates again there), and ``reference``
+    (static) marks the mass-scaled reference frequency
+    (``WaveformOptions.reference_mf``), which can lie below the band: the
+    integration then starts below it too (:data:`REFERENCE_FLOW`).
     Returns ``(prec, wf)``; ``wf`` gets the tuned co-precessing flag as LAL
     sets it.
     """
@@ -206,6 +209,7 @@ def common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, parity_fix, extended
         pnr_hm_mfhigh=jnp.zeros((), real()),
         parity_fix=parity_fix,
         lean=lean,
+        reference=reference,
         extended=extended,
         smooth=smooth,
         direct_angles=bool(smooth and direct),
@@ -260,11 +264,42 @@ def common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, parity_fix, extended
         m_grid = m_max if grid_range is None else grid_range[1]
         heavy = hz_to_mf(flow, wf.m_tot) > LEAN_HEAVY_MF
         prec.st_flow_lean = flow * m_max / m_grid * jnp.where(heavy, 0.5, 1.0)
+        if reference:
+            # the grid of the PNR interpolants reaches down to f_ref less
+            # REFERENCE_NODES nodes, no lower than ~0.31 f_ref
+            # (interpolation_grid)
+            # (where LAL's start fails, as for heavy binaries with m' = 1 or
+            # 3 only, the start below f_ref, which the grid then needs)
+            low = REFERENCE_FLOW * wf.f_ref
+            lal_ok = ~jnp.isnan(flow) & (flow > 0.0)
+            prec.st_flow_lean = soft_min(jnp.where(lal_ok, prec.st_flow_lean, low), low, 0.1 * low)
     prec.st_flow_ok = ~jnp.isnan(flow) & (flow > 0.0)
+    if lean and reference:
+        prec.st_flow_ok = ~jnp.isnan(prec.st_flow_lean) & (prec.st_flow_lean > 0.0)
     # the end of the integration: fRING + 8 fDAMP of the aligned-spin struct
     prec.st_fcut = mf_to_hz(wf.f_ring + 8.0 * wf.f_damp, wf.m_tot)
     prec.m_min, prec.m_max, prec.l_max_pnr = m_min, m_max, l_max
     return prec, wf
+
+
+#: The lean model with the mass-scaled reference integrates from at most
+#: this fraction of ``f_ref`` (:func:`common_setup`).
+REFERENCE_FLOW = 0.25
+#: The nodes of the grid of the PNR interpolants at least on each side of
+#: the mass-scaled reference frequency (:func:`interpolation_grid`).
+REFERENCE_NODES = 4
+
+
+def soft_min(a, b, soft):
+    """``min(a, b)``, blended (C2) across ``|a - b| < soft``: between the
+    two, at most ``min(a, b) + soft``."""
+    w = pa._ramp(b - a, soft)
+    return fma(w, a - b, b)
+
+
+def soft_max(a, b, soft):
+    """``max(a, b)``, blended as :func:`soft_min`."""
+    return -soft_min(-a, -b, soft)
 
 
 #: Above this ``Mf`` of the start of the SpinTaylor integration, the lean
@@ -936,6 +971,9 @@ def initialize_euler_angles(prec, wf):
     prec.st_rotation = _rotation(prec)
     buffer = prec.integration_buffer
     fmin_angles = (wf.f_min - buffer) * 2.0 / prec.m_max
+    if getattr(prec, "reference", False):
+        # (the mass-scaled reference: the angles are needed down to f_ref)
+        fmin_angles = jnp.minimum(fmin_angles, wf.f_ref)
     mf_max = jnp.where(wf.mf_max > fma(4.0, wf.f_damp, wf.f_ring), wf.mf_max, fma(4.0, wf.f_damp, wf.f_ring))
     mf_max_angles = (mf_max + hz_to_mf(buffer, wf.m_tot)) * 2.0 / prec.m_min
     fmax_angles = mf_to_hz(mf_max_angles, wf.m_tot)
@@ -1594,6 +1632,12 @@ def interpolation_grid(prec, wf, modes, version):
     f_min_22 = jnp.where(uniform & (f_min_from_delta_f < f_min_22), f_min_from_delta_f, f_min_22)
     f_max_22 = jnp.where(uniform, wf.f_max_prime, wf.f_max)
     f_min, f_max = f_min_22, f_max_22
+    reference = getattr(prec, "reference", False)
+    if reference and (2, 2) not in modes:
+        # (the mass-scaled reference: the band of the modes only; LAL's
+        # grid holds the band of the (2,2) mode whichever modes are asked
+        # for, below the start of the integration where m' = 1 only)
+        f_min, f_max = jnp.full_like(f_min_22, jnp.inf), jnp.full_like(f_max_22, -jnp.inf)
     error = jnp.asarray(False)
     vanishing_odd = (wf.q == 1.0) & (wf.chi1l == wf.chi2l)
     for ell, emm in modes:
@@ -1610,14 +1654,42 @@ def interpolation_grid(prec, wf, modes, version):
         f_min = jnp.where(~skip & (lo < f_min), lo, f_min)
         f_max = jnp.where(~skip & (hi > f_max), hi, f_max)
         error = error | (~skip & (e1 | e2))
-    delta_f_int = interpolation_delta_f(prec, wf, f_min, version)
-    f_min = jnp.where(fnms(2.0, delta_f_int, f_min) < 0.0, f_min / 2.0, fnms(2.0, delta_f_int, f_min))
-    f_max = fma(2.0, delta_f_int, f_max)
+    if reference:
+        # (the odd modes all vanish: the band of the (2,2) mode)
+        f_min = jnp.where(jnp.isfinite(f_min), f_min, f_min_22)
+        f_max = jnp.where(jnp.isfinite(f_max), f_max, f_max_22)
+        f_min, f_max, delta_f_int = _reference_grid(prec, wf, f_min, f_max, version)
+    else:
+        delta_f_int = interpolation_delta_f(prec, wf, f_min, version)
+        f_min = jnp.where(fnms(2.0, delta_f_int, f_min) < 0.0, f_min / 2.0, fnms(2.0, delta_f_int, f_min))
+        f_max = fma(2.0, delta_f_int, f_max)
     i_start = jnp.floor(f_min / delta_f_int)
     i_stop = jnp.floor(f_max / delta_f_int) + 1.0
     n = i_stop - i_start
     error = error | (n < 3) | (n > PNR_GRID_CAPACITY)
     return i_start, n, delta_f_int, error
+
+
+def _reference_grid(prec, wf, f_min, f_max, version):
+    """The ends and the spacing of the grid of the PNR interpolants with the
+    mass-scaled reference frequency, from the ends ``f_min``, ``f_max`` that
+    the modes need: the grid holds ``f_ref`` with :data:`REFERENCE_NODES`
+    nodes on each side. As LAL's, the spacing is that at the lower end, and
+    the grid reaches two nodes beyond the band; the ends follow the soft
+    minimum and maximum (:func:`soft_min`), so that they are continuous
+    with their derivatives where the reference crosses the band. For heavy
+    binaries, whose spacing is a sizeable fraction of the frequency, the
+    spacing is at most ``f_ref / (2 REFERENCE_NODES)`` (the grid then
+    starts above ~0.31 ``f_ref``)."""
+    f_ref = wf.f_ref
+    low = soft_min(f_min, f_ref, 0.05 * f_ref)
+    delta_f_int = interpolation_delta_f(prec, wf, low, version)
+    cap = f_ref / (2.0 * REFERENCE_NODES)
+    delta_f_int = soft_min(delta_f_int, cap, 0.1 * cap)
+    band_low = jnp.where(fnms(2.0, delta_f_int, f_min) < 0.0, f_min / 2.0, fnms(2.0, delta_f_int, f_min))
+    f_min = soft_min(band_low, fnms(float(REFERENCE_NODES), delta_f_int, f_ref), delta_f_int)
+    f_max = soft_max(fma(2.0, delta_f_int, f_max), fma(float(REFERENCE_NODES), delta_f_int, f_ref), delta_f_int)
+    return f_min, f_max, delta_f_int
 
 
 #: Points on each side of a chunk in the local solves of the spline

@@ -54,7 +54,7 @@ from ..._options import strain_scale
 from . import hm, pnr
 from . import pnr_angles as pa
 from ._math import (
-    PI, Struct, barrier, complex_, hz_to_mf, mass_unit, materialized, mf_to_hz, narrowed, precision, precision_of, real,
+    MTSUN_SI, PI, Struct, barrier, complex_, hz_to_mf, mass_unit, materialized, mf_to_hz, narrowed, precision, precision_of, real,
     safe_sqrt, tiny,
 )
 from ._math import (
@@ -102,12 +102,23 @@ def ordered_binary(binary):
     )
 
 
-def setup_waveform(binary, delta_f, f_min, f_max, amp_scale=1.0):
+def reference_frequency(binary, reference_mf=None):
+    """The reference frequency (Hz) of ``binary``: ``binary.f_ref`` (LAL's
+    convention, zero for the first frequency), or ``reference_mf / M``
+    with the mass-scaled reference (``WaveformOptions.reference_mf``)."""
+    if reference_mf is None:
+        return jnp.asarray(binary.f_ref, dtype=real())
+    m_tot = jnp.asarray(binary.mass_1, dtype=real()) + jnp.asarray(binary.mass_2, dtype=real())
+    return reference_mf / (m_tot * MTSUN_SI)
+
+
+def setup_waveform(binary, delta_f, f_min, f_max, amp_scale=1.0, reference_mf=None):
     """``IMRPhenomXSetWaveformVariables`` as the precessing drivers call it
-    (ordered bodies, the 122019 release of the higher modes)."""
+    (ordered bodies, the 122019 release of the higher modes), with the
+    reference frequency of :func:`reference_frequency`."""
     m1, m2, chi1, chi2 = ordered_binary(binary)
     wf = waveform_struct(
-        m1 * mass_unit(), m2 * mass_unit(), chi1[2], chi2[2], delta_f, jnp.asarray(binary.f_ref, dtype=real()),
+        m1 * mass_unit(), m2 * mass_unit(), chi1[2], chi2[2], delta_f, reference_frequency(binary, reference_mf),
         jnp.asarray(binary.phi_ref, dtype=real()), f_min, f_max,
         jnp.asarray(binary.luminosity_distance, dtype=real()),
         jnp.asarray(binary.inclination, dtype=real()), amp_scale,
@@ -567,7 +578,8 @@ def _pipeline_330(setup, modes, frequencies, active=True):
 
 
 def _decide(binary, frequencies, delta_f, f_min, f_max, modes, parity_fix, mode_range_=None, check_reference=True,
-            fallback=True, extended=False, smooth=None, direct=True, phase_grid=False, amp_scale=1.0, lean=False):
+            fallback=True, extended=False, smooth=None, direct=True, phase_grid=False, amp_scale=1.0, lean=False,
+            reference_mf=None):
     """Set up the binary and compute the angle data of the prescription LAL
     would use. Without ``fallback`` (static), only the SpinTaylor angles
     (version 330) are computed, with the error flag set where LAL would use
@@ -579,22 +591,28 @@ def _decide(binary, frequencies, delta_f, f_min, f_max, modes, parity_fix, mode_
     SpinTaylor angles (:func:`.spintaylor.angles.direct_spline`) and the
     phase grid of the PNR interpolants (:func:`.pnr.angle_interpolants`).
     ``lean`` (static) is the lean model (:mod:`.lean`): the smooth, direct
-    angles with the parity fix and the lean SpinTaylor solution."""
+    angles with the parity fix and the lean SpinTaylor solution; for it,
+    ``reference_mf`` (static) the mass-scaled reference frequency
+    (``WaveformOptions.reference_mf``): the reference may then lie outside
+    the frequencies, and a non-zero ``binary.f_ref`` is an error."""
     if lean:
         extended, smooth, direct, parity_fix = True, True, True, True
     fallback = fallback and not extended
     smooth = extended if smooth is None else smooth
-    wf, m1_si, m2_si, chi1, chi2 = setup_waveform(binary, delta_f, f_min, f_max, amp_scale)
+    reference = reference_mf is not None
+    wf, m1_si, m2_si, chi1, chi2 = setup_waveform(binary, delta_f, f_min, f_max, amp_scale, reference_mf)
     wf.hm_release = 122019
     error = wf_errors(wf)
-    if check_reference:
+    if reference:
+        error = error | (jnp.asarray(binary.f_ref, dtype=real()) != 0.0)
+    elif check_reference:
         # tuned angles: f_min <= f_ref <= f_max
         upper = jnp.where(delta_f > 0, wf.f_max_prime, f_max)
         error = error | ~((wf.f_ref >= f_min) & (wf.f_ref <= upper))
     if mode_range_ is None:
         mode_range_ = pnr.mode_range(modes)
     base, wf0 = barrier(pnr.common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, parity_fix, extended, smooth,
-                                         direct, phase_grid, lean, pnr.mode_range(modes)))
+                                         direct, phase_grid, lean, pnr.mode_range(modes), reference))
     error = error | base.error_spin | (wf0.f_max_prime <= wf0.f_min)
 
     # the SpinTaylor integration, where LAL attempts it
@@ -647,7 +665,7 @@ def _polarizations_in(binary, frequencies, options):
     data = _decide(binary, frequencies, 0.0, frequencies[0], frequencies[-1], modes, options.pnr_parity_fix,
                    fallback=options.version_fallback, extended=options.extended_spintaylor,
                    direct=options.extended_direct_angles, phase_grid=options.extended_phase_grid,
-                   amp_scale=strain_scale(options), lean=options.lean)
+                   amp_scale=strain_scale(options), lean=options.lean, reference_mf=options.reference_mf)
     hp, hc = _twist_polarizations(data, modes, frequencies)
     nan = jnp.asarray(jnp.nan + 1j * jnp.nan, complex_())
     return jnp.where(data.error, nan, hp), jnp.where(data.error, nan, hc)
@@ -728,7 +746,8 @@ def _jframe_modes_in(binary, frequencies, options, delta_f, f_min, f_max):
         data = _decide(binary, frequencies, delta_f, f_min, f_max, modes, parity_fix, mode_range_=key,
                        check_reference=False, fallback=options.version_fallback,
                        extended=options.extended_spintaylor, direct=options.extended_direct_angles,
-                       phase_grid=options.extended_phase_grid, amp_scale=strain_scale(options), lean=options.lean)
+                       phase_grid=options.extended_phase_grid, amp_scale=strain_scale(options), lean=options.lean,
+                       reference_mf=options.reference_mf)
         hs = dict(zip(modes, _coprecessing_modes(data.wf, modes, frequencies, data.xas22)))
         results.append((jmodes, data, hs))
     else:
@@ -751,7 +770,7 @@ def _jframe_modes_in(binary, frequencies, options, delta_f, f_min, f_max):
                            mode_range_=(key[0], key[1], key[2]), check_reference=False,
                            fallback=options.version_fallback, extended=options.extended_spintaylor,
                            direct=options.extended_direct_angles, phase_grid=options.extended_phase_grid,
-                           amp_scale=strain_scale(options), lean=options.lean)
+                           amp_scale=strain_scale(options), lean=options.lean, reference_mf=options.reference_mf)
             hs = jax.lax.switch(ell_index, [modes_of(ell) for ell in ells], data.wf)
             return data, hs
 

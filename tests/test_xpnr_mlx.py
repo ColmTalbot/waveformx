@@ -542,3 +542,38 @@ def test_nan_where_jax_fails(mlx_model):
         expected, _ = lean.polarizations(as_dtype(binary, jnp.float64), jnp.asarray(f))
         assert np.all(np.isnan(np.asarray(expected)))
         assert np.all(np.isnan(np.asarray(hp)))
+
+
+# ---------------------------------------------------------------------------
+# the mass-scaled reference frequency
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("modes", [None, ((2, 1), (2, -1))])
+def test_mass_scaled_reference(mlx_model, modes):
+    """With ``reference_mf``: as close to the JAX float64 model as JAX
+    float32 (m' = 1 alone included, and heavy binaries whose reference lies
+    below the band); NaN for a non-zero ``f_ref``; finite gradients."""
+    ref = 0.01
+    f = np.linspace(20.0, 512.0, 256)
+    for name in ("generic", "unequal", "beyond", "light"):
+        binary = BINARIES[name]._replace(f_ref=0.0)
+        hp, _ = mlx_model.polarizations(binary, f, mode_array=modes, reference_mf=ref)
+        want = lean.polarizations(as_dtype(binary, jnp.float64), jnp.asarray(f), mode_array=modes, reference_mf=ref)[0]
+        single = lean.polarizations(as_dtype(binary, jnp.float32), jnp.asarray(f, jnp.float32), mode_array=modes,
+                                    reference_mf=ref)[0]
+        got = np.asarray(hp)
+        assert np.all(np.isfinite(got)), name
+        assert mismatch(got, want) <= max(3 * mismatch(single, want), 1e-8), (name, mismatch(got, want),
+                                                                                mismatch(single, want))
+    hp, _ = mlx_model.polarizations(BINARIES["generic"], f, mode_array=modes, reference_mf=ref)
+    assert np.all(np.isnan(np.asarray(hp)))
+
+    def norm(*fields):
+        hp, hc = mlx_model.polarizations(wf.Binary(*fields), f, mode_array=modes, reference_mf=ref)
+        return mx.sum(mx.abs(hp) ** 2 + mx.abs(hc) ** 2)
+
+    args = [mx.array(np.asarray(v, np.float32)) for v in BINARIES["generic"]._replace(f_ref=0.0)]
+    grad = mx.grad(norm, argnums=list(range(8)))(*args)
+    assert all(np.all(np.isfinite(np.asarray(g))) for g in grad)
+    assert float(np.asarray(grad[7])) == 0.0
