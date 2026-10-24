@@ -16,8 +16,8 @@ module             contents
 ``_fits``          the parameter-space fits
 ``_dynamics``      the dynamics ODE in MLX operations: the reference time,
                    and the integration that the kernel replaces
-``_kernel``        the integration of the dynamics in one Metal kernel,
-                   with its Jacobian for the derivatives
+``_kernel``        the integration of the dynamics in Metal kernels: the
+                   states, and their Jacobian for the derivatives
 ``_frames``        coorbital -> coprecessing -> inertial frame in MLX
                    operations
 ``_wigner``        the rotation to the inertial frame in Metal kernels,

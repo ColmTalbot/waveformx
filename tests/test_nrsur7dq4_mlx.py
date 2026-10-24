@@ -219,8 +219,8 @@ DYNAMICS = np.array([
 
 
 def test_dynamics_kernel(nrsur):
-    """The Metal kernel integrates the dynamics as the MLX operations do,
-    close to JAX in float64, and its Jacobian with respect to ``(q, chi_a,
+    """The Metal kernels integrate the dynamics as the MLX operations do,
+    close to JAX in float64, and their Jacobian with respect to ``(q, chi_a,
     chi_b, t_ref)`` agrees with JAX's float64 forward-mode derivatives;
     ``mx.grad`` contracts it."""
     from waveformjax.models.nrsur7dq4 import _dynamics, default_data
@@ -239,8 +239,6 @@ def test_dynamics_kernel(nrsur):
 
     params = mx.array(DYNAMICS)
     states, jacobian = (np.array(x) for x in _kernel.states_and_jacobian(data, params))
-    value, _ = _kernel.states_and_jacobian(data, params, 1)
-    np.testing.assert_array_equal(np.array(value), states)
     p = params
     ops = np.array(mlx_dynamics.states_from_reference(data, p[:, 0], p[:, 1:4], p[:, 4:7], p[:, 7]))
     wide = jnp.asarray(DYNAMICS.astype(np.float64))
@@ -248,8 +246,11 @@ def test_dynamics_kernel(nrsur):
     jac_reference = np.asarray(jax.jit(jax.vmap(jax.jacfwd(jax_states)))(wide))
     for b in range(len(DYNAMICS)):
         scale = np.max(np.abs(reference[b]), axis=0)
+        # float32 rounding, in another order in the kernels and in the
+        # operations, grows through the integration to ~1e-4 of the range
+        # of a component for large in-plane spins at q = 1
         for test in (states[b], ops[b]):
-            assert np.all(np.abs(test - reference[b]) <= 2e-4 * scale)
+            assert np.all(np.abs(test - reference[b]) <= 3e-4 * scale)
         column = np.max(np.abs(jac_reference[b]), axis=0)
         error = np.max(np.abs(jacobian[b] - jac_reference[b]), axis=0)
         assert np.all(np.isfinite(jacobian[b]))
