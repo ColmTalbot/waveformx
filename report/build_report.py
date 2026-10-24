@@ -172,6 +172,35 @@ def failure_text(data, how):
             f"({agree}/{n} agree).")
 
 
+def lean_values(values):
+    """The lean IMRPhenomXPNR (``report/lean_xpnr.py``)."""
+    names = ["lean_vs_extended", "lean_n"] + [f"{m}_compile_{k}" for m in ("lean", "default")
+                                              for k in ("eval", "vmap", "grad")]
+    names += ["lean_runtime", "default_runtime", "extended_runtime"]
+    if not (DATA / "lean_xpnr.json").exists():
+        values.update({name: "–" for name in names})
+        values.update(lean_vs_lal_n="–", lean_vs_lal_median="–", lean_vs_lal_max="–")
+        return
+    lean = load("lean_xpnr.json")
+    values["lean_vs_extended"] = sci(max(lean["mismatches"]))
+    values["lean_n"] = f"{len(lean['mismatches']) + lean['finite_differs']:,}"
+    for key, seconds in lean["compile_seconds"].items():
+        model_name, kind = key.split("_")
+        values[f"{model_name}_compile_{kind}"] = duration(seconds)
+    for name in ("lean", "default", "extended"):
+        values[f"{name}_runtime"] = duration(lean["runtime"][name])
+    # against LAL where LAL uses the SpinTaylor angles (report/extended/validate.py --variant lean)
+    path = HERE / "extended" / "data" / "validation_lean.json"
+    if path.exists():
+        lal = json.loads(path.read_text())
+        mm = [m for m in next(iter(lal["mismatches"].values())) if m is not None]
+        values["lean_vs_lal_n"] = str(len(mm))
+        values["lean_vs_lal_median"] = sci(sorted(mm)[len(mm) // 2])
+        values["lean_vs_lal_max"] = sci(max(mm))
+    else:
+        values.update(lean_vs_lal_n="–", lean_vs_lal_median="–", lean_vs_lal_max="–")
+
+
 def float32_values(values):
     """The float32 study of NRSur7dq4 (``float32_nrsur7dq4.json``)."""
     data = load("float32_nrsur7dq4.json")
@@ -391,6 +420,7 @@ def build(args):
     rs_nrsur = nrsur["summary"].get("jax_vs_rs")
     values["nrsur_rs_max_rel"] = sci(rs_nrsur["max_relative_error"]) if rs_nrsur else "–"
     float32_values(values)
+    lean_values(values)
     mlx_values(values)
 
     rows = []
