@@ -328,3 +328,49 @@ def test_stage_e(built):
     for i, key in enumerate(("prec_e", "wf_e", "extra", "error_e")):
         errors += _leaf_errors(out[i], tout[i], key, names)
     _check(errors)
+
+
+# ---------------------------------------------------------------------------
+# stage 4: the SpinTaylor solution
+# ---------------------------------------------------------------------------
+
+
+def test_spintaylor():
+    """The steps of the integration, the dense output and the end of the
+    inspiral, with derivatives."""
+    from waveformjax.models.xpnr.mlx import _solution
+
+    names = ("generic", "aligned", "unequal", "beyond", "light")
+    trees, ttrees = _inputs(("ode",), names, "float64")
+    solution, summary, summary_t = _solution.integrate(trees[0], ttrees[0], P)
+    n = np.asarray(solution.n)
+    for b, name in enumerate(names):
+        ref = jax_reference(name, "float64")["sol"]
+        sol = ref.tree
+        assert n[b] == int(sol.n) and int(solution.n_back[b]) == int(sol.n_back)
+        m = n[b]
+        rows = np.asarray(solution.rows[b, :m], np.float64)
+        # (the steps fall at slightly different times than in float64: the
+        # step in time takes a power that float32 rounds; the solution is
+        # compared where it is used, at points, below)
+        np.testing.assert_allclose(rows[:, 1:4], np.asarray(sol.y)[:m, 2:5], atol=1e-3)
+        np.testing.assert_allclose(rows[:, 33], np.asarray(sol.h)[:m], rtol=1e-3)
+        s64 = jax_reference(name, "float64")["summary"]
+        for field in ("s1_end", "s2_end", "lnhat_end", "f_min_pn", "omega_first", "omega_last"):
+            got = np.asarray(getattr(summary, field)[b], np.float64)
+            want = np.asarray(getattr(s64.tree, field), np.float64)
+            assert np.max(np.abs(got - want)) <= 1e-3 * max(np.max(np.abs(want)), 1e-3), (name, field)
+        # the derivatives of the end of the inspiral
+        from waveformjax.models.xpnr.mlx._stages import partition
+
+        names_t = [p for p, _ in _stages.named_leaves(s64.tree)]
+        for field in ("s1_end", "s2_end", "lnhat_end", "omega_last"):
+            k = names_t.index("." + field)
+            want = np.moveaxis(np.asarray(s64.tangents[k], np.float64), 0, -1)
+            single = np.moveaxis(np.asarray(jax_reference(name, "float32")["summary"].tangents[k], np.float64), 0, -1)
+            got = np.asarray(getattr(summary_t, field)[b], np.float64)
+            scale = max(np.max(np.abs(want)), 1e-12)
+            # (JAX float32's derivatives of the end of the inspiral are off by up
+            # to 90%: its Newton step takes a secant float32 cannot resolve)
+            assert np.max(np.abs(got - want)) <= max(2e-3 * scale, np.max(np.abs(single - want))), (name, field)
+        del partition
