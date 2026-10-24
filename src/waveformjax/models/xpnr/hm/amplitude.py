@@ -33,7 +33,6 @@ from jax import lax
 
 from .._generated import hm_amp_122019 as gen
 from .._generated import hm_fits_122018 as fits
-from .._generated import hm_poly_122019 as poly
 from .._math import Struct, fma, powers
 from . import roots
 from .finite_differences import value_and_nd_derivative
@@ -60,43 +59,35 @@ _INPUTS = ("d1", "d4", "v1", "v2", "v3", "v4", "f1", "f2", "f3", "f4")
 
 
 def _make_polynomial_coefficients(version):
-    """``delta0`` ... ``delta5`` of reconstruction ``version``: LAL's closed
-    forms (:mod:`.._generated.hm_poly_122019`) for the values, and the
-    derivatives of the solution of the collocation conditions (implicit
-    differentiation of ``M(f) delta = (v, d)``) for the tangents, which keeps
-    the closed forms out of the differentiated graph."""
+    """``delta0`` ... ``delta5`` of reconstruction ``version``: the solution
+    of its collocation conditions ``M(f) delta = (v, d)`` (LAL writes out
+    the closed forms of the solution (waveformrs's ``hm_poly_122019.rs``);
+    the same to rounding, which one small linear solve compiles to much less
+    code than). The polynomial is solved for in powers of ``f / f4``, which
+    keeps the system well conditioned."""
     conditions = _CONDITIONS[version]
     n = len(conditions)
 
-    @jax.custom_jvp
     def coefficients(x):
-        return jnp.stack([jnp.asarray(c, jnp.float64) for c in poly.coefficients(Struct(**dict(zip(_INPUTS, x))), version)])
-
-    @coefficients.defjvp
-    def coefficients_jvp(primals, tangents):
-        (x,), (dx,) = primals, tangents
-        delta = coefficients(x)
         values = dict(zip(_INPUTS, x))
-        dvalues = dict(zip(_INPUTS, dx))
-        c = [delta[k] for k in range(n)]
+        scale = values["f4"]
         rows = []
         rhs = []
         for kind, i in conditions:
-            f = values[f"f{i}"]
-            df = dvalues[f"f{i}"]
-            powers_of_f = [f ** k for k in range(n)]
-            # P'(f) and P''(f)
-            dp = sum(k * c[k] * powers_of_f[k - 1] for k in range(1, n))
-            d2p = sum(k * (k - 1) * c[k] * powers_of_f[k - 2] for k in range(2, n))
+            g = values[f"f{i}"] / scale
+            powers_of_g = [jnp.ones_like(g)]
+            for _ in range(1, n):
+                powers_of_g.append(powers_of_g[-1] * g)
             if kind == "v":
-                rows.append(powers_of_f)
-                rhs.append(dvalues[f"v{i}"] - dp * df)
+                rows.append(powers_of_g)
+                rhs.append(values[f"v{i}"])
             else:
-                rows.append([0.0] + [k * powers_of_f[k - 1] for k in range(1, n)])
-                rhs.append(dvalues[f"d{i}"] - d2p * df)
-        matrix = jnp.stack([jnp.stack([jnp.asarray(e, jnp.float64) for e in row]) for row in rows])
-        ddelta = jnp.linalg.solve(matrix, jnp.stack(rhs))
-        return delta, jnp.concatenate([ddelta, jnp.zeros(6 - n)])
+                rows.append([jnp.zeros_like(g)] + [k * powers_of_g[k - 1] for k in range(1, n)])
+                rhs.append(values[f"d{i}"] * scale)
+        matrix = jnp.stack([jnp.stack(row) for row in rows])
+        scaled = jnp.linalg.solve(matrix, jnp.stack(rhs))
+        delta = scaled / scale ** jnp.arange(n)
+        return jnp.concatenate([delta, jnp.zeros(6 - n)])
 
     return coefficients
 

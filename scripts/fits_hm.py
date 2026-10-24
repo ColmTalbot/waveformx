@@ -49,20 +49,6 @@ def ringdown_fits(mode_int):
     return tuple(globals()[f"rd_amp_{mode}_{name}"] for name in ("alambda", "lambda", "sigma"))
 ''',
     ),
-    "hm_poly_122019": (
-        "imrphenomx/hm_poly_122019.rs",
-        "Coefficients ``delta0`` ... ``delta5`` of the intermediate amplitude polynomial of the\n"
-        "122019 release (``IMRPhenomXHM_Intermediate_Amp_delta*``) for the reconstructions 101,\n"
-        "102, 1032, 104, 1042 and 105; ``p`` holds ``v1`` ... ``v4``, ``d1``, ``d4``, ``f1`` ... ``f4``.",
-        None, ["coefficients"], None,
-        '''
-
-def coefficients(p, version):
-    """``delta0`` ... ``delta5`` of reconstruction ``version`` (a Python
-    int), ``Update_Intermediate_Amplitude_Coefficients``."""
-    return [globals()[f"delta{i}_{version}"](p) for i in range(6)]
-''',
-    ),
     "hm_amp_122019": (
         "imrphenomx/hm_amp_122019.rs",
         "Straight-line pieces of the IMRPhenomXHM amplitude of the 122019 release: the TaylorT4\n"
