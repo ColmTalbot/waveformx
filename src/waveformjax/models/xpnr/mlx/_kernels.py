@@ -285,7 +285,7 @@ class StageKernel:
                     g_width=gspec[1] if gspec else 0, g_t_width=gspec[2] if gspec else 0,
                     g_slots=gspec[3] if gspec else 0)
 
-    def _source(self, tangent, gspec=None):
+    def _source(self, tangent, gspec=None, counted=False):
         lay = self._layout(gspec)
         n_row = self.n_row_leaves
         program = self.jvp_program if tangent else self.program
@@ -343,6 +343,9 @@ class StageKernel:
             f"size_t point_in = ((size_t)(shared ? 0 : b) * n_points + point) * {lay['n_point_in']};",
             f"size_t out = (size_t)pr * {lay['n_out']};",
         ]
+        if counted:
+            # (the points of a binary beyond its count are left at zero)
+            head.append("if (point >= (uint)cn[b]) return;")
         if gspec:
             head.append("uint n_table = dims[4];")
             for row_offset, slot in sorted(set(lay["g_where"].values())):
@@ -367,15 +370,17 @@ class StageKernel:
             body += writes
         return "\n".join(body), lay
 
-    def _kernel(self, tangent, gspec=None):
-        key = (tangent, gspec)
+    def _kernel(self, tangent, gspec=None, counted=False):
+        key = (tangent, gspec, counted)
         if key not in self._kernels:
-            source, lay = self._source(tangent, gspec)
+            source, lay = self._source(tangent, gspec, counted)
             inputs = ["xr", "xp", "dims"] + (["tr", "tp"] if tangent else [])
             if gspec:
                 inputs += ["xg", "gi"] + (["tg"] if tangent else [])
+            if counted:
+                inputs.append("cn")
             outputs = ["y"] + (["dy"] if tangent else [])
-            suffix = ("jvp" if tangent else "f") + (f"_g{len(self._kernels)}" if gspec else "")
+            suffix = ("jvp" if tangent else "f") + (f"_g{len(self._kernels)}" if gspec or counted else "")
             kernel = mx.fast.metal_kernel(name=f"{self.name}_{suffix}", input_names=inputs, output_names=outputs,
                                           source=source, header=_metal.HEADER)
             self._kernels[key] = (kernel, lay)
@@ -438,7 +443,7 @@ class StageKernel:
             return mx.zeros(prefix + ((0, n_directions) if tangents else (0,)), dtype=mx.float32)
         return mx.concatenate(blocks, axis=-2 if tangents else -1)
 
-    def run(self, args, targs=None, *, batch, n_directions=0, n_points=None, shared=False, gather=None):
+    def run(self, args, targs=None, *, batch, n_directions=0, n_points=None, shared=False, gather=None, counts=None):
         """The outputs for the arguments ``args`` (pytrees of MLX arrays or
         :class:`Packed`) and, with ``n_directions``, their tangents
         (``targs``: pytrees of tangents, or ``None``, for the arguments
@@ -452,7 +457,11 @@ class StageKernel:
         ``index[b, n, slot] + row offset``, clipped to the table), ``table``
         (``(B, M, width)``), ``table_t`` (``(B, M, width_t, P)``, with
         tangents) and ``index`` (``(B, N)``, or ``(B, N, slots)``); the
-        gathered arguments are then ignored in ``args``."""
+        gathered arguments are then ignored in ``args``.
+
+        ``counts`` (``(B,)``, int) leaves the points of each binary from its
+        count on at zero, without evaluating them (the padding of grids of
+        different sizes)."""
         tangent = bool(n_directions)
         gspec = None
         if gather is not None:
@@ -461,7 +470,7 @@ class StageKernel:
             slots = int(index.shape[2]) if index.ndim == 3 else 1
             gspec = (tuple(sorted((a, tuple(v)) for a, v in gather["args"].items())), int(gather["table"].shape[2]),
                      int(width_t), slots)
-        kernel, lay = self._kernel(tangent, gspec)
+        kernel, lay = self._kernel(tangent, gspec, counts is not None)
         n_args = len(self.n_leaves)
         n_row_args = self.n_row_args
         skip = tuple(gather["args"]) if gather is not None else ()
@@ -486,11 +495,15 @@ class StageKernel:
             if tangent:
                 table_t = gather.get("table_t")
                 inputs.append(table_t if table_t is not None else mx.zeros((1,)))
+        extra = {}
+        if counts is not None:
+            inputs.append(mx.stop_gradient(counts).astype(mx.int32))
+            extra = dict(init_value=0.0)
         threads = batch * points * (n_directions if tangent else 1)
         group = 64
         grid = max(-(-threads // group) * group, group)
         out = kernel(inputs=inputs, grid=(grid, 1, 1), threadgroup=(group, 1, 1), output_shapes=output_shapes,
-                     output_dtypes=[mx.float32] * len(output_shapes))
+                     output_dtypes=[mx.float32] * len(output_shapes), **extra)
         prefix = (batch, n_points) if n_points is not None else (batch,)
         y = out[0].reshape(prefix + (lay["n_out"],))
         dy = out[1].reshape(prefix + (lay["n_out_t"], n_directions)) if tangent else None

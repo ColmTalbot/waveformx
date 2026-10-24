@@ -31,17 +31,17 @@ _SUMMARY = {name: i for i, name in enumerate(SUMMARY)}
 _TWO_PI = 2.0 * PI
 
 
-def _run(kernel, args, targs, batch, n_directions, n_points=None, shared=False):
+def _run(kernel, args, targs, batch, n_directions, n_points=None, shared=False, counts=None):
     """A generated kernel: its outputs as :class:`._kernels.Packed` (with
     their tangents if ``n_directions``)."""
     return kernel.run(args, targs if n_directions else None, batch=batch, n_directions=n_directions,
-                      n_points=n_points, shared=shared)
+                      n_points=n_points, shared=shared, counts=counts)
 
 
-def _call(kernel, trees, ttrees, batch, n_directions, n_points=None, shared=False):
+def _call(kernel, trees, ttrees, batch, n_directions, n_points=None, shared=False, counts=None):
     """A generated kernel: ``(outputs, tangents)`` as pytrees (the tangents
     ``None`` without ``n_directions``)."""
-    out = _run(kernel, trees, ttrees, batch, n_directions, n_points, shared)
+    out = _run(kernel, trees, ttrees, batch, n_directions, n_points, shared, counts)
     if isinstance(out, tuple):
         values = tuple(p.tree() for p in out)
         return values, (tuple(p.tangent_tree() for p in out) if n_directions else None)

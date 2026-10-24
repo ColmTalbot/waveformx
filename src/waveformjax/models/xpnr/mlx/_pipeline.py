@@ -189,7 +189,7 @@ def finish(st, index, size, frequencies, S, modes, n_directions):
     st_grid, st_grid_t = st_angles(solution, tab, st_range, st_range_t, rotation, rotation_t, mf_grid, mf_grid_t, P)
     # D: the PNR angles on the grid
     (alpha, beta, err_grid), d_t = _call(S.d, (prec2, wf2, mf_grid, st_grid), (None, None, mf_grid_t, st_grid_t),
-                                         batch, P, n_points=size)
+                                         batch, P, n_points=size, counts=n_grid)
     valid = k < n_grid[:, None].astype(mx.float32)
     alpha = mx.where(valid, alpha, 0.0)
     beta = mx.where(valid, beta, 0.0)
