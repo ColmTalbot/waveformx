@@ -17,6 +17,7 @@ and time in units of the total mass.
 from __future__ import annotations
 
 import jax.numpy as jnp
+import numpy as np
 
 from .._generated import spintaylor_coefficients as _pn
 from .._math import MSUN_SI, MTSUN_SI, PI, REAL4_EPS, FencedModule, Struct, fenced, fma, fnms
@@ -127,14 +128,20 @@ def coefficients(m1_si, m2_si, f_start, f_end):
     return c
 
 
+# (a gather with constant indices, which XLA's CPU backend fuses into the
+# arithmetic that uses it, unlike a concatenation of slices)
+_YZX = np.array([1, 2, 0])
+_ZXY = np.array([2, 0, 1])
+
+
 def _yzx(a):
     """The components ``(y, z, x)`` of the 3-vectors ``a`` (last axis)."""
-    return jnp.concatenate([a[..., 1:], a[..., :1]], axis=-1)
+    return a[..., _YZX]
 
 
 def _zxy(a):
     """The components ``(z, x, y)`` of the 3-vectors ``a`` (last axis)."""
-    return jnp.concatenate([a[..., 2:], a[..., :2]], axis=-1)
+    return a[..., _ZXY]
 
 
 def _cross(a, b):
