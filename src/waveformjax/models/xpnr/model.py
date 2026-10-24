@@ -179,7 +179,9 @@ def twist_up(ell, mprime, twist, ylm, h, symmetry):
     (2,2) mode): the contributions ``(h_+, h_x)`` in the J frame."""
     d = wigner_d(ell, mprime, twist.c, twist.s)
     sigma = symmetry if ell % 2 == 0 else -symmetry
-    hp_re = hp_im = hc_re = hc_im = 0.0
+    # (h_+ and h_x stacked, behind a barrier: one kernel computes the terms
+    # they share, rather than XLA copying them into a kernel for each)
+    re = im = 0.0
     for index in range(2 * ell + 1):
         y = ylm[index]
         k = index - ell
@@ -189,12 +191,10 @@ def twist_up(ell, mprime, twist, ylm, h, symmetry):
         cos = twist.cos_k[abs(k)]
         sin = -twist.sin_k[abs(k)] if k < 0 else twist.sin_k[abs(k)]
         total = a + b
-        hp_re = hp_re + total * cos
-        hp_im = hp_im + (b - a) * sin
-        hc_re = hc_re + total * sin
-        hc_im = hc_im + (a - b) * cos
-    eps_h = twist.eps * h
-    return eps_h * (hp_re + 1j * hp_im), eps_h * (hc_re + 1j * hc_im)
+        re = re + total * jnp.stack([cos, sin])
+        im = im + jnp.stack([(b - a) * sin, (a - b) * cos])
+    hp, hc = materialized(twist.eps * h * (re + 1j * im))
+    return hp, hc
 
 
 def rotate_polarizations(zeta, hp, hc):
