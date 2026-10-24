@@ -42,4 +42,7 @@ fi
 "$PY" report/benchmark.py
 "$PY" report/lean_xpnr.py
 "$PY" report/reference_xpnr.py
+# (the benchmark binaries of report/data/crossmodel_points.json are fixed:
+# report/crossmodel.py --select chose them once)
+"$PY" report/crossmodel.py
 "$PY" report/build_report.py

@@ -46,6 +46,7 @@ that of the overlap at the best time, which is held fixed).
 
 from __future__ import annotations
 
+import functools
 from typing import Callable, NamedTuple
 
 import jax
@@ -212,6 +213,11 @@ def with_conventions(binary: Binary, shifts) -> Binary:
     )
 
 
+@functools.lru_cache(maxsize=16)
+def _value_and_grad(objective):
+    return jax.jit(jax.value_and_grad(objective))
+
+
 class OptimizeResult(NamedTuple):
     """The result of :func:`optimize`: the best point and value, and the
     points and values reached from every start."""
@@ -222,12 +228,15 @@ class OptimizeResult(NamedTuple):
     funs: np.ndarray
 
 
-def optimize(objective: Callable, starts, *, maxiter: int = 100, tolerance: float = 1e-12) -> OptimizeResult:
-    """Minimise ``objective(x)``, a scalar JAX function of a vector, from
-    each row of ``starts`` with SciPy's L-BFGS-B and the gradient from
-    ``jax.grad``, and keep the best. The objective and its gradient are
-    compiled once (``jax.jit``) and evaluated on the host. Mismatches over
-    the convention parameters are multimodal: give several starts.
+def optimize(objective: Callable, starts, args=(), *, maxiter: int = 100, tolerance: float = 1e-12) -> OptimizeResult:
+    """Minimise ``objective(x, *args)``, a scalar JAX function of a
+    vector ``x`` (and of JAX arrays or pytrees ``args``), from each row of
+    ``starts`` with SciPy's L-BFGS-B and the gradient from ``jax.grad``, and
+    keep the best. The objective and its gradient are compiled once per
+    ``objective`` (``jax.jit``; pass what changes between calls, such as
+    the signal, in ``args`` to reuse the compilation) and evaluated on the
+    host. Mismatches over the convention parameters are multimodal: give
+    several starts.
 
     >>> def objective(shifts):
     ...     hp, hc = f(with_conventions(binary, shifts), frequencies)
@@ -236,10 +245,10 @@ def optimize(objective: Callable, starts, *, maxiter: int = 100, tolerance: floa
     """
     import scipy.optimize
 
-    value_and_grad = jax.jit(jax.value_and_grad(objective))
+    value_and_grad = _value_and_grad(objective)
 
     def fun(x):
-        value, grad = value_and_grad(jnp.asarray(x, jnp.float64))
+        value, grad = value_and_grad(jnp.asarray(x, jnp.float64), *args)
         return float(value), np.asarray(grad, dtype=np.float64)
 
     starts = np.atleast_2d(np.asarray(starts, dtype=np.float64))
