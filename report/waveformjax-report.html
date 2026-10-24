@@ -231,7 +231,7 @@ ol.pipeline .step-body { font-size: 0.97rem; }
   <h1>IMRPhenomXPNR and NRSur7dq4 in JAX, checked against LALSimulation</h1>
   <p class="dek">How two precessing waveform models, and LALSimulation's conversions between the time and frequency domains, were written as pure JAX functions that compile, vectorise and differentiate. The report covers how they compare with LALSimulation 6.2.0 and with waveformrs, how their derivatives compare with finite differences, and what they cost.</p>
   <dl class="meta">
-    <div><dt>Repository</dt><dd><code>waveformjax</code>, branch <code>main</code> at <code>fe9389f</code> (86 commits)</dd></div>
+    <div><dt>Repository</dt><dd><code>waveformjax</code>, branch <code>main</code> at <code>cbdb398</code> (88 commits)</dd></div>
     <div><dt>Reference</dt><dd>lalsimulation 6.2.0, lal 7.7.0 (conda-forge, osx-arm64), and waveformrs's Python bindings</dd></div>
     <div><dt>Platform</dt><dd>Apple M2 Ultra, 24 cores; JAX 0.11.2 on the CPU; Python 3.12.15</dd></div>
     <div><dt>Generated</dt><dd>24 October 2026</dd></div>
@@ -287,11 +287,11 @@ ol.pipeline .step-body { font-size: 0.97rem; }
   </div>
   <p>In short:</p>
   <ul>
-    <li><strong>Implementation.</strong> 93 Python modules (27,688 lines, of which 3,094 are parameter-space fits generated from waveformrs's Rust by a translator) cover the two models, their checks and the conversions (<a href="#design">sections 2</a>–<a href="#conversions">5</a>).</li>
+    <li><strong>Implementation.</strong> 98 Python modules (28,601 lines, of which 3,094 are parameter-space fits generated from waveformrs's Rust by a translator) cover the two models, their checks and the conversions (<a href="#design">sections 2</a>–<a href="#conversions">5</a>).</li>
     <li><strong>Accuracy.</strong> NRSur7dq4 agrees with LAL at rounding level. IMRPhenomXPNR's (2,2) mode agrees to ~1e-9. Its higher modes agree to ~1e-5, because LAL takes derivatives by finite differences whose rounding noise JAX's different, but valid, arithmetic changes (<a href="#accuracy">section 7</a>).</li>
     <li><strong>Single precision.</strong> NRSur7dq4 and IMRPhenomXPNR run in float32 when the binary's parameters are float32, and return the strain times 10<sup>21</sup> by default. For NRSur7dq4, In float32, an inner product between two different waveforms changes by 2.4×10<sup>-6</sup> of the product of their norms (median; at most 1.0×10<sup>-4</sup>). Derivatives agree with float64 to 5.6×10<sup>-5</sup> (<a href="#nrsur">section 4</a>).</li>
     <li><strong>Apple GPUs.</strong> NRSur7dq4 also runs in MLX on Apple GPUs, in float32, with its derivatives, LAL's grids and the conditioned waveforms. It is as accurate as JAX's float32 version: the overlap of two binaries changes by 2.3×10<sup>-6</sup> (median). In batches it evaluates 41,582 waveforms per second, 27.5× JAX's best on this machine's CPU (<a href="#nrsur">section 4</a>).</li>
-    <li><strong>IMRPhenomXPNR on Apple GPUs.</strong> The lean IMRPhenomXPNR runs in MLX, in float32, with its derivatives, generated from the JAX model's own jaxprs. Its mismatch with float64 is as small as JAX's float32 one (5.8×10<sup>-9</sup> median). In batches it evaluates 3,054 waveforms per second, 28.1× JAX's best on this machine's CPU (<a href="#xpnr-mlx">section 3</a>).</li>
+    <li><strong>IMRPhenomXPNR on Apple GPUs.</strong> The lean IMRPhenomXPNR runs in MLX, in float32, with its derivatives, generated from the JAX model's own jaxprs. Its mismatch with float64 is as small as JAX's float32 one (5.8×10<sup>-9</sup> median). In batches it evaluates 3,138 waveforms per second, 29.4× JAX's best on this machine's CPU (<a href="#xpnr-mlx">section 3</a>).</li>
     <li><strong>Derivatives.</strong> IMRPhenomXPNR is differentiated in forward mode, and its reverse-mode gradient is the transpose of that forward-mode Jacobian. NRSur7dq4 is differentiated directly in either mode. NRSur7dq4's derivatives agree with finite differences to ~1e-8. For IMRPhenomXPNR, finite differences of the full waveform disagree with the derivatives by up to 2.3×10<sup>-1</sup>, most in the in-plane spins; the transform tests, which use the (2,2) mode, agree to ~1e-7. This is still being investigated (<a href="#gradients">section 8</a>).</li>
     <li><strong>Cost.</strong> A compiled IMRPhenomXPNR waveform costs a little less than LALSimulation's, and about twice as much as waveformrs's. <code>jax.vmap</code> over many binaries is how JAX code would use it. Compilation takes 15–20 s for the model, 20–25 s under <code>jax.vmap</code> and under a minute for its gradient (<a href="#performance">section 9</a>).</li>
   </ul>
@@ -391,16 +391,16 @@ h = wf.simulate_td("IMRPhenomXPNR", 1 / 4096, 20.0, mass_1=36.0, mass_2=29.0)</c
         <tr><th class="num">MLX</th><th class="num">JAX float32</th><th class="num">JAX float64</th><th class="num">MLX</th><th class="num">JAX float32</th><th class="num">JAX float64</th></tr>
       </thead>
       <tbody>
-<tr><td class="num">1</td><td class="num">21.65 ms</td><td class="num">21.65 ms</td><td class="num">9.20 ms</td><td class="num">10.30 ms</td><td class="num">120 ms</td><td class="num">110 ms</td><td class="num">118 ms</td></tr>
-<tr><td class="num">16</td><td class="num">68.46 ms</td><td class="num">4.28 ms</td><td class="num">22.76 ms</td><td class="num">26.11 ms</td><td class="num">41.47 ms</td><td class="num">180 ms</td><td class="num">289 ms</td></tr>
-<tr><td class="num">64</td><td class="num">95.41 ms</td><td class="num">1.49 ms</td><td class="num">40.00 ms</td><td class="num">56.94 ms</td><td class="num">23.53 ms</td><td class="num">–</td><td class="num">–</td></tr>
-<tr><td class="num">256</td><td class="num">152 ms</td><td class="num">594 µs</td><td class="num">–</td><td class="num">–</td><td class="num">23.17 ms</td><td class="num">–</td><td class="num">–</td></tr>
-<tr><td class="num">1024</td><td class="num">335 ms</td><td class="num">327 µs</td><td class="num">–</td><td class="num">–</td><td class="num">–</td><td class="num">–</td><td class="num">–</td></tr>
+<tr><td class="num">1</td><td class="num">19.90 ms</td><td class="num">19.90 ms</td><td class="num">9.36 ms</td><td class="num">10.56 ms</td><td class="num">118 ms</td><td class="num">126 ms</td><td class="num">129 ms</td></tr>
+<tr><td class="num">16</td><td class="num">66.52 ms</td><td class="num">4.16 ms</td><td class="num">20.10 ms</td><td class="num">25.88 ms</td><td class="num">34.76 ms</td><td class="num">178 ms</td><td class="num">279 ms</td></tr>
+<tr><td class="num">64</td><td class="num">94.97 ms</td><td class="num">1.48 ms</td><td class="num">40.28 ms</td><td class="num">57.51 ms</td><td class="num">20.84 ms</td><td class="num">–</td><td class="num">–</td></tr>
+<tr><td class="num">256</td><td class="num">147 ms</td><td class="num">573 µs</td><td class="num">–</td><td class="num">–</td><td class="num">20.22 ms</td><td class="num">–</td><td class="num">–</td></tr>
+<tr><td class="num">1024</td><td class="num">326 ms</td><td class="num">319 µs</td><td class="num">–</td><td class="num">–</td><td class="num">–</td><td class="num">–</td><td class="num">–</td></tr>
       </tbody>
       <caption>The lean IMRPhenomXPNR on 8033 frequencies (20–1024 Hz), all modes: MLX on the Apple M2 Ultra GPU, JAX on the CPU under <code>jax.jit</code> (one binary) and <code>jax.jit(jax.vmap(...))</code> (random binaries of 20–120 M<sub>☉</sub> from 20 Hz). The gradient is that of the power of the polarizations. Median times; the larger JAX batches were not timed.</caption>
     </table>
   </div>
-  <p>One waveform takes 21.65 ms in MLX against 10.30 ms in JAX (float64) on the CPU: a single binary is dominated by the sequential integration (one SIMD group runs its steps one after the other) and by launching the kernels. In batches MLX evaluates 3,054 waveforms per second (at 1024 binaries per call), 28.1× JAX's best on the CPU (109 per second), and 43 gradients per second (at 256), 4.8× JAX's best (9.1). The gradient is a Jacobian along twelve directions, each thread recomputing the values: at large batches its time goes to the PNR angles on the grid of the interpolants and to the angles and modes at the frequencies. In a new process, importing takes 535 ms, the first waveform 9.6 s (tracing the stages, lowering them and compiling their kernels) and the first gradient 4.2 s (the JVP kernels); JAX compiles the lean model in 10.9 s and its gradient in 48.7 s.</p>
+  <p>One waveform takes 19.90 ms in MLX against 10.56 ms in JAX (float64) on the CPU: a single binary is dominated by the sequential integration (one SIMD group runs its steps one after the other) and by launching the kernels. In batches MLX evaluates 3,138 waveforms per second (at 1024 binaries per call), 29.4× JAX's best on the CPU (107 per second), and 49 gradients per second (at 256), 6.2× JAX's best (7.9). The gradient is a Jacobian along twelve directions, each thread recomputing the values: at large batches its time goes to the PNR angles on the grid of the interpolants and to the angles and modes at the frequencies. In a new process, importing takes 522 ms, the first waveform 8.4 s (tracing the stages, lowering them and compiling their kernels) and the first gradient 681 ms (the JVP kernels); JAX compiles the lean model in 10.9 s and its gradient in 48.7 s.</p>
 </section>
 
 <section id="nrsur">
@@ -5250,6 +5250,8 @@ python report/build_report.py</code></pre>
 <tr><td class="mono">07994df</td><td><span class="chip bad">BUG</span></td><td>finite float32 derivatives of the IMRPhenomXPNR higher modes</td></tr>
 <tr><td class="mono">d74e287</td><td><span class="chip good">PERF</span></td><td>the MLX lean IMRPhenomXPNR: SIMD lanes per component, packed stages</td></tr>
 <tr><td class="mono">fe9389f</td><td><span class="chip good">PERF</span></td><td>the MLX lean IMRPhenomXPNR: tables read by index, batches in chunks</td></tr>
+<tr><td class="mono">4c33e19</td><td><span class="chip ">DOC</span></td><td>the lean IMRPhenomXPNR in MLX in the report and the README</td></tr>
+<tr><td class="mono">cbdb398</td><td><span class="chip good">PERF</span></td><td>the MLX lean IMRPhenomXPNR: skip the padded grid points of the PNR angles</td></tr>
       </tbody>
     </table>
   </div>
