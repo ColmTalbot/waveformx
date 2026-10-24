@@ -27,7 +27,7 @@ __all__ = [
     "MSUN_SI", "MTSUN_SI", "MRSUN_SI", "PC_SI", "MPC_SI", "G_SI", "C_SI", "REAL4_EPS",
     "fma", "fms", "fnms", "Struct", "powers", "POWERS_OF_LALPI", "safe_div", "safe_sqrt",
     "safe_log", "safe_arccos", "where", "dot", "cross", "norm", "rotate_y", "rotate_z",
-    "hz_to_mf", "mf_to_hz",
+    "hz_to_mf", "mf_to_hz", "materialized",
 ]
 
 PI = float(np.pi)
@@ -377,6 +377,20 @@ def barrier(tree):
     # others (constants, integers) cannot be transposed
     for i, leaf in enumerate(leaves):
         if isinstance(leaf, jax.Array) and leaf.size <= 16 and jnp.issubdtype(leaf.dtype, jnp.inexact):
+            leaves[i] = jax.lax.optimization_barrier(leaf)
+    return jax.tree_util.tree_unflatten(treedef, leaves)
+
+
+def materialized(tree):
+    """``jax.lax.optimization_barrier`` on every traced array of ``tree``
+    (one barrier per value, as :func:`barrier`): values at many frequencies
+    that several consumers read (the co-precessing modes, the factors of the
+    twist) are computed once, rather than copied by XLA's fusion into each
+    consumer (``h_+`` and ``h_x``, every column of a Jacobian), which costs
+    both compile time and run time."""
+    leaves, treedef = jax.tree_util.tree_flatten(tree)
+    for i, leaf in enumerate(leaves):
+        if isinstance(leaf, jax.Array) and jnp.issubdtype(leaf.dtype, jnp.inexact):
             leaves[i] = jax.lax.optimization_barrier(leaf)
     return jax.tree_util.tree_unflatten(treedef, leaves)
 

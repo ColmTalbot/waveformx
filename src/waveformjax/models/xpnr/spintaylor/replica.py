@@ -53,20 +53,49 @@ C6 = 277020.0 / 7618050.0
 EC = (0.0, 1.0 / 360.0, 0.0, -128.0 / 4275.0, -2197.0 / 75240.0, 1.0 / 50.0, 2.0 / 55.0)
 
 
+#: The stages of ``rkf45_apply`` as rows of weights of ``(k1, .., k6)``: the
+#: states at which ``k2 .. k6`` are evaluated, then the new state (at which
+#: the derivative is evaluated last).
+STAGES = np.array([
+    [AH[0], 0.0, 0.0, 0.0, 0.0, 0.0],
+    [B3[0], B3[1], 0.0, 0.0, 0.0, 0.0],
+    [B4[0], B4[1], B4[2], 0.0, 0.0, 0.0],
+    [B5[0], B5[1], B5[2], B5[3], 0.0, 0.0],
+    [B6[0], B6[1], B6[2], B6[3], B6[4], 0.0],
+    [C1, 0.0, C3, C4, C5, C6],
+])
+
+
+def _weighted(row, ks):
+    """``row[0] k1 + row[1] k2 + ...``, summed in that order (the terms of
+    LAL's sums, and exact zeros)."""
+    acc = row[0] * ks[0]
+    for j in range(1, len(ks)):
+        acc = acc + row[j] * ks[j]
+    return acc
+
+
 def _rkf45(c, y, h, k1):
     """``rkf45_apply``: the new state, the error estimate, the derivative at
     the new state, ``k6`` (for the interpolant) and whether every
-    derivative evaluation succeeded."""
-    f = lambda x: dynamics.derivatives(c, x)  # noqa: E731
-    k2, ok2 = f(y + AH[0] * h * k1)
-    k3, ok3 = f(y + h * (B3[0] * k1 + B3[1] * k2))
-    k4, ok4 = f(y + h * (B4[0] * k1 + B4[1] * k2 + B4[2] * k3))
-    k5, ok5 = f(y + h * (B5[0] * k1 + B5[1] * k2 + B5[2] * k3 + B5[3] * k4))
-    k6, ok6 = f(y + h * (B6[0] * k1 + B6[1] * k2 + B6[2] * k3 + B6[3] * k4 + B6[4] * k5))
-    y_new = y + h * (C1 * k1 + C3 * k3 + C4 * k4 + C5 * k5 + C6 * k6)
-    dydt_out, ok7 = f(y_new)
+    derivative evaluation succeeded.
+
+    The six evaluations of the derivatives are the iterations of a loop
+    (one copy of the equations to compile rather than six), with the
+    stages ``k1 .. k6`` carried as separate small arrays."""
+    stages = jnp.asarray(STAGES)
+
+    def stage(s, carry):
+        ks, ok = carry
+        k, ok_s = dynamics.derivatives(c, y + h * _weighted(stages[s], ks[:6]))
+        ks = tuple(jnp.where(s + 1 == j, k, ks[j]) for j in range(7))
+        return ks, ok & ok_s
+
+    ks = (k1,) + tuple(jnp.zeros_like(k1) for _ in range(6))
+    ks, ok = jax.lax.fori_loop(0, 6, stage, (ks, jnp.asarray(True)))
+    k1, k2, k3, k4, k5, k6, dydt_out = ks
+    y_new = y + h * _weighted(STAGES[5], ks[:6])
     yerr = h * (EC[1] * k1 + EC[3] * k3 + EC[4] * k4 + EC[5] * k5 + EC[6] * k6)
-    ok = ok2 & ok3 & ok4 & ok5 & ok6 & ok7
     return y_new, yerr, dydt_out, k6, ok
 
 

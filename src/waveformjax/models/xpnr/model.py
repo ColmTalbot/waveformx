@@ -48,7 +48,7 @@ import jax.numpy as jnp
 
 from . import hm, pnr
 from . import pnr_angles as pa
-from ._math import MPC_SI, MSUN_SI, PI, Struct, barrier, hz_to_mf, mf_to_hz, safe_sqrt
+from ._math import MPC_SI, MSUN_SI, PI, Struct, barrier, hz_to_mf, materialized, mf_to_hz, safe_sqrt
 from ._transforms import cond, differentiable, switch
 from .antisymmetric import antisymmetric_waveform
 from .internals import errors as wf_errors
@@ -409,13 +409,13 @@ def _coprecessing_modes(wf, modes, frequencies):
             out.append(h22(mf, wf, xas, phif_ref(wf, xas), mf_cut=jnp.inf))
         else:
             out.append(hm.mode_h(coefficients[(ell, emm)], mf))
-    return out
+    return materialized(out)
 
 
 def _twist_polarizations(data, modes, frequencies):
     """``IMRPhenomXPHM_hplushcross``: the co-precessing modes (and the
     antisymmetric part of the (2,2) mode) twisted up into ``(h_+, h_x)``."""
-    data = barrier(data)
+    data = materialized(data)
     wf = data.wf
     mf = wf.m_sec * frequencies
     keep = mf <= wf.f_max_prime * wf.m_sec
@@ -424,7 +424,7 @@ def _twist_polarizations(data, modes, frequencies):
     hp = jnp.zeros(frequencies.shape, jnp.complex128)
     hc = jnp.zeros(frequencies.shape, jnp.complex128)
     for index, ((ell, emm), h) in enumerate(zip(modes, _coprecessing_modes(wf, modes, frequencies))):
-        twist = twist_factors(data.alpha[index], data.cos_beta[index], data.epsilon[index], emm)
+        twist = materialized(twist_factors(data.alpha[index], data.cos_beta[index], data.epsilon[index], emm))
         p, c = twist_up(ell, emm, twist, ylms[ell], h, 1.0)
         if (ell, emm) == (2, 2):
             pa_, ca_ = twist_up(ell, emm, twist, ylms[ell], data.h_as, -1.0)
