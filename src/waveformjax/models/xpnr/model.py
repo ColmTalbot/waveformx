@@ -290,6 +290,7 @@ def _spintaylor_setup(base, wf0, m1_si, m2_si, modes, needs_st):
                 if name not in REINTEGRATED:
                     setattr(prec, name, _tree_where(first, getattr(fresh, name), getattr(prev_prec, name)))
             wf = _tree_where(first, wf, prev_wf)
+        prec = pnr.st_bank(prec, wf)
         prec = pnr.initialize_euler_angles(prec, wf)
         prec = pnr.populate_structs(prec, wf, 330)
         grid = pnr.interpolation_grid(prec, wf, modes, 330)

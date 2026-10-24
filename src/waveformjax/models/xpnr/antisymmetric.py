@@ -129,7 +129,6 @@ def antisymmetric_coefficients(prec, wf, version):
     ``IMRPhenomX_PNR_GenerateAntisymmetricWaveform``."""
     phase22 = phase_coefficients(wf)
     amp22 = amp_coefficients(wf)
-    mf_t = 0.85 * wf.f_ring
     lina = 0.0
     linb = time_shift_22(phase22, wf)
     inveta = 1.0 / wf.eta
@@ -137,9 +136,15 @@ def antisymmetric_coefficients(prec, wf, version):
                                      -(linb * wf.mf_ref)) - lina) + FRAC_PI_4
     # the alpha parameters again, with the offsets of alpha after the PNR
     # angle interpolants (IMRPhenomX_PNR_GenerateAntisymmetricPhaseCoefficients)
-    ap, error_ap = pnr.alpha_connection(prec, wf, pnr.precompute_alpha_coefficients(prec, wf, version), version)
-    delta_mf = 0.0005
-    pts = jnp.stack([mf_t + delta_mf, mf_t - delta_mf, mf_t, wf.mf_ref])
+    banked = version == 330 and "st_bank" in prec
+    ap = prec.st_bank_params.alpha if banked else pnr.precompute_alpha_coefficients(prec, wf, version)
+    ap, error_ap = pnr.alpha_connection(prec, wf, ap, version)
+    delta_mf = pnr.ANTISYMMETRIC_DMF
+    mf_t, pts = pnr.antisymmetric_points(wf)
+    if banked:
+        # (evaluated with the set-up, pnr.st_bank)
+        pts = prec.st_bank.antisymmetric.mf
+        mf_t = pts[2]
     alphas, errors = pnr.region_alpha_at(prec, wf, pts, ap, version)
     alpha_der_mf_t = (alphas[0] - alphas[1]) / 2.0 / delta_mf
     alpha_mf_t = alphas[2]

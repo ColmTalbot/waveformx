@@ -767,6 +767,11 @@ def _st_anchors(prec):
 def _st_spline(prec, wf, mf):
     """The splines of the SpinTaylor ``alpha`` and ``cos(beta)`` (shared):
     ``(alpha, dalpha, cosbeta, dcosbeta, inside)`` at ``mf``."""
+    if "st_bank" in prec:
+        # the points evaluated together by st_bank
+        for _, entry in prec.st_bank.items():
+            if entry.mf is mf:
+                return entry.values
     if jnp.size(mf) > ST_MANY:
         return _st_spline_many(prec, wf, mf, jnp.size(mf), PNR_GRID_CHUNK)
 
@@ -804,6 +809,82 @@ def _msa_angles(system, mf):
                            lambda: _msa.phi_zeta_costhetal(system, jnp.cbrt(PI * mf))))
 
 
+def _euler_points(prec, wf, context):
+    """The end of the inspiral angles (``fmax_inspiral``) and the points
+    of the splines that :func:`initialize_euler_angles` reads."""
+    mfmax_pn = context.last_mf
+    fmax_inspiral = jnp.where(prec.pnr_on, mfmax_pn, mfmax_pn - wf.delta_mf)
+    fmax_inspiral = jnp.where(fmax_inspiral > wf.f_ring - wf.f_damp, 1.020 * wf.f_meco, fmax_inspiral)
+    return fmax_inspiral, jnp.stack([0.97 * fmax_inspiral, 0.99 * fmax_inspiral, 0.98 * fmax_inspiral, fmax_inspiral])
+
+
+def _alpha_points(prec, wf, ap, version):
+    """The bounds of the connection of the PNR ``alpha``
+    (:func:`alpha_connection`) and the points of ``alpha`` it reads."""
+    dmf = pa.PNR_DMF
+    mf_alpha_upper = ap.a4 / 3.0
+    mf_alpha_lower = (3.0 / 3.5) * mf_alpha_upper
+    below = mf_alpha_upper < hz_to_mf(2.0, wf.m_tot)
+    if version == 330:
+        below = below | (mf_alpha_lower - 2.0 * dmf < prec.mfmin_integration)
+    mf_alpha_lower = jnp.where(below, 100.0, mf_alpha_lower)
+    mf_alpha_upper = jnp.where(below, 100.0, mf_alpha_upper)
+    points = jnp.stack([mf_alpha_lower - dmf, mf_alpha_lower, mf_alpha_lower + dmf, mf_alpha_upper])
+    return mf_alpha_lower, mf_alpha_upper, points
+
+
+def _st_beta_points(prec, bp, ftrans_mrd):
+    """The points of the SpinTaylor ``beta`` that
+    :func:`st_beta_connection` reads, for the parameters ``bp`` with the
+    connection frequencies."""
+    dmf = pa.PNR_DMF
+    ftrans = jnp.where(ftrans_mrd <= 0.9 * bp.mf_beta_lower, ftrans_mrd, 0.9 * bp.mf_beta_lower)
+    mfa = jnp.where(ftrans - dmf < prec.mfmin_integration + 2.0 * dmf, prec.mfmin_integration + 2.0 * dmf, ftrans - dmf)
+    return mfa, jnp.stack([mfa - dmf, mfa, mfa + dmf])
+
+
+#: The step of the derivative of ``alpha`` at the transition of the
+#: antisymmetric mode (:func:`.antisymmetric.antisymmetric_coefficients`).
+ANTISYMMETRIC_DMF = 0.0005
+
+
+def antisymmetric_points(wf):
+    """The transition of the antisymmetric (2,2) mode and the points of
+    ``alpha`` it reads."""
+    mf_t = 0.85 * wf.f_ring
+    return mf_t, jnp.stack([mf_t + ANTISYMMETRIC_DMF, mf_t - ANTISYMMETRIC_DMF, mf_t, wf.mf_ref])
+
+
+@fenced
+def st_bank(prec, wf):
+    """The SpinTaylor splines at the points that the set-up of version 330
+    and the antisymmetric mode read (:func:`initialize_euler_angles`,
+    :func:`alpha_connection`, :func:`st_beta_connection`,
+    :func:`.antisymmetric.antisymmetric_coefficients`), evaluated together:
+    one evaluation of the splines to compile rather than one for each.
+    Kept in ``prec.st_bank`` (in place, with the J frame of the splines and
+    the alpha and beta parameters of :func:`populate_structs`), where
+    :func:`_st_spline` finds the values of these very points."""
+    prec.st_rotation = _rotation(prec)
+    prec.st_context = _st_context(prec, wf)[4]
+    fmax_inspiral, euler = _euler_points(prec, wf, prec.st_context)
+    ap = precompute_alpha_coefficients(prec, wf, 330)
+    bp = pa.beta_connection_frequencies(precompute_beta_coefficients(prec, wf, 330), _soft(prec))
+    _, _, alpha = _alpha_points(prec, wf, ap, 330)
+    _, beta = _st_beta_points(prec, bp, 0.98 * fmax_inspiral)
+    _, antisymmetric = antisymmetric_points(wf)
+    groups = dict(euler=euler, alpha=alpha, beta=beta, antisymmetric=antisymmetric)
+    values = _st_spline(prec, wf, jnp.concatenate(list(groups.values())))
+    bank, start = Struct(), 0
+    for name, points in groups.items():
+        n = points.shape[0]
+        setattr(bank, name, Struct(mf=points, values=tuple(v[start:start + n] for v in values)))
+        start += n
+    prec.st_bank = bank
+    prec.st_bank_params = Struct(alpha=ap, beta=bp)
+    return prec
+
+
 @fenced
 def initialize_euler_angles(prec, wf):
     """``IMRPhenomX_Initialize_Euler_Angles`` and
@@ -827,14 +908,14 @@ def initialize_euler_angles(prec, wf):
     prec.st_context = context
     mfmax_pn = context.last_mf
     mf_first = context.first_mf
-    fmax_inspiral = jnp.where(prec.pnr_on, mfmax_pn, mfmax_pn - wf.delta_mf)
-    fmax_inspiral = jnp.where(fmax_inspiral > wf.f_ring - wf.f_damp, 1.020 * wf.f_meco, fmax_inspiral)
+    fmax_inspiral, q = _euler_points(prec, wf, context)
+    if "st_bank" in prec:
+        q = prec.st_bank.euler.mf
     ftrans_mrd = 0.98 * fmax_inspiral
-    # alphaMRD_coeff from the spline of alpha
-    f1 = 0.97 * fmax_inspiral
-    f2 = 0.99 * fmax_inspiral
-    f3 = 0.98 * fmax_inspiral
-    q = jnp.stack([f1, f2, f3, fmax_inspiral])
+    # alphaMRD_coeff from the spline of alpha (at 0.97, 0.99, 0.98 and 1
+    # times fmax_inspiral)
+    f1 = q[0]
+    f2 = q[1]
     a, da, cb, dcb, inside = _st_spline(prec, wf, q)
     error = error | ~(inside[0] & inside[1])
     alpha1, dalpha1, alpha2 = -a[0], -da[0], -a[1]
@@ -1067,15 +1148,10 @@ def alpha_connection(prec, wf, ap, version):
     """``IMRPhenomX_PNR_alpha_connection_parameters``; returns the new
     parameters and the error flag."""
     dmf = pa.PNR_DMF
-    mf_alpha_upper = ap.a4 / 3.0
-    mf_alpha_lower = (3.0 / 3.5) * mf_alpha_upper
-    below = mf_alpha_upper < hz_to_mf(2.0, wf.m_tot)
-    if version == 330:
-        below = below | (mf_alpha_lower - 2.0 * dmf < prec.mfmin_integration)
-    mf_alpha_lower = jnp.where(below, 100.0, mf_alpha_lower)
-    mf_alpha_upper = jnp.where(below, 100.0, mf_alpha_upper)
+    mf_alpha_lower, mf_alpha_upper, points = _alpha_points(prec, wf, ap, version)
+    if version == 330 and "st_bank" in prec:
+        points = prec.st_bank.alpha.mf
     ap = ap.replace(mf_alpha_lower=mf_alpha_lower, mf_alpha_upper=mf_alpha_upper)
-    points = jnp.stack([mf_alpha_lower - dmf, mf_alpha_lower, mf_alpha_lower + dmf, mf_alpha_upper])
     values, errors = pn_alpha(prec, wf, points, version)
     a1, alpha_lower, a3, alpha_upper = values[0], values[1], values[2], values[3]
     a4 = pa.mr_alpha(mf_alpha_upper - dmf, ap)
@@ -1127,12 +1203,16 @@ def beta_connection(prec, wf, bp, version):
 def st_beta_connection(prec, wf, bp):
     """``IMRPhenomX_ST_PNR_beta_connection_parameters`` (version 330)."""
     dmf = pa.PNR_DMF
-    bp = pa.beta_connection_frequencies(bp, _soft(prec))
-    sa = prec.st_angles
-    ftrans = jnp.where(sa.ftrans_mrd <= 0.9 * bp.mf_beta_lower, sa.ftrans_mrd, 0.9 * bp.mf_beta_lower)
-    mfa = jnp.where(ftrans - dmf < prec.mfmin_integration + 2.0 * dmf, prec.mfmin_integration + 2.0 * dmf, ftrans - dmf)
+    if "st_bank" in prec:
+        # (with the connection frequencies)
+        bp = prec.st_bank_params.beta
+    else:
+        bp = pa.beta_connection_frequencies(bp, _soft(prec))
+    mfa, pts = _st_beta_points(prec, bp, prec.st_angles.ftrans_mrd)
+    if "st_bank" in prec:
+        pts = prec.st_bank.beta.mf
+        mfa = pts[1]
     mfb = bp.mf_beta_lower
-    pts = jnp.stack([mfa - dmf, mfa, mfa + dmf])
     _, _, cb, _, inside = _st_spline(prec, wf, pts)
     st_b = acos_safe(cb)
     error = ~jnp.all(inside)
@@ -1188,9 +1268,10 @@ def populate_structs(prec, wf, version):
         )
     else:
         prec.single = None
-    ap = precompute_alpha_coefficients(prec, wf, version)
+    banked = version == 330 and "st_bank" in prec
+    ap = prec.st_bank_params.alpha if banked else precompute_alpha_coefficients(prec, wf, version)
     ap, error_a = alpha_connection(prec, wf, ap, version)
-    bp = precompute_beta_coefficients(prec, wf, version)
+    bp = None if banked else precompute_beta_coefficients(prec, wf, version)
     if version == 330:
         bp, error_b = st_beta_connection(prec, wf, bp)
     else:
