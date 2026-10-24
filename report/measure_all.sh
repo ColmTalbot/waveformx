@@ -22,7 +22,7 @@ MLX_PY="${MLX_PYTHON:-$PY}"
 # (the whole suite: plain pytest runs the quick tier only)
 WAVEFORMJAX_SLOW=1 "$PY" -m pytest -q -p no:cacheprovider --junitxml=report/data/pytest.xml tests
 if "$MLX_PY" -c "import mlx.core" 2>/dev/null; then
-    "$MLX_PY" -m pytest -q -p no:cacheprovider tests/test_nrsur7dq4_mlx.py tests/test_xpnr_mlx.py tests/test_xas_mlx.py \
+    "$MLX_PY" -m pytest -q -p no:cacheprovider tests/test_nrsur7dq4_mlx.py tests/test_xpnr_mlx.py tests/test_xas_mlx.py tests/test_xhm_mlx.py \
         --junitxml=report/data/pytest_mlx.xml
 fi
 "$PY" report/validate_xpnr.py --n-draws 200
@@ -36,6 +36,7 @@ else
 fi
 # (IMRPhenomXAS: its MLX parts are measured only where MLX_PY has MLX)
 "$MLX_PY" report/xas.py
+"$MLX_PY" report/xhm.py
 "$PY" report/validate_conversions.py
 "$PY" report/gradients.py
 "$PY" report/benchmark.py
