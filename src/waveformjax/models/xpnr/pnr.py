@@ -624,7 +624,11 @@ def finish_setup(prec, wf, version, st=None):
         if prec.parity_fix:
             prec.chi1_evolved, prec.chi2_evolved = rotate_to_l_frame(lx, ly, lz, st.s1_end, st.s2_end)
         else:
-            phi = jnp.arctan2(ly, lx)
+            # (L along z, aligned spins: phi = atan2(0, 0) with a zero
+            # derivative rather than 0/0)
+            perp = (lx != 0.0) | (ly != 0.0)
+            phi = jnp.where(perp, jnp.arctan2(jnp.where(perp, ly, 0.0), jnp.where(perp, lx, 1.0)),
+                            jax.lax.stop_gradient(jnp.arctan2(ly, lx)))
             theta = acos_safe(lz / jnp.sqrt(fma(lz, lz, fma(lx, lx, ly * ly))))
             prec.chi1_evolved = rotate_y(-theta, rotate_z(-phi, st.s1_end))
             prec.chi2_evolved = rotate_y(-theta, rotate_z(-phi, st.s2_end))
