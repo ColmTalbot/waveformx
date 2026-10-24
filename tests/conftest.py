@@ -8,6 +8,9 @@
 * The NRSur7dq4 data are found through ``NRSUR7DQ4_DATA`` (the file) or
   ``LAL_DATA_PATH`` (its directory), else in waveformrs's ``lal_data/`` next
   to this repository (or next to one of its parents, for git worktrees).
+* Compiled code is kept in JAX's persistent cache (``~/.cache/waveformjax/jax``,
+  or ``WAVEFORMJAX_TEST_CACHE``; empty to turn it off), so that a run with
+  unchanged models skips their compilation.
 """
 
 import os
@@ -16,10 +19,19 @@ from pathlib import Path
 # before lalsimulation (and its OpenMP runtime) is loaded
 os.environ["OMP_NUM_THREADS"] = "1"
 
+import jax  # noqa: E402
 import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 
 import waveformjax  # noqa: E402, F401 (enables 64-bit floats)
+
+# JAX's persistent compilation cache: a test run with unchanged models loads
+# their compiled code rather than compiling it again (IMRPhenomXPNR takes
+# ~15 s, its derivatives more). WAVEFORMJAX_TEST_CACHE="" turns it off.
+_CACHE = os.environ.get("WAVEFORMJAX_TEST_CACHE", str(Path.home() / ".cache" / "waveformjax" / "jax"))
+if _CACHE:
+    jax.config.update("jax_compilation_cache_dir", _CACHE)
+    jax.config.update("jax_persistent_cache_min_compile_time_secs", 1.0)
 
 DATA_FILE = "NRSur7dq4_v1.0.h5"
 # waveformrs next to this repository, or next to a parent (from a git worktree)

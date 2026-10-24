@@ -15,6 +15,11 @@
   Python control flow on traced values, so that `jax.jit`, `jax.vmap` and
   `jax.grad` (with respect to the binary's parameters) work. Run
   the model's `tests/test_transforms_<model>.py` after changing it.
+- **Tests**: `pytest` runs the quick tier (`tests/test_quick.py` and a few
+  fast files, about a minute); `pytest tests` runs everything (an hour or
+  more; `WAVEFORMJAX_SLOW=1` adds the random-binary suites). Compiled code is
+  cached across runs in `~/.cache/waveformjax/jax` (`WAVEFORMJAX_TEST_CACHE`
+  moves it, empty turns it off): time compilation with the cache off.
 - **Run LALSimulation single-threaded** (`OMP_NUM_THREADS=1`) when comparing:
   its PNR and MSA angles race under OpenMP.
 - The reference implementation is the Rust crate waveformrs
