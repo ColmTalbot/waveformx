@@ -1,7 +1,7 @@
 # waveformjax
 
-Gravitational-wave waveform models for precessing compact binaries,
-implemented in [JAX](https://github.com/jax-ml/jax). The models can be
+Gravitational-wave waveform models for compact binaries, implemented in
+[JAX](https://github.com/jax-ml/jax). The models can be
 compiled with `jax.jit`, evaluated for many binaries at once with
 `jax.vmap`, and differentiated with respect to the binary's parameters with
 `jax.grad`. They follow [LALSimulation](https://git.ligo.org/lscsoft/lalsuite)
@@ -12,6 +12,25 @@ The package has the same interface as the Python bindings of
 
 ## Models
 
+- **IMRPhenomXAS** (frequency domain): the dominant mode of binaries whose
+  spins are aligned with the orbital angular momentum, written to be fast
+  for few frequencies, for many binaries sharing their frequencies and for
+  long frequency grids. It follows LALSimulation, with the same arithmetic
+  in single and double precision (masses in solar masses, two fits
+  rearranged so that they keep their precision near maximal spins).
+  - It runs in single precision (float32) when the binary's parameters are
+    float32, including its derivatives; the largest part of the inspiral
+    phase is computed with extra precision, so that it stays accurate for
+    long inspirals such as those of binary neutron stars.
+  - Its output is the strain multiplied by 10^21, so that it can be used in
+    single precision; the option `scaled_strain=False` gives the strain
+    itself, as LALSimulation does.
+  - It is also available in [MLX](https://github.com/ml-explore/mlx), in
+    single precision on Apple GPUs (optional dependency `mlx`): the
+    polarizations at given frequencies for one binary or a batch, with
+    their Jacobian and derivatives for `mx.grad`.
+  - Its modes and the conversions between the time and frequency domains
+    are not implemented.
 - **IMRPhenomXPNR** (frequency domain): precessing spins with higher modes,
   tuned to numerical relativity. By default it includes the parity fix from
   the development version of LALSuite; the behaviour of the LALSimulation

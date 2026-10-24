@@ -20,12 +20,16 @@
   more; `WAVEFORMJAX_SLOW=1` adds the random-binary suites). Compiled code is
   cached across runs in `~/.cache/waveformjax/jax` (`WAVEFORMJAX_TEST_CACHE`
   moves it, empty turns it off): time compilation with the cache off.
-- **MLX tests** (`tests/test_nrsur7dq4_mlx.py`, `tests/test_xpnr_mlx.py`) are
-  skipped without MLX: run them with a Python that has it (`MLX_PYTHON` in
-  `report/measure_all.sh`). The MLX lean IMRPhenomXPNR
-  (`models/xpnr/mlx`) is generated from the JAX lean model's jaxprs, so a
-  change to the lean model changes it too: run `tests/test_xpnr_mlx.py`
-  after changing the lean model or the code it calls.
+- **MLX tests** (`tests/test_nrsur7dq4_mlx.py`, `tests/test_xpnr_mlx.py`,
+  `tests/test_xas_mlx.py`) are skipped without MLX: run them with a Python
+  that has it (`MLX_PYTHON` in `report/measure_all.sh`). The MLX lean
+  IMRPhenomXPNR (`models/xpnr/mlx`) is generated from the JAX lean model's
+  jaxprs, so a change to the lean model changes it too: run
+  `tests/test_xpnr_mlx.py` after changing the lean model or the code it
+  calls. Likewise the set-up of the MLX IMRPhenomXAS is generated from
+  `models/xas/core.table`, which calls IMRPhenomXPNR's (2,2) code
+  (`internals.py`, `amp22.py`, `phase22.py`, the fits): run
+  `tests/test_xas_mlx.py` after changing any of them.
 - **Run LALSimulation single-threaded** (`OMP_NUM_THREADS=1`) when comparing:
   its PNR and MSA angles race under OpenMP.
 - The reference implementation is the Rust crate waveformrs

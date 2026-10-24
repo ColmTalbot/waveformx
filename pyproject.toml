@@ -17,11 +17,12 @@ dependencies = ["jax>=0.4.30", "numpy>=1.24", "h5py>=3.8"]
 # the comparisons with LALSimulation also need python-lalsimulation 6.2.0
 # (conda-forge)
 test = ["pytest"]
-# NRSur7dq4 and the lean IMRPhenomXPNR on Apple GPUs (waveformjax.models.nrsur7dq4.mlx, xpnr.mlx)
+# NRSur7dq4, the lean IMRPhenomXPNR and IMRPhenomXAS on Apple GPUs
+# (waveformjax.models.nrsur7dq4.mlx, xpnr.mlx, xas.mlx)
 mlx = ["mlx>=0.32.4"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests/test_quick.py", "tests/test_api.py", "tests/test_xpnr_xas.py"]
+testpaths = ["tests/test_quick.py", "tests/test_api.py", "tests/test_xpnr_xas.py", "tests/test_xas.py"]
