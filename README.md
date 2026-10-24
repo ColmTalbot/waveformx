@@ -18,9 +18,12 @@ The package has the same interface as the Python bindings of
   releases is available as an option. Its derivatives are computed in
   forward mode, so `jax.jvp` and `jax.jacfwd` work as well as `jax.grad`,
   and `jax.vmap` evaluates a batch of binaries together.
-  - Without version fallbacks (`version_fallback=False`) the model only
-    uses LALSimulation's SpinTaylor precession angles, and gives NaN where
-    LALSimulation would switch to other angles.
+  - By default the model only uses LALSimulation's SpinTaylor precession
+    angles, and reports an error (NaN from the pure functions) where
+    LALSimulation would switch to other angles, such as for binaries with
+    aligned spins. LALSimulation's switches to the other angles are
+    available as an option (`version_fallback=True`); the model then
+    compiles more slowly.
   - An extended variant (`extended_spintaylor=True`), which is not
     LALSimulation's waveform: it uses the SpinTaylor angles for every
     binary, including those LALSimulation cannot evaluate with them,
@@ -29,7 +32,12 @@ The package has the same interface as the Python bindings of
     stays smooth where the orbital angular momentum passes close to the
     total one, so that the waveform and its derivatives are continuous in
     the binary's parameters. The discrete choices that the higher modes
-    make in their amplitudes are kept as in LALSimulation.
+    make in their amplitudes are kept as in LALSimulation. By default it
+    takes the precession angles directly from the solution of the
+    precession equations rather than from LALSimulation's splines through
+    samples of it (`extended_direct_angles`), which is much faster for
+    light binaries; a coarser grid for interpolating the angles
+    (`extended_phase_grid`) makes light binaries faster still.
 - **NRSur7dq4** (time domain): numerical-relativity surrogate for precessing
   binaries with higher modes. It gives LALSimulation's polarizations and
   modes, with the same length and start time; its pure function evaluates

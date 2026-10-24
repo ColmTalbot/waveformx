@@ -35,7 +35,7 @@ def test_approximants():
 
 def test_options():
     options = wf.WaveformOptions()
-    assert options.pnr_parity_fix and options.version_fallback and options.mode_array is None
+    assert options.pnr_parity_fix and not options.version_fallback and options.mode_array is None
     assert not wf.WaveformOptions.lalsimulation_defaults().pnr_parity_fix
     assert wf.WaveformOptions(precession_version="MSA").precession_version == 223
     assert wf.WaveformOptions(mode_array=[[2, 2], (3, -3)]).mode_array == ((2, 2), (3, -3))

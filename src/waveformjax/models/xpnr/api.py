@@ -49,7 +49,6 @@ def _prescription(binary, f_min, f_max, modes, parity_fix, extended=False):
     failed, incomplete = jax.lax.cond(
         base.pnr_on & ~base.nnlo_from_start, st_flags, lambda _: (jnp.asarray(False), jnp.asarray(False)), None
     )
-    system = pnr._msa.system(pnr.msa_inputs(base, wf0, base.chi1, base.chi2))
     return dict(
         mass_ratio=wf.error_mass_ratio,
         final_mass=wf.error_final_mass,
@@ -60,9 +59,20 @@ def _prescription(binary, f_min, f_max, modes, parity_fix, extended=False):
         nnlo=base.nnlo_from_start,
         st_failed=failed,
         st_incomplete=incomplete,
-        msa_error=pnr._msa.msa_error(system),
         cutoff=wf0.f_max_prime <= wf0.f_min,
     )
+
+
+@functools.partial(jax.jit, static_argnums=(3, 4))
+def _msa_fails(binary, f_min, f_max, modes, parity_fix):
+    """Whether the MSA system cannot be initialised (which prescription
+    LAL falls back to when the SpinTaylor angles fail), compiled apart from
+    :func:`_prescription` because it is rarely needed."""
+    pnr.clear_cache()
+    wf, m1_si, m2_si, chi1, chi2 = model.setup_waveform(binary, 0.0, f_min, f_max)
+    wf.hm_release = 122019
+    base, wf0 = pnr.common_setup(wf, m1_si, m2_si, chi1, chi2, pnr.mode_range(modes), parity_fix)
+    return pnr._msa.msa_error(pnr._msa.system(pnr.msa_inputs(base, wf0, base.chi1, base.chi2)))
 
 
 class XPNRModel:
@@ -109,7 +119,7 @@ class XPNRModel:
             elif flags["nnlo"]:
                 reason, fallback = "the in-plane spins are below 1e-6", 102
             elif flags["st_failed"]:
-                if flags["msa_error"]:
+                if np.asarray(_msa_fails(binary, frequencies[0], frequencies[-1], modes, options.pnr_parity_fix)):
                     reason, fallback = "the SpinTaylor angles cannot be computed and the MSA system fails", 102
                 else:
                     reason, fallback = "the SpinTaylor angles cannot be computed", 223

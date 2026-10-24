@@ -62,7 +62,7 @@ def draws(seed=20261020):
 
 
 DRAWS = draws()
-POLARIZATIONS = jax.jit(lambda b, f: MODEL.polarizations(b, f, WaveformOptions(pnr_parity_fix=False)))
+POLARIZATIONS = jax.jit(lambda b, f: MODEL.polarizations(b, f, WaveformOptions(pnr_parity_fix=False, version_fallback=True)))
 
 
 @pytest.mark.parametrize("index", range(N_DRAWS))

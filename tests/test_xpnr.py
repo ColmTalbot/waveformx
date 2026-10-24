@@ -68,7 +68,7 @@ def compiled(options):
 
 
 def jax_polarizations(case, mode_array, parity_fix):
-    options = WaveformOptions(mode_array=mode_array, pnr_parity_fix=parity_fix)
+    options = WaveformOptions(mode_array=mode_array, pnr_parity_fix=parity_fix, version_fallback=True)
     hp, hc = compiled(options)(binary_of(case), jnp.asarray(case["frequencies"]))
     return np.asarray(hp), np.asarray(hc)
 

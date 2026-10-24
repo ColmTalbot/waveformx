@@ -29,9 +29,11 @@ from waveformjax.exceptions import PrecessionVersionUnavailableError
 from waveformjax.models.xpnr import MODEL, model, pnr
 from waveformjax.models.xpnr.api import _prescription
 
-LAL = WaveformOptions()
+LAL = WaveformOptions(version_fallback=True)
 STRICT = WaveformOptions(version_fallback=False)
 EXTENDED = WaveformOptions(extended_spintaylor=True)
+SPLINES = WaveformOptions(extended_spintaylor=True, extended_direct_angles=False)
+PHASE_GRID = WaveformOptions(extended_spintaylor=True, extended_phase_grid=True)
 MTSUN_SI = 4.925490947641267e-06
 
 
@@ -178,6 +180,29 @@ def test_continuous_across_lal_switches(which):
         x = 1e-3
     assert _jump(LAL, make, x) > 1e-5
     assert _jump(EXTENDED, make, x) < 1e-6
+
+
+def _mismatch(a, b):
+    """``1 - <a, b> / (|a| |b|)`` of the polarizations (both, unweighted)."""
+    a = np.concatenate([np.asarray(x) for x in a])
+    b = np.concatenate([np.asarray(x) for x in b])
+    return float(1 - np.real(np.vdot(b, a)) / (np.linalg.norm(a) * np.linalg.norm(b)))
+
+
+@pytest.mark.parametrize("case", ["light", "generic", "heavy"])
+def test_direct_angles_and_phase_grid_close_to_the_splines(case):
+    """The direct SpinTaylor angles (the default) and the phase grid of the
+    PNR interpolants stay well within a mismatch of 1e-3 of the angles from
+    LAL's splines through its samples: closest for light binaries, whose
+    samples are dense."""
+    total, b = {"light": (13.0, binary(mass_1=8.0, mass_2=5.0)), "generic": (65.0, binary()),
+                "heavy": (250.0, binary(mass_1=150.0, mass_2=100.0))}[case]
+    f = frequencies(total)
+    reference = compiled(SPLINES)(b, f)
+    assert finite(reference)
+    direct = _mismatch(compiled(EXTENDED)(b, f), reference)
+    assert direct < (1e-8 if case == "light" else 1e-4)
+    assert _mismatch(compiled(PHASE_GRID)(b, f), reference) < 1e-4
 
 
 def _setup(b, f, smooth):
@@ -331,6 +356,20 @@ def test_gradient_finite_and_matches_finite_differences(which):
         error = abs(gradient[i] - numeric) / max(abs(numeric), 1e-3 * scale)
         print(f"{name}: gradient {gradient[i]:.10e} finite difference {numeric:.10e} relative {error:.1e}")
         assert error <= 2e-5, (name, gradient[i], numeric)
+
+
+def test_phase_grid_gradients_finite():
+    options = WaveformOptions(mode_array=((2, 2), (2, -2)), extended_spintaylor=True, extended_phase_grid=True)
+
+    def loss(x):
+        b = Binary(mass_1=x[0], mass_2=x[1], spin_1=x[2:5], spin_2=x[5:8], luminosity_distance=x[8],
+                   inclination=x[9], phi_ref=x[10], f_ref=x[11])
+        hp, hc = MODEL.polarizations(b, GRID, options)
+        return jnp.sum(jnp.abs(hp) ** 2 + jnp.abs(hc) ** 2) * 1e42
+
+    grad = jax.jit(jax.grad(loss))
+    for which in ("generic", "aligned"):
+        assert np.all(np.isfinite(np.asarray(grad(jnp.asarray(POINTS[which]))))), which
 
 
 def test_vmap_matches_single_calls():

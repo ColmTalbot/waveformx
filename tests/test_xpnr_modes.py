@@ -55,7 +55,8 @@ def binary_of(case):
 
 def options_of(case, parity_fix):
     modes = case.get("mode_array")
-    return WaveformOptions(mode_array=None if modes is None else [tuple(m) for m in modes], pnr_parity_fix=parity_fix)
+    return WaveformOptions(mode_array=None if modes is None else [tuple(m) for m in modes], pnr_parity_fix=parity_fix,
+                           version_fallback=True)
 
 
 def tolerance_of(case, ell):
@@ -172,7 +173,7 @@ def validate(case, **options):
 
 def test_validate_accepts_generic_binaries():
     validate(GENERIC)
-    validate(GENERIC, version_fallback=False)
+    validate(GENERIC, version_fallback=True)
 
 
 @pytest.mark.parametrize("spin, reason", [
@@ -183,9 +184,9 @@ def test_validate_without_fallbacks(spin, reason):
     """Nearly aligned binaries: LAL leaves the SpinTaylor angles (version
     330) for the NNLO angles."""
     case = dict(GENERIC, spin_1=spin, spin_2=[0.0, 0.0, -0.3])
-    validate(case)
+    validate(case, version_fallback=True)
     with pytest.raises(PrecessionVersionUnavailableError, match=reason):
-        validate(case, version_fallback=False)
+        validate(case)
 
 
 def test_validate_rejects_lal_errors():

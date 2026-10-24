@@ -120,7 +120,8 @@ def mode_range(modes):
     return m_min, m_max, l_max
 
 
-def common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, parity_fix, extended=False, smooth=False):
+def common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, parity_fix, extended=False, smooth=False, direct=True,
+                 phase_grid=False):
     """The part of ``IMRPhenomXGetAndSetPrecessionVariables`` before the
     SpinTaylor integration: the spin quantities, the decisions on the
     prescription that do not need the integration, and the start of the
@@ -131,7 +132,9 @@ def common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, parity_fix, extended
     :func:`mode_range` of the co-precessing modes (static, or traced with
     ``M_MAX = L_MAX_PNR``, as for the J-frame modes). ``extended`` and
     ``smooth`` (static) select the extended SpinTaylor angles and their
-    continuous variant (see :func:`.model._decide`).
+    continuous variant, and for it ``direct`` and ``phase_grid`` (static)
+    the direct SpinTaylor angles and the phase grid (see
+    :func:`.model._decide`).
     Returns ``(prec, wf)``; ``wf`` gets the tuned co-precessing flag as LAL
     sets it.
     """
@@ -198,6 +201,8 @@ def common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, parity_fix, extended
         parity_fix=parity_fix,
         extended=extended,
         smooth=smooth,
+        direct_angles=bool(smooth and direct),
+        phase_grid=bool(smooth and phase_grid),
         pole=jnp.asarray(1.0 - 1e-15 if smooth else 1.0),
         all_two_spin=jnp.asarray(smooth),
         transition_q=jnp.asarray(pa.PNR_Q_WINDOW_UPPER + (Q_SMOOTH_WIDTH if smooth else 0.0)),
@@ -745,7 +750,8 @@ def _st_context(prec, wf):
         return st, rotation, mf_scale, anchors, prec.st_context
     # (the smooth angles take alpha from the splines of LNhat's components)
     context = _cached("st_context", anchors[1:], anchors[0],
-                      lambda: barrier(st_angles.spline_context(st, rotation, mf_scale, prec.smooth)))
+                      lambda: barrier(st_angles.spline_context(st, rotation, mf_scale, prec.smooth,
+                                                               prec.direct_angles)))
     return st, rotation, mf_scale, anchors, context
 
 
@@ -1529,6 +1535,42 @@ def _spline_at(y, m, n, x0, h, x):
     return y0 + dx * (b + dx * (c + dx * d)), b + dx * (2.0 * c + 3.0 * dx * d)
 
 
+#: The largest spacing (in ``Mf``) of the phase grid of the PNR
+#: interpolants (``WaveformOptions.extended_phase_grid``): its spacing
+#: grows like ``f^2`` (constant steps of the precession and nutation phases
+#: at leading order) from LAL's spacing at its start up to this.
+PHASE_GRID_MF = 1e-4
+
+
+def _phase_grid(f0, f_end, h, m_tot):
+    """The nodes ``f_k = F(s0 + k ds)`` of the phase grid from ``f0`` to
+    (at least) ``f_end``, with ``s(f) = -1/f + f/fc^2``: spacing ``h`` at
+    ``f0``, ``~h (f / f0)^2`` above it and ``mf_to_hz(PHASE_GRID_MF)`` (or
+    ``h``, if larger) at high frequencies."""
+    df_max = jnp.maximum(mf_to_hz(PHASE_GRID_MF, m_tot), h * (1.0 + 1e-6))
+    fc2 = f0 * f0 * (df_max / h - 1.0)
+    ds = h * (1.0 / (f0 * f0) + 1.0 / fc2)
+    grid = Struct(fc2=fc2, ds=ds)
+    grid.s0 = _phase_s(grid, f0)
+    n = jnp.ceil((_phase_s(grid, f_end) - grid.s0) / ds) + 1.0
+    grid.n = n
+    grid.f_first = f0
+    grid.f_last = _phase_f(grid, grid.s0 + (n - 1.0) * ds)
+    return grid
+
+
+def _phase_s(grid, f):
+    return -1.0 / f + f / grid.fc2
+
+
+def _phase_f(grid, s):
+    """The inverse of :func:`_phase_s` (the stable root for either sign)."""
+    root = jnp.sqrt(s * s + 4.0 / grid.fc2)
+    low = 2.0 / jnp.where(s <= 0.0, root - s, 1.0)
+    high = 0.5 * grid.fc2 * (s + root)
+    return jnp.where(s <= 0.0, low, high)
+
+
 def angle_interpolants(prec, wf, grid, version, active=True):
     """``IMRPhenomX_PNR_GeneratePNRAngleInterpolants``: the PNR ``alpha`` and
     ``beta`` on the uniform grid, their splines and ``gamma`` integrated
@@ -1547,6 +1589,12 @@ def angle_interpolants(prec, wf, grid, version, active=True):
     n_chunks = PNR_GRID_CAPACITY // chunk
     x0 = i_start * delta_f_int
     h = delta_f_int
+    smooth = prec.smooth
+    node_map = None
+    if smooth and prec.phase_grid:
+        node_map = _phase_grid(x0, (i_start + n - 1.0) * h, h, wf.m_tot)
+        n = jnp.minimum(node_map.n, n)
+        n_eval = jnp.where(active, n, 0.0)
 
     def frequencies(k, i_start, n, h):
         return (i_start + jnp.minimum(k, n - 1.0)) * h
@@ -1554,14 +1602,16 @@ def angle_interpolants(prec, wf, grid, version, active=True):
     # the angles on the grid (the flag of a Fallback version passed in: the
     # loop's body must not close over batched values)
     fallback = isinstance(version, Fallback)
-    smooth = prec.smooth
 
     def angles(index, args):
-        prec, wf, i_start, n, h, msa = args
+        prec, wf, i_start, n, h, msa, node_map = args
         version_ = Fallback(msa) if fallback else version
         k = index * chunk + jnp.arange(chunk, dtype=jnp.float64)
         valid = k < n
-        mf = hz_to_mf(frequencies(k, i_start, n, h), wf.m_tot)
+        if node_map is None:
+            mf = hz_to_mf(frequencies(k, i_start, n, h), wf.m_tot)
+        else:
+            mf = hz_to_mf(_phase_f(node_map, node_map.s0 + jnp.minimum(k, n - 1.0) * node_map.ds), wf.m_tot)
         st_values = None
         if version == 330:
             # the SpinTaylor splines at the chunk's points, shared by the
@@ -1572,9 +1622,14 @@ def angle_interpolants(prec, wf, grid, version, active=True):
         return jnp.where(valid, alpha, 0.0), jnp.where(valid, beta, 0.0), jnp.any(err & valid)
 
     alpha, beta, errors = blocked_map(angles, jnp.arange(n_chunks), jnp.ceil(n_eval / chunk),
-                                      (prec, wf, i_start, n, h, version.msa if fallback else None))
+                                      (prec, wf, i_start, n, h, version.msa if fallback else None, node_map))
     error = error | jnp.any(errors)
     alpha, beta = alpha.reshape(-1), beta.reshape(-1)
+    if node_map is not None:
+        # splines in the index of the nodes
+        splines = _geometric_interpolants(alpha, beta, jnp.zeros(()), n, jnp.ones(()), n_eval, error)
+        splines.node_map = node_map
+        return splines
     if smooth:
         return _geometric_interpolants(alpha, beta, i_start, n, h, n_eval, error)
     m_alpha, m_beta = _uniform_natural_splines([alpha, beta], n, h, n_eval)
@@ -1714,9 +1769,15 @@ def spline_angles(splines, f):
     ``gamma`` are known modulo ``2 pi``."""
     inside = (f >= splines.x0) & (f <= splines.x0 + (splines.n - 1.0) * splines.h)
     if "u" in splines:
+        x = f
+        if "node_map" in splines:
+            m = splines.node_map
+            inside = (f >= m.f_first) & (f <= m.f_last)
+            x = (_phase_s(m, f) - m.s0) / m.ds
+
         def at(name):
             return _spline_at(getattr(splines, name), getattr(splines, "m_" + name), splines.n, splines.x0, splines.h,
-                              f)[0]
+                              x)[0]
 
         u, v, w = at("u"), at("v"), at("w")
         a = st_angles.small_atan2(v, u)

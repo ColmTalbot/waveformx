@@ -443,7 +443,7 @@ def index_at_time(sol, t):
     return jnp.clip(i, 0.0, sol.len_pn - 2.0)
 
 
-def spline_context(sol, rotation, mf_scale, geometric=False):
+def spline_context(sol, rotation, mf_scale, geometric=False, direct=False):
     """What the splines of a solution need besides the evaluation points:
     the splines through all knots (:func:`spline_table`), the continuous
     ``alpha`` at the integration nodes and the branch of the first knot
@@ -451,18 +451,24 @@ def spline_context(sol, rotation, mf_scale, geometric=False):
 
     With ``geometric`` (static), ``alpha`` is taken from splines of the
     components of LNhat in the J frame (:func:`_geometric_alpha`) rather
-    than from LAL's spline of ``alpha``."""
+    than from LAL's spline of ``alpha``; with ``direct`` too, the angles are
+    evaluated from the solutions themselves (:func:`direct_spline`), without
+    splines."""
     phi_j, theta_j, kappa = rotation
     tables = _alpha_tables(sol, rotation)
     state0 = knot_states(sol, jnp.zeros(()))
     lx0, ly0, _ = _rotate(state0[1], state0[2], state0[3], phi_j, theta_j, kappa)
     raw0 = _atan2(ly0, lx0)
     alpha_first = _continuous_alpha(sol, tables, knot_times(sol, jnp.zeros(())), raw0)
+    shift = jnp.round((raw0 - alpha_first) / (2 * PI)) * 2 * PI
+    if geometric and direct:
+        # (markers: the presence of the fields is the static flag)
+        return Struct(tables=tables, shift=shift, first_mf=_first_mf(sol, mf_scale), last_mf=_last_mf(sol, mf_scale),
+                      small=jnp.asarray(False), geometric=jnp.zeros(()), direct=jnp.zeros(()))
     table = spline_table(sol, rotation, mf_scale, geometric)
-    context = Struct(table=table, tables=tables, shift=jnp.round((raw0 - alpha_first) / (2 * PI)) * 2 * PI,
-                     first_mf=table.first_mf, last_mf=table.last_mf, small=table.small)
+    context = Struct(table=table, tables=tables, shift=shift, first_mf=table.first_mf, last_mf=table.last_mf,
+                     small=table.small)
     if geometric:
-        # (a marker: the presence of the field is the static flag)
         context.geometric = jnp.zeros(())
     return context
 
@@ -477,6 +483,8 @@ def spline(sol, rotation, mf, mf_scale, context=None):
     Returns ``(alpha, dalpha, cosbeta, dcosbeta, inside)``."""
     if context is None:
         context = spline_context(sol, rotation, mf_scale)
+    if "direct" in context:
+        return direct_spline(sol, rotation, mf, mf_scale, context)
     return _spline_either(mf, (sol, rotation, mf_scale, context))
 
 
@@ -487,6 +495,9 @@ def spline_many(sol, rotation, mf, n, chunk, mf_scale, context=None):
     :func:`spline_table`."""
     if context is None:
         context = spline_context(sol, rotation, mf_scale)
+    if "direct" in context:
+        return chunked_map(lambda mf, args: direct_spline(args[0], args[1], mf, args[2], args[3]), mf, n, chunk,
+                           (sol, rotation, mf_scale, context))
 
     return chunked_map(_spline_either, mf, n, chunk, (sol, rotation, mf_scale, context))
 
@@ -647,6 +658,106 @@ def windowed_spline(sol, rotation, mf, mf_scale, context):
         a_val, a_der = _geometric_alpha(a_val, x_val, x_der, y_val, y_der)
     inside = (mf >= context.first_mf) & (mf <= context.last_mf)
     return a_val, a_der, b_val, b_der, inside
+
+
+#: Newton iterations locating the time at which ``M omega`` is reached on
+#: LAL's interpolant of a forward run (:func:`direct_spline`).
+DIRECT_NEWTON = 4
+
+
+def _replica_time_at_omega(rec, omega):
+    """The time (from the start of the run ``rec``) at which ``M omega`` of
+    LAL's interpolant of the run reaches ``omega``: Newton's method from the
+    linear estimate within the step, without derivatives."""
+    rec, omega = jax.lax.stop_gradient((rec, omega))
+    t = _forward_time_at_omega(rec, omega, 0.0)
+
+    def omega_at(t):
+        return replica.sample(rec, t)[..., 1]
+
+    def newton(_, t):
+        value, slope = jax.jvp(omega_at, (t,), (jnp.ones_like(t),))
+        return t - safe_div(value - omega, slope)
+
+    return jax.lax.fori_loop(0, DIRECT_NEWTON, newton, t)
+
+
+def _refined(state, t, omega):
+    """One Newton step with derivatives from the root ``t`` of ``state(t)[0]
+    = omega``, so that the derivatives are those of the root; the state
+    there, its derivative in time and the time."""
+    value, slope = jax.jvp(lambda t: state(t)[..., 0], (t,), (jnp.ones_like(t),))
+    t = t - safe_div(value - omega, jax.lax.stop_gradient(slope))
+    y, dydt = jax.jvp(state, (t,), (jnp.ones_like(t),))
+    return y, dydt, t
+
+
+def _backward_branch(operands):
+    sol, omega, here = operands
+    target = jnp.where(here, omega, sol.omega_ref * 0.999)
+    t = _time_at_omega(sol.back, target, True)
+    return _refined(lambda t: trajectory.evaluate(sol.back, jnp.minimum(t, 0.0), True), t, target)
+
+
+def _run_branch(name):
+    def branch(operands):
+        sol, omega, here = operands
+        rec = getattr(sol, name)
+        lowest = replica.omega(rec, 0)
+        target = jnp.where(here, jnp.maximum(omega, lowest), lowest)
+        t = _replica_time_at_omega(rec, target)
+        y, dydt, t = _refined(lambda t: replica.sample(rec, jnp.maximum(t, 0.0))[..., 1:5], t, target)
+        return y, dydt, t + (sol.t_c if name == "fine" else 0.0)
+    return branch
+
+
+def _no_branch(operands):
+    _, omega, _ = operands
+    zero = jnp.zeros(jnp.shape(omega) + (4,))
+    return zero, zero, jnp.zeros(jnp.shape(omega))
+
+
+def direct_spline(sol, rotation, mf, mf_scale, context):
+    """The SpinTaylor ``alpha`` (on LAL's branch) and ``cos(beta)`` and
+    their derivatives at ``mf``, from the solutions themselves: the time at
+    which ``M omega = mf / mf_scale`` (Newton's method on the dense output
+    of the backward run, or on LAL's interpolant of the forward run below
+    the start of the fine run and of the fine run above it, then one step
+    with derivatives, those of the root), and LNhat in the J frame there.
+    Each run is evaluated only where some point needs it (under
+    :func:`.._transforms.cond`). Returns ``(alpha, dalpha, cosbeta,
+    dcosbeta, inside)`` as :func:`spline`.
+
+    Unlike LAL's splines through its samples, this has no interpolation
+    error, no discrete set of samples (whose ends move with the
+    parameters) and a cost per point that does not grow with the number of
+    samples."""
+    phi_j, theta_j, kappa = rotation
+    omega = mf / mf_scale
+    in_fine = omega >= replica.omega(sol.fine, 0)
+    backwards = (omega < sol.omega_ref) & ~in_fine
+    forwards = ~in_fine & ~backwards
+    out = [cond(jnp.any(here), branch, _no_branch, (sol, omega, here))
+           for here, branch in ((backwards, _backward_branch), (forwards, _run_branch("fwd")),
+                                (in_fine, _run_branch("fine")))]
+
+    def pick(k):
+        (b, f, c) = (o[k] for o in out)
+        expand = (lambda x: x[..., None]) if k < 2 else (lambda x: x)
+        return jnp.where(expand(in_fine), c, jnp.where(expand(backwards), b, f))
+
+    y, dydt, t = pick(0), pick(1), pick(2)
+    lx, ly, lz = _rotate(y[..., 1], y[..., 2], y[..., 3], phi_j, theta_j, kappa)
+    # (the rotation is linear: the derivatives rotate as the vector)
+    dlx, dly, dlz = _rotate(dydt[..., 1], dydt[..., 2], dydt[..., 3], phi_j, theta_j, kappa)
+    raw = small_atan2(ly, lx)
+    alpha = _continuous_alpha(sol, context.tables, jax.lax.stop_gradient(t), raw) + context.shift
+    # d/dMf = (d/dt) / (dMf/dt)
+    dmf_dt = mf_scale * dydt[..., 0]
+    r2 = lx * lx + ly * ly
+    dalpha_dt = jnp.where(r2 > SMALL_SQUARE, lx * dly - ly * dlx, 0.0) / jnp.where(r2 > SMALL_SQUARE, r2, 1.0)
+    inside = (mf >= context.first_mf) & (mf <= context.last_mf)
+    return alpha, safe_div(dalpha_dt, dmf_dt), lz, safe_div(dlz, dmf_dt), inside
 
 
 def _geometric_alpha(alpha, lx, dlx, ly, dly):

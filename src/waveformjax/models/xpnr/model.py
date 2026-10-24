@@ -508,14 +508,17 @@ def _pipeline_330(setup, modes, frequencies, active=True):
 
 
 def _decide(binary, frequencies, delta_f, f_min, f_max, modes, parity_fix, mode_range_=None, check_reference=True,
-            fallback=True, extended=False, smooth=None):
+            fallback=True, extended=False, smooth=None, direct=True, phase_grid=False):
     """Set up the binary and compute the angle data of the prescription LAL
     would use. Without ``fallback`` (static), only the SpinTaylor angles
     (version 330) are computed, with the error flag set where LAL would use
     another prescription. With ``extended`` (static, implies no
     ``fallback``), the SpinTaylor angles are extended beyond LAL's and,
     with ``smooth`` (static, default ``extended``), made continuous in the
-    parameters (:func:`.spintaylor.angles.pn_solution`)."""
+    parameters (:func:`.spintaylor.angles.pn_solution`); for the smooth
+    angles, ``direct`` and ``phase_grid`` (static) select the direct
+    SpinTaylor angles (:func:`.spintaylor.angles.direct_spline`) and the
+    phase grid of the PNR interpolants (:func:`.pnr.angle_interpolants`)."""
     fallback = fallback and not extended
     smooth = extended if smooth is None else smooth
     wf, m1_si, m2_si, chi1, chi2 = setup_waveform(binary, delta_f, f_min, f_max)
@@ -527,7 +530,8 @@ def _decide(binary, frequencies, delta_f, f_min, f_max, modes, parity_fix, mode_
         error = error | ~((wf.f_ref >= f_min) & (wf.f_ref <= upper))
     if mode_range_ is None:
         mode_range_ = pnr.mode_range(modes)
-    base, wf0 = barrier(pnr.common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, parity_fix, extended, smooth))
+    base, wf0 = barrier(pnr.common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, parity_fix, extended, smooth,
+                                         direct, phase_grid))
     error = error | base.error_spin | (wf0.f_max_prime <= wf0.f_min)
 
     # the SpinTaylor integration, where LAL attempts it
@@ -573,7 +577,8 @@ def _polarizations(binary, frequencies, options):
     frequencies = jnp.asarray(frequencies, dtype=jnp.float64)
     modes = coprecessing_modes(options.mode_array)
     data = _decide(binary, frequencies, 0.0, frequencies[0], frequencies[-1], modes, options.pnr_parity_fix,
-                   fallback=options.version_fallback, extended=options.extended_spintaylor)
+                   fallback=options.version_fallback, extended=options.extended_spintaylor,
+                   direct=options.extended_direct_angles, phase_grid=options.extended_phase_grid)
     hp, hc = _twist_polarizations(data, modes, frequencies)
     nan = jnp.asarray(jnp.nan + 1j * jnp.nan, jnp.complex128)
     return jnp.where(data.error, nan, hp), jnp.where(data.error, nan, hc)
@@ -648,7 +653,8 @@ def _jframe_modes(binary, frequencies, options, delta_f, f_min, f_max):
         ((key, jmodes),) = groups.items()
         data = _decide(binary, frequencies, delta_f, f_min, f_max, modes, parity_fix, mode_range_=key,
                        check_reference=False, fallback=options.version_fallback,
-                       extended=options.extended_spintaylor)
+                       extended=options.extended_spintaylor, direct=options.extended_direct_angles,
+                       phase_grid=options.extended_phase_grid)
         hs = dict(zip(modes, _coprecessing_modes(data.wf, modes, frequencies)))
         results.append((jmodes, data, hs))
     else:
@@ -669,7 +675,8 @@ def _jframe_modes(binary, frequencies, options, delta_f, f_min, f_max):
             pnr.clear_cache()
             data = _decide(binary, frequencies, delta_f, f_min, f_max, modes, parity_fix,
                            mode_range_=(key[0], key[1], key[2]), check_reference=False,
-                           fallback=options.version_fallback, extended=options.extended_spintaylor)
+                           fallback=options.version_fallback, extended=options.extended_spintaylor,
+                           direct=options.extended_direct_angles, phase_grid=options.extended_phase_grid)
             hs = jax.lax.switch(ell_index, [modes_of(ell) for ell in ells], data.wf)
             return data, hs
 
