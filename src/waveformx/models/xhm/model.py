@@ -18,7 +18,7 @@ import jax.numpy as jnp
 
 from ..._options import strain_scale
 from ..xas import core as xas_core
-from ..xas.model import aligned_parameters
+from ..xas.model import aligned_parameters, with_reference
 from ..xpnr._math import precision, precision_of, real
 from . import core
 
@@ -32,10 +32,12 @@ def modes_and_polarizations(binary, frequencies, options):
     ``SimInspiralChooseFDWaveformSequence`` sums them: the (2,2) zero above
     ``0.3 / M`` (``0.33 / M`` for ``chi_eff > 0.99``), the higher modes at
     every frequency, the ringdown of the (3,2) with the (2,2) recycled; NaN
-    where LAL fails."""
+    where LAL fails. With ``options.reference_mf`` the binary is given at
+    ``M f_ref = reference_mf`` (its ``f_ref`` zero; NaN otherwise)."""
     with precision(precision_of(binary)):
         f = jnp.asarray(frequencies, real())
-        table = core.table(aligned_parameters(binary), jax.lax.stop_gradient(f[0]), strain_scale(options))
+        params = with_reference(aligned_parameters(binary), options.reference_mf)
+        table = core.table(params, jax.lax.stop_gradient(f[0]), strain_scale(options))
         return core.modes_and_polarizations(core.unpack(table), xas_core.frequency_powers(f))
 
 

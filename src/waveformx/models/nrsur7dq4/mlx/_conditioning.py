@@ -80,15 +80,17 @@ def _setup(binary, options, delta_t: float, f_min: float, data: NRSurData):
 
 def _function(grid, options, f_min: float, data: NRSurData, after):
     """The pure function of the binary: the polarizations at the times of
-    ``grid``, with ``f_ref = 0`` read as ``f_min``, passed (stacked, ``(...,
+    ``grid``, with ``f_ref = 0`` read as ``f_min`` (unless the reference is
+    mass-scaled), passed (stacked, ``(...,
     2, n)``) to ``after``."""
     times = mx.array((grid.m_tot_sec * (grid.t0 + grid.dt * np.arange(grid.n))).astype(np.float32))
     scale = strain_scale(options)
 
     def function(binary):
         binary, has_batch = _waveform.batched(binary)
-        binary = binary._replace(f_ref=mx.where(binary.f_ref == 0, f_min, binary.f_ref))
-        hp, hc = _waveform.polarizations_at(data, binary, times, options.mode_array, scale)
+        if options.reference_mf is None:
+            binary = binary._replace(f_ref=mx.where(binary.f_ref == 0, f_min, binary.f_ref))
+        hp, hc = _waveform.polarizations_at(data, binary, times, options.mode_array, scale, options.reference_mf)
         out = after(mx.stack([hp, hc], axis=1))
         return (out[:, 0], out[:, 1]) if has_batch else (out[0, 0], out[0, 1])
 

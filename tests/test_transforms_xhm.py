@@ -76,3 +76,37 @@ def test_vmap():
         single = MODEL.polarizations(binary_of(x), jnp.asarray(FREQUENCIES), OPTIONS)
         for a, b in zip(batched, single):
             np.testing.assert_allclose(np.asarray(a[i]), np.asarray(b), rtol=1e-11, atol=1e-11 * np.abs(b).max())
+
+
+# --- the mass-scaled reference (WaveformOptions.reference_mf) ---------------
+
+SCALED = WaveformOptions(reference_mf=0.01)
+
+
+def scaled_loss(x):
+    modes, (hp, hc) = model.modes_and_polarizations(binary_of(x), jnp.asarray(FREQUENCIES, x.dtype), SCALED)
+    w = jnp.asarray(_WEIGHTS, x.dtype)
+    h32 = modes[(3, 2)]
+    return jnp.sum(w[0] * hp.real + w[1] * hp.imag + w[2] * hc.real + w[3] * hc.imag + w[0] * h32.imag)
+
+
+@pytest.mark.parametrize("name", list(BINARIES))
+def test_reference_mf_gradient(name):
+    """jit, grad and jvp with the mass-scaled reference (f_ref zero), and
+    NaN with a zero derivative with respect to f_ref otherwise."""
+    from test_transforms_xas import reference_mf_gradient
+
+    reference_mf_gradient(scaled_loss, jnp.asarray(BINARIES[name]))
+
+
+def test_reference_mf_vmap_float32():
+    xs = jnp.asarray(list(BINARIES.values())).at[:, 11].set(0.0)
+    f = jnp.asarray(FREQUENCIES)
+    batched = jax.jit(jax.vmap(lambda x: MODEL.polarizations(binary_of(x), f, SCALED)))(xs)
+    for i, x in enumerate(xs):
+        single = MODEL.polarizations(binary_of(x), f, SCALED)
+        for a, b in zip(batched, single):
+            np.testing.assert_allclose(np.asarray(a[i]), np.asarray(b), rtol=1e-11, atol=1e-11 * np.abs(b).max())
+    g64 = np.asarray(jax.grad(scaled_loss)(xs[0]))
+    g32 = np.asarray(jax.grad(scaled_loss)(xs[0].astype(jnp.float32)))
+    assert np.all(np.abs(g32 - g64) <= 1e-2 * np.abs(g64) + 1e-3 * np.max(np.abs(g64)))

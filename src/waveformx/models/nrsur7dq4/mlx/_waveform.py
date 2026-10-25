@@ -166,12 +166,17 @@ def _coorbital_dynamics(data: NRSurData, states, chi_a0, chi_b0):
     return quat, phase, rotate(chi_a), rotate(chi_b)
 
 
-def omega_ref(binary, labels: Labelled):
-    """The dimensionless orbital reference frequency ``(M f_ref) pi``."""
+def omega_ref(binary, labels: Labelled, reference_mf=None):
+    """The dimensionless orbital reference frequency ``(M f_ref) pi``; with
+    the mass-scaled reference ``reference_mf``, ``pi reference_mf`` (NaN
+    where ``f_ref`` is not zero), as :func:`.._waveform.omega_ref`."""
+    if reference_mf is not None:
+        scaled = mx.full(labels.m_tot_sec.shape, np.pi * reference_mf, dtype=mx.float32)
+        return mx.where(mx.stop_gradient(binary.f_ref) == 0, scaled, np.nan)
     return (labels.m_tot_sec * binary.f_ref) * np.pi
 
 
-def inertial_modes(data: NRSurData, binary, mode_array=None):
+def inertial_modes(data: NRSurData, binary, mode_array=None, reference_mf=None):
     """``PrecessingNRSur_core`` for a batch (see
     :func:`.._waveform.inertial_modes`): the inertial-frame modes on the
     coorbital times (real and imaginary parts, each ``(B, n_modes,
@@ -179,7 +184,8 @@ def inertial_modes(data: NRSurData, binary, mode_array=None):
     valid."""
     labels = labelled(binary)
     omegas = reference_omegas(data, labels.q, labels.chi_a, labels.chi_b)
-    states, valid = integrate(data, labels.q, labels.chi_a, labels.chi_b, omega_ref(binary, labels), omegas)
+    states, valid = integrate(data, labels.q, labels.chi_a, labels.chi_b, omega_ref(binary, labels, reference_mf),
+                              omegas)
     quat, phase, chi_a, chi_b = _coorbital_dynamics(data, states, labels.chi_a, labels.chi_b)
     re, im = _coorbital_modes(data, labels.q, chi_a, chi_b)
     mask, _ = active_modes(mode_array)
@@ -319,27 +325,27 @@ def polarizations_from_modes(binary, h, labels: Labelled, mode_array=None, scale
     return hp * a0, hc * a0
 
 
-def polarizations_at_dimensionless(data: NRSurData, binary, tau, mode_array=None, scale=STRAIN_SCALE):
+def polarizations_at_dimensionless(data: NRSurData, binary, tau, mode_array=None, scale=STRAIN_SCALE, reference_mf=None):
     """``(h_+, h_x)`` (each ``(B, m)``) of the batched ``binary`` at the
     times ``tau`` (``(B, m)``) in units of the total mass."""
-    h, labels, valid = inertial_modes(data, binary, mode_array)
+    h, labels, valid = inertial_modes(data, binary, mode_array, reference_mf)
     hp, hc = polarizations_from_modes(binary, h, labels, mode_array, scale)
     out = _resample(data, mx.stack([hp, hc], axis=-1), tau)
     out = mx.where(valid[:, None, None], out, np.nan)
     return out[..., 0], out[..., 1]
 
 
-def polarizations_at(data: NRSurData, binary, times, mode_array=None, scale=STRAIN_SCALE):
+def polarizations_at(data: NRSurData, binary, times, mode_array=None, scale=STRAIN_SCALE, reference_mf=None):
     """``(h_+, h_x)`` (each ``(B, m)``) of the batched ``binary`` at
     ``times`` (s, relative to the peak; ``(m,)`` or ``(B, m)``)."""
-    return polarizations_at_dimensionless(data, binary, _times(times, labelled(binary)), mode_array, scale)
+    return polarizations_at_dimensionless(data, binary, _times(times, labelled(binary)), mode_array, scale, reference_mf)
 
 
-def modes_at_dimensionless(data: NRSurData, binary, tau, mode_array=None, scale=STRAIN_SCALE):
+def modes_at_dimensionless(data: NRSurData, binary, tau, mode_array=None, scale=STRAIN_SCALE, reference_mf=None):
     """The inertial modes ``{(l, m): h_lm}`` (complex64, each ``(B, m)``)
     of the batched ``binary`` at the times ``tau`` in units of the total
     mass, for the ``ell`` of :func:`.._waveform.output_ells`."""
-    (re, im), labels, valid = inertial_modes(data, binary, mode_array)
+    (re, im), labels, valid = inertial_modes(data, binary, mode_array, reference_mf)
     ells = output_ells(mode_array)
     keep = [i for i, (ell, _) in enumerate(MODES) if ell in ells]
     rows = mx.array(keep)
@@ -352,7 +358,7 @@ def modes_at_dimensionless(data: NRSurData, binary, tau, mode_array=None, scale=
     return {MODES[i]: out[..., k] + 1j * out[..., n + k] for k, i in enumerate(keep)}
 
 
-def modes_at(data: NRSurData, binary, times, mode_array=None, scale=STRAIN_SCALE):
+def modes_at(data: NRSurData, binary, times, mode_array=None, scale=STRAIN_SCALE, reference_mf=None):
     """The inertial modes of the batched ``binary`` at ``times`` (s,
     relative to the peak)."""
-    return modes_at_dimensionless(data, binary, _times(times, labelled(binary)), mode_array, scale)
+    return modes_at_dimensionless(data, binary, _times(times, labelled(binary)), mode_array, scale, reference_mf)

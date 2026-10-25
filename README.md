@@ -28,12 +28,12 @@ The package has the same interface as the Python bindings of
   - It is also available in MLX, in single precision on Apple GPUs: the
     polarizations for one binary or a batch, with their Jacobian and
     derivatives for `mx.grad`.
-  - Like the lean IMRPhenomXPNR, it can take the binary at a reference
-    frequency scaled by its total mass (`reference_mf`) instead of one in
-    Hz; for this model that only moves where the reference phase is given.
-    `to_mass_scaled_reference` and `to_physical_reference` in its module
-    convert binaries between the two conventions (also in MLX), so that
-    both give the same waveform.
+  - Like every model, it can take the binary at a reference frequency
+    scaled by its total mass (`reference_mf`) instead of one in Hz; for
+    this model that only moves where the reference phase is given.
+    `to_mass_scaled_reference` and `to_physical_reference` convert
+    binaries between the two conventions (also in MLX), so that both give
+    the same waveform.
   - Its modes and the conversions between the time and frequency domains
     are not implemented.
 - **IMRPhenomXAS** (frequency domain): the dominant mode of binaries whose
@@ -53,6 +53,12 @@ The package has the same interface as the Python bindings of
     single precision on Apple GPUs (optional dependency `mlx`): the
     polarizations at given frequencies for one binary or a batch, with
     their Jacobian and derivatives for `mx.grad`.
+  - Like every model, it can take the binary at a reference frequency
+    scaled by its total mass (`reference_mf`) instead of one in Hz; for
+    this model that only moves where the reference phase is given.
+    `to_mass_scaled_reference` and `to_physical_reference` convert
+    binaries between the two conventions (also in MLX), so that both give
+    the same waveform.
   - Its modes and the conversions between the time and frequency domains
     are not implemented.
 - **IMRPhenomXHM** (frequency domain): binaries with aligned spins and
@@ -76,6 +82,10 @@ The package has the same interface as the Python bindings of
   - It is also available in MLX, in single precision on Apple GPUs: the
     polarizations and the modes for one binary or a batch, with their
     Jacobian and derivatives for `mx.grad`.
+  - Like every model, it can take the binary at a reference frequency
+    scaled by its total mass (`reference_mf`); only the reference phase
+    moves, and the converters of IMRPhenomXAS (also in MLX) give a binary
+    whose every mode is the same in both conventions.
   - The conversions between the time and frequency domains are not
     implemented.
 - **IMRPhenomXPNR** (frequency domain): precessing spins with higher modes,
@@ -152,6 +162,16 @@ The package has the same interface as the Python bindings of
     function for one binary or a batch, with derivatives; LALSimulation's
     polarizations and modes on its time grid, for one binary or a batch;
     and the conditioned waveforms in the time and frequency domains.
+  - Like every model, it can take the binary at a reference frequency
+    scaled by its total mass (`reference_mf`): the spins and the
+    orientation are then given at the same point of the surrogate's
+    inspiral for every mass, which lies inside the surrogate for every
+    binary it covers at the recommended `REFERENCE_MF`, and the waveform
+    can be differentiated with respect to every parameter without the
+    reference moving with the mass. `to_mass_scaled_reference` and
+    `to_physical_reference` convert binaries between the two conventions
+    with the surrogate's own dynamics, as pure functions that can be
+    differentiated (also in MLX).
 - **TaylorF2** (frequency domain): the post-Newtonian inspiral of binaries
   with aligned spins in the stationary-phase approximation, with
   LALSimulation's default settings (the phase to the highest order, with
@@ -169,12 +189,12 @@ The package has the same interface as the Python bindings of
   - It is also available in MLX, in single precision on Apple GPUs: the
     polarizations for one binary or a batch, with their Jacobian and
     derivatives for `mx.grad`.
-  - Like the lean IMRPhenomXPNR, it can take the binary at a reference
-    frequency scaled by its total mass (`reference_mf`) instead of one in
-    Hz; for this model that only moves where the reference phase is given.
-    `to_mass_scaled_reference` and `to_physical_reference` in its module
-    convert binaries between the two conventions (also in MLX), so that
-    both give the same waveform.
+  - Like every model, it can take the binary at a reference frequency
+    scaled by its total mass (`reference_mf`) instead of one in Hz; for
+    this model that only moves where the reference phase is given.
+    `to_mass_scaled_reference` and `to_physical_reference` convert
+    binaries between the two conventions (also in MLX), so that both give
+    the same waveform.
   - Its modes and the conversions between the time and frequency domains
     are not implemented.
 
@@ -199,6 +219,12 @@ The package has the same interface as the Python bindings of
   optimises a match over the parameters that models define differently
   (the reference phase and the orientation of the in-plane spins) from
   several starting points, using the derivatives of the models.
+- The mass-scaled reference frequency (`reference_mf`) for every model,
+  with converters for each (`waveformx.to_mass_scaled_reference` and
+  `waveformx.to_physical_reference` with `approximant=`). The models share
+  the orientation conventions, but not the definition of the orbital
+  phase at the reference: the same binary in IMRPhenomXPNR and NRSur7dq4
+  still differs by a reference phase that depends on the binary.
 
 ## Report
 

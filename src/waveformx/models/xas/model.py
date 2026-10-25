@@ -16,10 +16,10 @@ import jax
 import jax.numpy as jnp
 
 from ..._options import strain_scale
-from ..xpnr._math import precision, precision_of, real
+from ..xpnr._math import MTSUN_SI, precision, precision_of, real
 from . import core
 
-__all__ = ["polarizations", "aligned_parameters"]
+__all__ = ["polarizations", "aligned_parameters", "with_reference"]
 
 
 def aligned_parameters(binary):
@@ -32,13 +32,29 @@ def aligned_parameters(binary):
     return tuple(jnp.asarray(v, real()) for v in values)
 
 
+def with_reference(params, reference_mf):
+    """The parameters of :func:`.core.table` (:func:`aligned_parameters`)
+    with the mass-scaled reference ``reference_mf``
+    (``WaveformOptions.reference_mf``; ``None``: unchanged): ``f_ref``
+    replaced by ``reference_mf / M``, NaN where it was not zero (with a zero
+    derivative with respect to it)."""
+    if reference_mf is None:
+        return params
+    m1, m2, f_ref = params[0], params[1], params[7]
+    scaled = reference_mf / (MTSUN_SI * (m1 + m2))
+    return params[:7] + (jnp.where(jax.lax.stop_gradient(f_ref) == 0.0, scaled, jnp.nan).astype(real()),)
+
+
 def polarizations(binary, frequencies, options):
     """``(h_+, h_x)`` of IMRPhenomXAS at ``frequencies`` (Hz, positive and
     increasing), as ``SimInspiralChooseFDWaveformSequence``: zero above
     ``0.3 / M`` (``0.33 / M`` for ``chi_eff > 0.99``), NaN where LAL fails.
     In float32 when the binary's parameters are float32; the strain times
-    ``1e21`` unless ``options.scaled_strain`` is false."""
+    ``1e21`` unless ``options.scaled_strain`` is false. With
+    ``options.reference_mf`` the binary is given at ``M f_ref =
+    reference_mf`` (its ``f_ref`` zero; NaN otherwise)."""
     with precision(precision_of(binary)):
         f = jnp.asarray(frequencies, real())
-        table = core.table(aligned_parameters(binary), jax.lax.stop_gradient(f[0]), strain_scale(options))
+        params = with_reference(aligned_parameters(binary), options.reference_mf)
+        table = core.table(params, jax.lax.stop_gradient(f[0]), strain_scale(options))
         return core.evaluate(core.unpack(table), core.frequency_powers(f))

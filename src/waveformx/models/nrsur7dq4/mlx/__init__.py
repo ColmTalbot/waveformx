@@ -92,11 +92,13 @@ def polarizations_at(binary, times, options: Optional[WaveformOptions] = None, d
     the surrogate): ``(m,)`` each for one binary, ``(B, m)`` for a batch,
     whose ``times`` may be shared (``(m,)``) or its own (``(B, m)``).
     ``binary.f_ref = 0`` starts the dynamics at the start of the
-    surrogate."""
+    surrogate; with ``options.reference_mf`` the binary is given at the
+    orbital frequency ``pi reference_mf`` (``f_ref`` zero, NaN otherwise)."""
     options = _options(options)
     data = default_data() if data is None else data
     binary, has_batch = _waveform.batched(binary)
-    hp, hc = _waveform.polarizations_at(data, binary, times, options.mode_array, strain_scale(options))
+    hp, hc = _waveform.polarizations_at(data, binary, times, options.mode_array, strain_scale(options),
+                                         options.reference_mf)
     return (hp, hc) if has_batch else (hp[0], hc[0])
 
 
@@ -106,7 +108,7 @@ def modes_at(binary, times, options: Optional[WaveformOptions] = None, data: Opt
     options = _options(options)
     data = default_data() if data is None else data
     binary, has_batch = _waveform.batched(binary)
-    modes = _waveform.modes_at(data, binary, times, options.mode_array, strain_scale(options))
+    modes = _waveform.modes_at(data, binary, times, options.mode_array, strain_scale(options), options.reference_mf)
     return modes if has_batch else {mode: h[0] for mode, h in modes.items()}
 
 

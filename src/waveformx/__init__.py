@@ -71,7 +71,7 @@ from .exceptions import (  # noqa: E402
     WaveformError,
 )
 
-from .models.xpnr.reference import to_mass_scaled_reference, to_physical_reference  # noqa: E402
+from ._reference import to_mass_scaled_reference, to_physical_reference  # noqa: E402
 
 __version__ = "0.1.0"
 

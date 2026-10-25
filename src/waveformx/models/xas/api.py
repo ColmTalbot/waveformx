@@ -68,7 +68,7 @@ class XASModel:
 
     def validate(self, binary, frequencies, options):
         """LALSimulation's checks of IMRPhenomXAS for concrete values."""
-        check_reference_mf(binary, options, "IMRPhenomXAS", supported=False)
+        check_reference_mf(binary, options, "IMRPhenomXAS")
         check(binary, frequencies, "IMRPhenomXAS")
 
     def polarizations(self, binary, frequencies, options):

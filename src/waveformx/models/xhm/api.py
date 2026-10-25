@@ -63,7 +63,7 @@ class XHMModel:
 
     def validate(self, binary, frequencies, options):
         """LALSimulation's checks of IMRPhenomXHM for concrete values."""
-        check_reference_mf(binary, options, "IMRPhenomXHM", supported=False)
+        check_reference_mf(binary, options, "IMRPhenomXHM")
         if options.mode_array is not None:
             raise UnsupportedError("IMRPhenomXHM computes every mode: select them from modes()")
         check(binary, frequencies, "IMRPhenomXHM")
@@ -96,7 +96,7 @@ class XHMModel:
         last = f_max if f_max_prime < f_max else f_max_prime
         n_full = int(2.0 ** np.ceil(np.log2(int(last / delta_f)))) + 1
         n = max(n_full, i_stop)
-        if float(binary.f_ref) == 0.0:
+        if float(binary.f_ref) == 0.0 and options.reference_mf is None:
             binary = binary._replace(f_ref=f_min)
         band = jnp.arange(i_start, i_stop) * delta_f
         modes = _modes(binary, band, options)

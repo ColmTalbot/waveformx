@@ -148,3 +148,38 @@ def test_batch_and_errors():
     bad = wf.Binary(1500.0, 1.0, (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), 400.0, 0.4, 0.0, 20.0)
     hp, _ = xhm_mlx.polarizations(bad, f)
     assert np.all(np.isnan(np.asarray(hp)))
+
+
+def test_reference_mf():
+    """The mass-scaled reference: the polarizations and modes against the
+    JAX model (float64) with it, the Jacobian against JAX's, NaN for a
+    non-zero ``f_ref``."""
+    options = wf.WaveformOptions(reference_mf=0.01)
+
+    def outputs(p12, f):
+        b = wf.Binary(p12[0], p12[1], p12[2:5], p12[5:8], p12[8], p12[9], p12[10], p12[11])
+        modes, (hp, hc) = model.modes_and_polarizations(b, f, options)
+        return jnp.stack([hp, hc, modes[(3, 2)], modes[(2, 1)], modes[(3, 3)]])
+
+    for name in ("generic", "high_spin", "bns"):
+        binary = BINARIES[name]._replace(f_ref=0.0)
+        f = np.float32(np.geomspace(20.0, min(0.3 / (float(binary.mass_1 + binary.mass_2) * MTSUN_SI), 1024.0),
+                                    400)).astype(np.float64)
+        p = np.float32(_vector(binary)).astype(np.float64)
+        expected = np.asarray(outputs(jnp.asarray(p), jnp.asarray(f)))
+        hp, hc = xhm_mlx.polarizations(binary, f, reference_mf=0.01)
+        modes = xhm_mlx.modes(binary, f, reference_mf=0.01)
+        # (the (3,2) of the high-spin binary is ~5e-5 from float64 with
+        # LAL's reference too: float32's limit of its rotated ringdown)
+        for h, a, bound in zip((hp, hc, modes[(3, 2)], modes[(2, 1)], modes[(3, 3)]), expected,
+                               (1e-6, 1e-6, 1e-4, 1e-6, 1e-6)):
+            assert mismatch(h, a) < bound, name
+        jac = np.asarray(jax.jacfwd(outputs)(jnp.asarray(p), jnp.asarray(f)))[:2]
+        (_, _), (jp, jc) = xhm_mlx.polarizations_and_jacobian(binary, f, reference_mf=0.01)
+        ours = np.stack([np.asarray(jp, np.complex128), np.asarray(jc, np.complex128)])
+        for k in range(12):
+            norm = np.linalg.norm(jac[..., k])
+            error = np.linalg.norm(ours[..., k] - jac[..., k])
+            assert (error == 0) if norm == 0 else (error < 1e-2 * norm), (name, k)
+        bad = xhm_mlx.polarizations(binary._replace(f_ref=20.0), f, reference_mf=0.01)[0]
+        assert np.all(np.isnan(np.asarray(bad)))

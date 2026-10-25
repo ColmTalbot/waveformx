@@ -202,3 +202,77 @@ def test_no_recompilation():
         lengths.add(len(result.hplus))
     assert len(lengths) > 1
     assert _driver._polarizations_grid._cache_size() == size
+
+
+# --- the mass-scaled reference (WaveformOptions.reference_mf) ---------------
+
+
+@pytest.mark.parametrize("binary", [PRECESSING, NEARLY_ALIGNED], ids=["precessing", "nearly aligned"])
+def test_reference_mf_grad(binary):
+    """With ``reference_mf`` (``f_ref`` zero): the gradient against finite
+    differences for every parameter (the reference time no longer depends
+    on the masses), zero for ``f_ref``; NaN with a zero derivative with
+    respect to ``f_ref`` where it is not zero; vmap."""
+    function = wf.td_polarizations_function("NRSur7dq4", reference_mf=0.01)
+    binary = as_floats(binary._replace(f_ref=0.0))
+    reference = function(shifted(shifted(binary, "mass_1", None, 0.4), "inclination", None, 0.2), TIMES)
+    norm = jnp.sum(reference[0] ** 2 + reference[1] ** 2)
+
+    @jax.jit
+    def overlap(binary):
+        hp, hc = function(binary, TIMES)
+        return jnp.sum(hp * reference[0] + hc * reference[1]) / norm
+
+    gradient = jax.jit(jax.grad(overlap))(binary)
+    assert float(gradient.f_ref) == 0.0
+    derivatives = {}
+    for name, component, step in PARAMETERS[:-1]:
+        values = [overlap(shifted(binary, name, component, k * step)) for k in (-2, -1, 1, 2)]
+        derivatives[name, component] = (values[0] - 8 * values[1] + 8 * values[2] - values[3]) / (12 * step)
+    scale = max(abs(float(d)) for d in derivatives.values())
+    for (name, component), fd in derivatives.items():
+        value = getattr(gradient, name)
+        value = float(value if component is None else value[component])
+        assert abs(value - float(fd)) <= 1e-6 * abs(float(fd)) + 1e-9 * scale, (name, component, value, float(fd))
+    bad = binary._replace(f_ref=jnp.float64(20.0))
+    assert np.all(np.isnan(np.asarray(function(bad, TIMES)[0])))
+    assert float(jax.grad(overlap)(bad).f_ref) == 0.0
+    batch = jax.tree_util.tree_map(lambda *x: jnp.stack(x), binary, shifted(binary, "mass_1", None, 3.0))
+    batched = jax.jit(jax.vmap(function, in_axes=(0, None)))(batch, TIMES)
+    single = function(shifted(binary, "mass_1", None, 3.0), TIMES)
+    assert np.max(np.abs(np.asarray(batched[0][1]) - np.asarray(single[0]))) < 1e-13 * np.max(np.abs(single[0]))
+
+
+def test_reference_mf_float32():
+    function = wf.td_polarizations_function("NRSur7dq4", reference_mf=0.01)
+    binary = PRECESSING._replace(f_ref=0.0)
+    h64 = function(as_floats(binary), TIMES)[0]
+    h32 = function(jax.tree_util.tree_map(lambda x: jnp.asarray(x, jnp.float32), binary), TIMES)[0]
+    assert h32.dtype == jnp.float32
+    h64, h32 = np.asarray(h64), np.asarray(h32, np.float64)
+    assert np.linalg.norm(h32 - h64) < 3e-4 * np.linalg.norm(h64)
+
+
+def test_reference_converters_under_transforms():
+    """The converters under jit, vmap and grad (against finite
+    differences), and in float32."""
+    from waveformx.models.nrsur7dq4 import reference
+
+    binary = as_floats(PRECESSING)
+    convert = jax.jit(lambda b: reference.to_mass_scaled_reference(b, 0.01))
+    out = convert(binary)
+    batch = jax.tree_util.tree_map(lambda *x: jnp.stack(x), binary, shifted(binary, "mass_1", None, 3.0))
+    batched = jax.jit(jax.vmap(lambda b: reference.to_mass_scaled_reference(b, 0.01)))(batch)
+    assert float(batched.phi_ref[0]) == pytest.approx(float(out.phi_ref), abs=1e-12)
+    np.testing.assert_allclose(np.asarray(batched.spin_1[0]), np.asarray(out.spin_1), atol=1e-12)
+
+    def angle(m):
+        return reference.to_mass_scaled_reference(binary._replace(mass_1=m), 0.01).spin_1[0]
+
+    grad = float(jax.jit(jax.grad(angle))(jnp.float64(40.0)))
+    fd = (float(angle(jnp.float64(40.0 + 1e-4))) - float(angle(jnp.float64(40.0 - 1e-4)))) / 2e-4
+    assert grad == pytest.approx(fd, rel=1e-4, abs=1e-8)
+    single = reference.to_mass_scaled_reference(jax.tree_util.tree_map(lambda x: jnp.asarray(x, jnp.float32), binary),
+                                                0.01)
+    assert single.phi_ref.dtype == jnp.float32
+    np.testing.assert_allclose(np.asarray(single.spin_1), np.asarray(out.spin_1), atol=1e-4)
