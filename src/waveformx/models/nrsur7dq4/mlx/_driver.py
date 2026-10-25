@@ -37,7 +37,7 @@ from .. import _driver as _jax_driver
 from .._data import MODES
 from .._data import default_data as jax_default_data
 from .._dynamics import OMEGA_REF_MAX, OMEGA_REF_ZERO, START_TIME, reference_omegas
-from .._waveform import MSUN_SI, MTSUN_SI, output_ells, strain_scale
+from .._waveform import MTSUN_SI, output_ells, strain_scale
 from . import _waveform
 from ._data import NRSurData, default_data
 
@@ -96,18 +96,16 @@ def grids(table, delta_t: float, f_min: float, options) -> Tuple[Grids, Dict[int
     data = jax_default_data()
     table = np.asarray(table, dtype=np.float64)
     # PrecessingNRSur_switch_labels_if_needed (_driver._host_labels)
-    m1 = table[:, 0] * MSUN_SI
-    m2 = table[:, 1] * MSUN_SI
+    m1 = table[:, 0]
+    m2 = table[:, 1]
     switched = m1 < m2
     m1, m2 = np.where(switched, m2, m1), np.where(switched, m1, m2)
     flip = np.array([-1.0, -1.0, 1.0])
     s1, s2 = table[:, 2:5], table[:, 5:8]
     chi_a = np.where(switched[:, None], flip * s2, s1)
     chi_b = np.where(switched[:, None], flip * s1, s2)
-    mass_a = m1 / MSUN_SI
-    mass_b = m2 / MSUN_SI
-    q = mass_a / mass_b
-    m_tot_sec = (mass_a + mass_b) * MTSUN_SI
+    q = m1 / m2
+    m_tot_sec = (m1 + m2) * MTSUN_SI
     # get_dimless_omega
     f_ref = table[:, 11]
     omega_min = (m_tot_sec * f_min) * np.pi
@@ -121,14 +119,8 @@ def grids(table, delta_t: float, f_min: float, options) -> Tuple[Grids, Dict[int
     omegas = np.asarray(_omegas(data, q, chi_a, chi_b))
     _, fail_ref = _reference_times(t_ds, omegas, omega_ref)
     fail |= fail_ref
-    # the start of the output (PrecessingNRSur_StartFrequency with the
-    # masses in kg)
-    q_start = m1 / m2
-    omega_start = omegas[:, 0].copy()
-    other = np.flatnonzero(q_start != q)
-    if other.size:
-        omega_start[other] = np.asarray(_omegas(data, q_start[other], chi_a[other], chi_b[other]))[:, 0]
-    start_freq = omega_start / (np.pi * (((m1 + m2) / MSUN_SI) * MTSUN_SI))
+    # the start of the output (PrecessingNRSur_StartFrequency)
+    start_freq = omegas[:, 0] / (np.pi * m_tot_sec)
     from_f_min = f_min >= start_freq
     t_min, fail_min = _reference_times(t_ds, omegas, omega_min)
     fail |= np.where(from_f_min, fail_min, f_min > 0)

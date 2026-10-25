@@ -25,11 +25,10 @@ Conventions (as LAL's):
 * The waveform is evaluated in the precision of the binary's parameters
   (:func:`precision`): float32 if they are float32, else float64. The
   binary and the times are converted to it, and the data must be of it.
-  Nothing passes through SI units: the masses stay in solar masses (LAL's
-  ``m * MSUN_SI / MSUN_SI`` changes them by rounding only) and the
-  amplitude is one constant times the total mass over the distance in
-  Mpc, so that no intermediate, nor its derivatives, leaves the range of
-  float32.
+  Nothing passes through SI units: the masses stay in solar masses (LAL
+  converts them to kg and back) and the amplitude is one constant times
+  the total mass over the distance in Mpc, so that no intermediate, nor
+  its derivatives, leaves the range of float32.
 """
 
 from __future__ import annotations
@@ -49,7 +48,6 @@ from ._frames import coorbital_to_coprecessing, coprecessing_to_inertial
 from ._spline import evaluate, locate, second_derivatives
 
 __all__ = [
-    "MSUN_SI",
     "MTSUN_SI",
     "C_SI",
     "PC_SI",
@@ -68,7 +66,6 @@ __all__ = [
 ]
 
 # LAL's constants (lal 7.x, LALConstants.h)
-MSUN_SI = 1.988409870698050731911960804878414216e30
 MTSUN_SI = 4.925490947641266978197229498498379006e-6
 C_SI = 299792458.0
 PC_SI = 3.085677581491367278913937957796471611e16
