@@ -226,8 +226,8 @@ def test_smooth_interpolants_do_not_depend_on_the_branch_of_alpha(case):
     q = np.linspace(20.0, 100.0, 1001)
     out = []
     for a in (alpha, other):
-        s = pnr._geometric_interpolants(jnp.asarray(np.where(valid, a, 0.0)), jnp.asarray(np.where(valid, beta, 0.0)),
-                                        jnp.float64(i_start), jnp.float64(n), jnp.float64(h), jnp.float64(n),
+        vector = pnr._unit_vector(jnp.asarray(np.where(valid, a, 0.0)), jnp.asarray(np.where(valid, beta, 0.0)))
+        s = pnr._geometric_interpolants(vector, jnp.float64(i_start), jnp.float64(n), jnp.float64(h), jnp.float64(n),
                                         jnp.asarray(False))
         out.append([np.asarray(x) for x in pnr.spline_angles(s, jnp.asarray(q))])
     for k in (0, 2):

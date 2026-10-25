@@ -354,7 +354,7 @@ def test_spintaylor():
         # (the steps fall at slightly different times than in float64: the
         # step in time takes a power that float32 rounds; the solution is
         # compared where it is used, at points, below)
-        np.testing.assert_allclose(rows[:, 1:4], np.asarray(sol.y)[:m, 2:5], atol=1e-3)
+        np.testing.assert_allclose(rows[:, 1:4], np.asarray(sol.rows)[:m, 2:5], atol=1e-3)
         np.testing.assert_allclose(rows[:, 33], np.asarray(sol.h)[:m], rtol=1e-3)
         s64 = jax_reference(name, "float64")["summary"]
         for field in ("s1_end", "s2_end", "lnhat_end", "f_min_pn", "omega_first", "omega_last"):
@@ -427,10 +427,10 @@ def test_interpolants():
             assert np.max(np.abs(got - want)) <= max(3 * np.max(np.abs(single - want)), 1e-5 * scale), (name, field)
         mapped = mx.array(np.asarray(r32["mapped"].tree[0], np.float32).reshape(1, -1))
         values, inside, _ = _interpolants.spline_values(splines, mapped, None, 0)
-        want = np.asarray(r64["values"].tree[0], np.float64).reshape(-1, 6)
-        single = np.asarray(r32["values"].tree[0], np.float64).reshape(-1, 6)
+        want = np.asarray(r64["values"].tree[0], np.float64).reshape(-1, len(_stages.SPLINES))
+        single = np.asarray(r32["values"].tree[0], np.float64).reshape(-1, len(_stages.SPLINES))
         got = np.asarray(values[0], np.float64)
-        for j in range(6):
+        for j in range(len(_stages.SPLINES)):
             scale = np.max(np.abs(want[:, j]))
             assert np.max(np.abs(got[:, j] - want[:, j])) <= max(3 * np.max(np.abs(single[:, j] - want[:, j])),
                                                                   1e-5 * scale), (name, j)
