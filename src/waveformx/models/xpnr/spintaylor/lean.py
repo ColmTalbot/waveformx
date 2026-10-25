@@ -26,14 +26,18 @@ out:
   solution starts where the backward run ends.
 
 The steps are rows of one record, the backward ones first; the functions
-below read them in the order of time (``order``).
+below read them in the order of time (``order``). A row holds what the
+angles read (the state at the start of the step, the step in time, the
+dense output and ``M omega`` at the end), not the derivative at the start
+of the step, which :func:`_end` recomputes for the few steps it takes again:
+the record, with a copy for every tangent of a forward-mode derivative, is
+among the largest arrays of the model.
 """
 
 from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
-from jax.flatten_util import ravel_pytree
 
 from .._generated import dop853
 from .._math import C_SI, MTSUN_SI, PI, Struct, g_si, integer, isolated_step, mass_unit, real, safe_div
@@ -53,6 +57,13 @@ STEP_FRACTION = 0.1
 SECANT = 28
 #: Newton iterations locating the time at which ``M omega`` is reached.
 NEWTON = 6
+#: The columns of a row of the record: the state (14), the step in time,
+#: the dense output (``N_DENSE`` x 4) and ``M omega`` at the end.
+N_STATE = 14
+H_COLUMN = N_STATE
+DENSE_COLUMNS = slice(N_STATE + 1, N_STATE + 1 + trajectory.N_DENSE * len(trajectory.DENSE_COMPONENTS))
+OMEGA_COLUMN = DENSE_COLUMNS.stop
+ROW = OMEGA_COLUMN + 1
 
 
 def _rhs(c, y):
@@ -77,20 +88,23 @@ def going(c, y):
     return jnp.minimum(margin(c, y), ddomega)
 
 
-def _row_layout(y):
-    zero = jnp.zeros((), real())
-    dense = jnp.zeros((trajectory.N_DENSE, len(trajectory.DENSE_COMPONENTS)), real())
-    return ravel_pytree((y, y, zero, dense, zero))
+def _states(sol, r):
+    """The states at the start of the steps (rows) ``r``."""
+    return sol.rows[r, :N_STATE]
+
+
+def _dense(sol, r):
+    """The dense output of the steps (rows) ``r``."""
+    return sol.rows[r, DENSE_COLUMNS].reshape(jnp.shape(r) + (trajectory.N_DENSE, len(trajectory.DENSE_COMPONENTS)))
 
 
 def _integrate(c, y_ref, k_ref, du_back, n_back, du_fwd, beyond, active):
     """The record of ``n_back`` backward steps of ``du_back`` in ``u`` from
     the reference state, then of forward steps of ``du_fwd`` from it until
     the stopping conditions are met at the end of a step (none if
-    ``beyond``). Rows: the state and its derivative at the start of the
-    step, the step in time, the dense output and ``M omega`` at the end."""
-    row0, unravel = _row_layout(y_ref)
-    rows = jnp.zeros((CAPACITY, row0.shape[0]), real())
+    ``beyond``). Rows: the state at the start of the step, the step in
+    time, the dense output and ``M omega`` at the end."""
+    rows = jnp.zeros((CAPACITY, ROW), real())
     limit = jnp.where(active, CAPACITY, 0)
 
     def test(consts, small):
@@ -116,7 +130,7 @@ def _integrate(c, y_ref, k_ref, du_back, n_back, du_fwd, beyond, active):
         # decreasing over the step, as LAL tests it, which happens at most a
         # step after its maximum: see _end)
         stop = (i >= n_back) & (~(margin(c, y_new) > 0.0) | ~(k_new[1] > k0[1]))
-        row, _ = ravel_pytree((y, k0, h, dense, y_new[1]))
+        row = jnp.concatenate([y, h[None], dense.reshape(-1), y_new[1:2]])
         return (y_new, k_new, i, stop), row.astype(real())
 
     def body(consts, small, rows, active):
@@ -131,7 +145,7 @@ def _integrate(c, y_ref, k_ref, du_back, n_back, du_fwd, beyond, active):
     consts = (c, y_ref, k_ref, n_back, du_back, du_fwd, limit)
     small = (jnp.zeros((), integer()), y_ref, k_ref, beyond)
     (n, y_last, _, stopped), rows = while_loop(test, body, consts, small, rows)
-    return rows, unravel, n, stopped
+    return rows, n, stopped
 
 
 def solution(m1, m2, chi1, chi2, f_ref, f_low, f_cut, active=True):
@@ -164,8 +178,8 @@ def solution(m1, m2, chi1, chi2, f_ref, f_low, f_cut, active=True):
     range_back = jax.lax.stop_gradient((1.0 / omega_low - 1.0 / omega_ref) * cover)
     n_back = jnp.clip(jnp.ceil(range_back / du_step), 1, CAPACITY // 2).astype(integer())
     du_back = range_back / n_back.astype(real())
-    rows, unravel, n, stopped = _integrate(c, y_ref, k_ref, du_back, n_back, -du_step, beyond, active)
-    y, k0, h, dense, omega_end = jax.vmap(unravel)(rows)
+    rows, n, stopped = _integrate(c, y_ref, k_ref, du_back, n_back, -du_step, beyond, active)
+    h, omega_end, omega_start = rows[:, H_COLUMN], rows[:, OMEGA_COLUMN], rows[:, 1]
 
     # the steps in the order of time: row(p) = n_back - 1 - p for p < n_back
     p = jnp.arange(CAPACITY)
@@ -181,9 +195,9 @@ def solution(m1, m2, chi1, chi2, f_ref, f_low, f_cut, active=True):
     # time and M omega at the start (low end) of each interval, in order
     big = jnp.inf
     t_low = jnp.where(valid, jnp.where(p < n_back, (t0 + h)[order], t0[order]), big)
-    omega_low_end = jnp.where(valid, jnp.where(p < n_back, omega_end[order], y[order, 1]), big)
+    omega_low_end = jnp.where(valid, jnp.where(p < n_back, omega_end[order], omega_start[order]), big)
     sol = Struct(
-        lean=jnp.zeros((), real()), y=y, k0=k0, h=h, dense=dense, omega_end=omega_end, t0=t0, n=n, n_back=n_back,
+        lean=jnp.zeros((), real()), rows=rows, h=h, omega_end=omega_end, t0=t0, n=n, n_back=n_back,
         order=order, t_low=t_low, omega_low=omega_low_end, c=c, omega_ref=omega_ref, msec=msec, pi_gm=pi_gm,
     )
     t_end, last = _end(sol, beyond, 0.5 * dt_fine)
@@ -215,14 +229,15 @@ def _initial_state(m1, m2, chi1, chi2, f_start, msec):
 
 def _full_dense(sol, rows):
     """The states at the start of the steps ``rows``, the steps and the
-    dense output of the whole state (the stages recomputed)."""
-    y, k0, h, t0 = sol.y[rows], sol.k0[rows], sol.h[rows], sol.t0[rows]
+    dense output of the whole state (the derivative at the start and the
+    stages recomputed)."""
+    y, h, t0 = _states(sol, rows), sol.h[rows], sol.t0[rows]
 
-    def one(y, k0, h):
-        k, y_new = trajectory._stages_looped(sol.c, y, h, k0)
+    def one(y, h):
+        k, y_new = trajectory._stages_looped(sol.c, y, h, _rhs(sol.c, y))
         return trajectory._dense_looped(y, h, k, y_new)
 
-    return y, jax.vmap(one)(y, k0, h), t0, h
+    return y, jax.vmap(one)(y, h), t0, h
 
 
 def _end(sol, beyond, back_off):
@@ -241,7 +256,7 @@ def _end(sol, beyond, back_off):
     def search(_, bounds):
         lo, hi = bounds  # step lo's end fails, step hi's end passes
         mid = (lo + hi) // 2
-        ok = margin(c, sol.y[jnp.clip(mid + 1, 0, jnp.maximum(n_back - 1, 0))]) > 0.0
+        ok = margin(c, _states(sol, jnp.clip(mid + 1, 0, jnp.maximum(n_back - 1, 0)))) > 0.0
         return jnp.where(ok, lo, mid), jnp.where(ok, mid, hi)
 
     zero = jnp.zeros((), integer())
@@ -302,8 +317,8 @@ def context(sol, rotation, mf_scale):
     """What :func:`angles` needs besides the points: the continuous
     ``alpha`` at the starts of the steps (in the order of time) and the
     range of the solution."""
-    y_nodes = sol.y[sol.order]
-    x, yy, _ = _rotate(y_nodes[:, 2], y_nodes[:, 3], y_nodes[:, 4], *rotation)
+    lnhat = sol.rows[sol.order, 2:5]
+    x, yy, _ = _rotate(lnhat[:, 0], lnhat[:, 1], lnhat[:, 2], *rotation)
     valid = jnp.arange(CAPACITY) < sol.n
     raw = small_atan2(jnp.where(valid, yy, 0.0), jnp.where(valid, x, 1.0))
     d = jnp.diff(raw)
@@ -321,10 +336,10 @@ def _time_at_omega(sol, omega):
     sol, omega = jax.lax.stop_gradient((sol, omega))
     p = jnp.clip(jnp.searchsorted(sol.omega_low, omega, side="right") - 1, 0, jnp.maximum(sol.n - 1, 0))
     r = sol.order[p]
-    y0 = sol.y[r][..., 1:5]
+    y0 = sol.rows[r, 1:5]
     om0 = y0[..., 0]
     om1 = sol.omega_end[r]
-    dense = sol.dense[r]
+    dense = _dense(sol, r)
     x = jnp.clip(safe_div(omega - om0, om1 - om0), 0.0, 1.0)
 
     def omega_at(x):
@@ -347,8 +362,8 @@ def angles(sol, rotation, mf, mf_scale, ctx):
     :func:`.angles.spline`."""
     omega = mf / mf_scale
     r, t = _time_at_omega(sol, omega)
-    y0 = sol.y[r][..., 1:5]
-    dense = sol.dense[r]
+    y0 = sol.rows[r, 1:5]
+    dense = _dense(sol, r)
     t0, h = sol.t0[r], sol.h[r]
     h_safe = jnp.where(h != 0.0, h, 1.0)
 
