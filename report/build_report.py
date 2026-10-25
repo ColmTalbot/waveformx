@@ -449,6 +449,79 @@ def xas_values(values):
         values["xas_mlx_first_grad"] = duration(first["grad"])
 
 
+def crossmodel_values(values):
+    """IMRPhenomXPNR against NRSur7dq4 on the benchmark binaries
+    (``report/crossmodel.py``: ``crossmodel_points.json``, ``crossmodel.json``
+    and the checks of ``--thorough``, ``crossmodel_checks.json``)."""
+    points, data, checks = load("crossmodel_points.json"), load("crossmodel.json"), load("crossmodel_checks.json")
+    settings = points["settings"]
+    values["cm_draws"] = str(settings["n_draws"])
+    values["cm_valid"] = str(points["n_valid"])
+    values["cm_agree_n"] = str(points["n_agree"])
+    values["cm_disagree_n"] = str(points["n_disagree"])
+    values["cm_agree_below"] = sci(settings["agree_below"], 0)
+    values["cm_disagree_above"] = sci(settings["disagree_above"], 0)
+    values["cm_select_seconds"] = duration(points["seconds"])
+    records = data["records"]
+    values["cm_n"] = str(len(records))
+    values["cm_seconds"] = duration(data["seconds"])
+    values["cm_workers"] = str(data["settings"]["workers"])
+    values["cm_nrsur_max"] = sci(max(abs(r["nrsur_ours_vs_lal"]) for r in records))
+    pairs = (("lal_xpnr_vs_lal_nrsur", "LAL IMRPhenomXPNR", "NRSur7dq4"),
+             ("our_xpnr_vs_lal_nrsur", "our IMRPhenomXPNR", "NRSur7dq4"))
+    rows = []
+    for key, template, signal in pairs:
+        cells = []
+        for label in ("agree", "disagree"):
+            mm = [r[key]["mismatch"] for r in records if r["label"] == label]
+            cells += [sci(float(np.median(mm))), sci(max(mm))]
+        rows.append(f"<tr><td>{signal}</td><td>{template}</td>" + "".join(f'<td class="num">{c}</td>' for c in cells)
+                    + "</tr>")
+    cells = []
+    for label in ("agree", "disagree"):
+        mm = [r["our_xpnr_vs_lal_xpnr"] for r in records if r["label"] == label]
+        cells += [sci(float(np.median(mm))), sci(max(mm))]
+    rows.append("<tr><td>LAL IMRPhenomXPNR</td><td>our IMRPhenomXPNR, same binary*</td>"
+                + "".join(f'<td class="num">{c}</td>' for c in cells) + "</tr>")
+    values["cm_rows"] = "\n".join(rows)
+    for label in ("agree", "disagree"):
+        group = [r for r in records if r["label"] == label]
+        ratio = [r["our_xpnr_vs_lal_nrsur"]["mismatch"] / r["lal_xpnr_vs_lal_nrsur"]["mismatch"] for r in group]
+        values[f"cm_{label}_closer"] = str(sum(q < 1 for q in ratio))
+        values[f"cm_{label}_count"] = str(len(group))
+        values[f"cm_{label}_ratio_median"] = f"{float(np.median(ratio)):.2f}"
+        values[f"cm_{label}_ratio_min"] = f"{min(ratio):.2f}"
+        values[f"cm_{label}_ratio_max"] = f"{max(ratio):.1f}"
+        values[f"cm_{label}_unopt_median"] = sci(float(np.median(
+            [r["lal_xpnr_vs_lal_nrsur"]["unoptimised"] for r in group])))
+    values["cm_spintaylor"] = str(sum(r["lal_spintaylor"] for r in records))
+    # the checks: the procedure against the thorough one, the gradient
+    # optimisation, our NRSur7dq4 as the signal, the start of the surrogate
+    by_key = {json.dumps(r["features"], sort_keys=True): r for r in checks["records"]}
+    ratios = [r[k]["mismatch"] / by_key[json.dumps(r["features"], sort_keys=True)][k]["mismatch"]
+              for r in records for k, _, _ in pairs]
+    values["cm_fast_vs_thorough"] = sci(max(abs(q - 1) for q in ratios))
+    values["cm_evaluations"] = str(int(np.median([r[k]["evaluations"] for r in records for k, _, _ in pairs])))
+    values["cm_thorough_evaluations"] = str(int(np.median(
+        [r[k]["evaluations"] for r in checks["records"] for k, _, _ in pairs])))
+    values["cm_thorough_seconds"] = duration(checks["seconds"])
+    c = checks["records"]
+    values["cm_conditioning_max"] = sci(max(r["nrsur_conditioning"] for r in c))
+    values["cm_ours_signal"] = sci(max(abs(r["our_xpnr_vs_our_nrsur"]["mismatch"] / r["our_xpnr_vs_lal_nrsur"]["mismatch"] - 1)
+                                       for r in c))
+    gradient = [(r["our_xpnr_vs_lal_nrsur_gradient"]["mismatch"], r["our_xpnr_vs_lal_nrsur"]["mismatch"]) for r in c]
+    values["cm_gradient_n"] = str(len(gradient))
+    values["cm_gradient_worst"] = sci(max(abs(g / n - 1) for g, n in gradient))
+    departure = [r["departure"] for r in c]
+    values["cm_nofix_vs_lal"] = sci(max(r["default_without_fix_vs_lal"] for r in departure))
+    values["cm_parity_fix_max"] = sci(max(r["parity_fix"] for r in departure))
+    values["cm_lean_vs_default"] = sci(max(r["lean_vs_default"] for r in departure))
+    for label in ("agree", "disagree"):
+        mm = [r["our_xpnr_vs_lal_xpnr"] for r in records if r["label"] == label]
+        values[f"cm_{label}_self_median"] = sci(float(np.median(mm)))
+    values["crossmodel_svg"] = svg("crossmodel", "Our IMRPhenomXPNR against LAL's, each against NRSur7dq4")
+
+
 def xhm_values(values):
     """IMRPhenomXHM (``xhm.json``)."""
     data = load("xhm.json")
@@ -700,6 +773,7 @@ def build(args):
     mlx_xpnr_values(values)
     xas_values(values)
     xhm_values(values)
+    crossmodel_values(values)
 
     rows = []
     for label, data, key in (

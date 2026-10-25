@@ -192,12 +192,57 @@ def mlx():
     save(fig, "mlx")
 
 
+def crossmodel():
+    """Our lean IMRPhenomXPNR against LAL's, each against LAL's NRSur7dq4
+    (``report/crossmodel.py``), and LAL's mismatches over the draws the
+    benchmark set was chosen from."""
+    data, points = load("crossmodel.json"), load("crossmodel_points.json")
+    if data is None or points is None:
+        return
+    fig, axes = plt.subplots(1, 2, figsize=(8.4, 3.4), gridspec_kw=dict(width_ratios=[1.25, 1]))
+    ax = axes[0]
+    for label, colour, marker, text in (("agree", BLUE, "o", "LAL's models agree"),
+                                         ("disagree", ORANGE, "s", "LAL's models disagree")):
+        rows = [(r["lal_xpnr_vs_lal_nrsur"]["mismatch"], r["our_xpnr_vs_lal_nrsur"]["mismatch"])
+                for r in data["records"] if r["label"] == label]
+        if rows:
+            x, y = np.array(rows).T
+            ax.scatter(x, y, s=16, color=colour, marker=marker, alpha=0.85, linewidths=0, label=text)
+    every = [v for r in data["records"] for v in (r["lal_xpnr_vs_lal_nrsur"]["mismatch"],
+                                                  r["our_xpnr_vs_lal_nrsur"]["mismatch"])]
+    lo, hi = min(every) / 2, max(every) * 2
+    ax.plot([lo, hi], [lo, hi], color=MUTED, linewidth=0.8)
+    ax.set_xlim(lo, hi)
+    ax.set_ylim(lo, hi)
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xlabel("LAL IMRPhenomXPNR vs NRSur7dq4")
+    ax.set_ylabel("our IMRPhenomXPNR vs NRSur7dq4")
+    ax.set_title("optimised mismatch (below the line: closer to NRSur7dq4)", fontsize=9)
+    ax.legend(loc="upper left", fontsize=7.5, markerscale=1.2)
+    ax = axes[1]
+    values = np.array([d["lal_mismatch"] for d in points["draws"]])
+    bins = np.geomspace(values.min() / 1.2, values.max() * 1.2, 30)
+    ax.hist(values, bins=bins, color=GRID, edgecolor=MUTED, linewidth=0.5)
+    for threshold in (points["settings"]["agree_below"], points["settings"]["disagree_above"]):
+        ax.axvline(threshold, color=FOREGROUND, linewidth=0.8, linestyle="--")
+    chosen = [p["lal"]["mismatch"] for p in points["points"]]
+    ax.plot(chosen, np.full(len(chosen), 0.5), "|", color=ORANGE, markersize=8)
+    ax.set_xscale("log")
+    ax.set_xlabel("LAL IMRPhenomXPNR vs NRSur7dq4")
+    ax.set_ylabel("draws")
+    ax.set_title(f"{len(values)} draws; the benchmark binaries marked", fontsize=9)
+    fig.tight_layout()
+    save(fig, "crossmodel")
+
+
 def main():
     style()
     accuracy()
     batch()
     gradients()
     mlx()
+    crossmodel()
 
 
 if __name__ == "__main__":

@@ -12,7 +12,8 @@ cycles are tapered and filtered inside the band, which changes the mismatch
 from 20 Hz by ``~1e-4`` from 10 Hz and ``~3e-3`` from 20 Hz. The template IMRPhenomXPNR (LAL's
 ``SimInspiralChooseFDWaveformSequence`` or our lean model, ``lean=True``) at
 the same binary, with the same reference frequency (20 Hz) and LAL's frame
-conventions, on 20-1024 Hz in steps of 1/8 Hz with the aLIGO design PSD. The
+conventions (our model and LAL's are also compared directly: the larger
+mismatch of the two polarizations, maximised over time and phase), on 20-1024 Hz in steps of 1/8 Hz with the aLIGO design PSD. The
 mismatch is maximised over time and the antenna patterns of the template
 (:func:`waveformx.match.polarization_mismatch`) and optimised over the
 parameters that the two models define differently
@@ -22,9 +23,21 @@ the orientation of the frame in which the spins are given. The angle
 between the in-plane spins is physical and is not optimised (freeing it
 lets the optimisation reach different binaries). The best of a grid of 16
 starts (4 reference phases times 4 rotations), then Nelder-Mead from the
-best 3, the same procedure for LAL's model and ours. For our model, the
-gradient optimisation of :func:`waveformx.match.optimize` from the same 3
-starts is recorded as a check of it.
+best 3 (from the best one alone it misses the optimum for a few binaries),
+the same procedure for LAL's model and ours: about 190 evaluations of a
+model per optimisation, at ~10 ms for the model and ~4 ms for the
+mismatch. The 40 binaries take about 2 minutes on 16 processes, much of
+it the compilation in each process.
+
+``--thorough`` (``report/data/crossmodel_checks.json``, run once) checks
+that procedure: Nelder-Mead to tighter tolerances,
+the gradient optimisation of :func:`waveformx.match.optimize` (L-BFGS-B
+through our model) from the same starts, our NRSur7dq4 as the signal, and
+the floor from the start of the surrogate (the whole surrogate against
+the surrogate conditioned from 10 Hz), and where our model departs from
+LAL's (our default model without the parity fix against LAL, the fix, and
+the lean model against the default one): about 7 minutes on 16
+processes.
 
 The benchmark binaries (``report/data/crossmodel_points.json``) are chosen
 once with ``--select``: draws in NRSur7dq4's range (``q <= 4``, ``|chi| <=
@@ -40,7 +53,7 @@ Keep the set fixed: it tracks the model over time.
 Usage::
 
     python report/crossmodel.py --select [--n-draws 500] [--workers 16]
-    python report/crossmodel.py [--points crossmodel_points.json]
+    python report/crossmodel.py [--workers 16] [--thorough]
 """
 
 import argparse
@@ -73,7 +86,9 @@ COVERED = 10.0
 POINTS = "crossmodel_points.json"
 #: the grid of starts: reference phases times common rotations of the spins
 STARTS = np.array([[p, a] for p in np.arange(4) * np.pi / 2 for a in np.arange(4) * np.pi / 2])
-KEEP = 3
+#: Nelder-Mead from the best KEEP starts, to these tolerances (and with --thorough)
+KEEP, TOLERANCES = 3, dict(xatol=1e-3, fatol=1e-7, maxfev=150)
+THOROUGH_KEEP, THOROUGH_TOLERANCES = 3, dict(xatol=1e-4, fatol=1e-9, maxfev=400)
 AGREE, DISAGREE, PER_REGION = 1e-3, 1e-2, 20
 
 _PSD = None
@@ -152,6 +167,18 @@ def default_function():
     return _DEFAULT
 
 
+_VARIANTS = {}
+
+
+def _variant(name):
+    """Our default IMRPhenomXPNR with (``"fixed"``) and without
+    (``"nofix"``) the parity fix."""
+    if name not in _VARIANTS:
+        _VARIANTS[name] = __import__("jax").jit(
+            wf.polarizations_function("IMRPhenomXPNR", pnr_parity_fix=name == "fixed"))
+    return _VARIANTS[name]
+
+
 def lean_binary(keywords, x=None):
     binary = wf.Binary(*(jnp.asarray(keywords[k], jnp.float64) for k in wf.Binary._fields))
     return binary if x is None else wf.match.with_conventions(binary, conventions(x))
@@ -161,10 +188,11 @@ def our_xpnr(keywords):
     return lean_function()(lean_binary(keywords), jnp.asarray(FREQUENCIES))
 
 
-def optimised(signal, template, keywords):
+def optimised(signal, template, keywords, thorough=False):
     """The mismatch of ``signal`` with ``template(keywords)`` optimised over
     the convention shifts: ``dict(mismatch, shifts, unoptimised, starts,
     evaluations)``."""
+    keep, tolerances = (THOROUGH_KEEP, THOROUGH_TOLERANCES) if thorough else (KEEP, TOLERANCES)
     import scipy.optimize
 
     mismatch = setup()
@@ -179,14 +207,14 @@ def optimised(signal, template, keywords):
 
     grid = np.array([objective(x) for x in STARTS])
     best = []
-    for index in np.argsort(grid)[:KEEP]:
+    for index in np.argsort(grid)[:keep]:
         x0 = STARTS[index]
         out = scipy.optimize.minimize(objective, x0, method="Nelder-Mead", options=dict(
-            initial_simplex=x0 + np.vstack([np.zeros(2), 0.3 * np.eye(2)]), xatol=1e-4, fatol=1e-9, maxfev=400))
+            initial_simplex=x0 + np.vstack([np.zeros(2), 0.3 * np.eye(2)]), **tolerances))
         best.append((out.fun, out.x))
     value, x = min(best, key=lambda b: b[0])
     return dict(mismatch=float(value), shifts=[float(v) for v in x], unoptimised=float(grid[0]),
-                starts=[int(i) for i in np.argsort(grid)[:KEEP]], evaluations=count[0])
+                starts=[int(i) for i in np.argsort(grid)[:keep]], evaluations=count[0])
 
 
 def _lean_objective(x, signal, binary, psd_):
@@ -250,7 +278,7 @@ def _select_one(keywords):
         return dict(keywords=keywords, error=str(error))
     start = time.perf_counter()
     signal = lal_nrsur(keywords)
-    out = optimised(signal, lal_xpnr, keywords)
+    out = optimised(signal, lal_xpnr, keywords, thorough=True)
     out["seconds"] = time.perf_counter() - start
     return dict(keywords=keywords, lal=out)
 
@@ -315,43 +343,71 @@ def select(n_draws, seed, workers):
 # ---------------------------------------------------------------------------
 
 
-def measure(points_file, gradient):
-    points = json.loads((DATA / points_file).read_text())["points"]
-    out = []
+def _measure_one(point, thorough):
+    keywords = dict(point["keywords"], spin_1=tuple(point["keywords"]["spin_1"]),
+                    spin_2=tuple(point["keywords"]["spin_2"]))
+    setup()
     start = time.perf_counter()
-    for i, point in enumerate(points):
-        keywords = dict(point["keywords"], spin_1=tuple(point["keywords"]["spin_1"]),
-                        spin_2=tuple(point["keywords"]["spin_2"]))
-        lal_signal = lal_nrsur(keywords)
-        our_signal = our_nrsur(keywords)
-        setup()
-        record = dict(label=point["label"], features=point["features"], selection=point["lal"]["mismatch"])
-        # our NRSur7dq4 against LAL's (no optimisation)
-        record["nrsur_ours_vs_lal"] = float(1 - wf.match.match(jnp.asarray(lal_signal), jnp.asarray(our_signal),
-                                                               jnp.asarray(FREQUENCIES), _PSD))
+    lal_signal = lal_nrsur(keywords)
+    our_signal = our_nrsur(keywords)
+    record = dict(label=point["label"], features=point["features"], selection=point["lal"]["mismatch"])
+    # our NRSur7dq4 against LAL's (no optimisation)
+    record["nrsur_ours_vs_lal"] = float(1 - wf.match.match(jnp.asarray(lal_signal), jnp.asarray(our_signal),
+                                                           jnp.asarray(FREQUENCIES), _PSD))
+    # whether LAL used the SpinTaylor angles: our default model, which
+    # follows LAL's, is NaN where LAL would switch to other angles
+    record["lal_spintaylor"] = bool(np.all(np.isfinite(np.asarray(
+        default_function()(lean_binary(keywords), jnp.asarray(FREQUENCIES))[0]))))
+    record["lal_xpnr_vs_lal_nrsur"] = optimised(lal_signal, lal_xpnr, keywords, thorough)
+    record["our_xpnr_vs_lal_nrsur"] = optimised(lal_signal, our_xpnr, keywords, thorough)
+    # our model against LAL's at the same binary, in the same conventions:
+    # the larger mismatch of the two polarizations (maximised over time and
+    # phase only)
+    frequencies = jnp.asarray(FREQUENCIES)
+    record["our_xpnr_vs_lal_xpnr"] = max(
+        float(wf.match.mismatch(jnp.asarray(a), jnp.asarray(b), frequencies, _PSD))
+        for a, b in zip(lal_xpnr(keywords), our_xpnr(keywords)))
+    if thorough:
         # the floor from the start of the surrogate: the whole surrogate
         # against the surrogate conditioned from COVERED
         record["nrsur_conditioning"] = float(1 - wf.match.match(
             jnp.asarray(our_signal), jnp.asarray(our_nrsur(keywords, COVERED)), jnp.asarray(FREQUENCIES), _PSD))
-        record["lal_xpnr_vs_lal_nrsur"] = optimised(lal_signal, lal_xpnr, keywords)
-        record["our_xpnr_vs_lal_nrsur"] = optimised(lal_signal, our_xpnr, keywords)
-        record["our_xpnr_vs_our_nrsur"] = optimised(our_signal, our_xpnr, keywords)
-        # whether LAL used the SpinTaylor angles: our default model, which
-        # follows LAL's, is NaN where LAL would switch to other angles
-        record["lal_spintaylor"] = bool(np.all(np.isfinite(np.asarray(
-            default_function()(lean_binary(keywords), jnp.asarray(FREQUENCIES))[0]))))
-        lal_hp, _ = lal_xpnr(keywords)
-        record["our_xpnr_vs_lal_xpnr"] = optimised(lal_hp, our_xpnr, keywords)
-        if gradient:
-            starts = STARTS[record["our_xpnr_vs_lal_nrsur"]["starts"]]
-            record["our_xpnr_vs_lal_nrsur_gradient"] = gradient_optimised(lal_signal, keywords, starts)
-        print(i, point["label"], {k: f"{v['mismatch']:.2e}" for k, v in record.items() if isinstance(v, dict)
-                                  and "mismatch" in v}, f"NRSur {record['nrsur_ours_vs_lal']:.1e}", flush=True)
-        out.append(record)
-    write("crossmodel.json", dict(
-        description="IMRPhenomXPNR against NRSur7dq4 on the benchmark binaries (report/crossmodel.py)",
-        settings=dict(delta_f=DELTA_F, f_low=F_LOW, f_max=F_MAX, f_ref=F_REF, starts=STARTS.tolist(), keep=KEEP,
-                      points=points_file),
+        record["our_xpnr_vs_our_nrsur"] = optimised(our_signal, our_xpnr, keywords, thorough)
+        starts = STARTS[record["our_xpnr_vs_lal_nrsur"]["starts"]]
+        record["our_xpnr_vs_lal_nrsur_gradient"] = gradient_optimised(lal_signal, keywords, starts)
+        # where our model departs from LAL's: our default model without the
+        # parity fix (LAL 6.2.0's), the fix, and the lean model against the
+        # default one with it
+        def larger(x, y):
+            return max(float(wf.match.mismatch(jnp.asarray(a), jnp.asarray(b), frequencies, _PSD))
+                       for a, b in zip(x, y))
+
+        binary = lean_binary(keywords)
+        nofix = _variant("nofix")(binary, frequencies)
+        fixed = _variant("fixed")(binary, frequencies)
+        record["departure"] = dict(default_without_fix_vs_lal=larger(nofix, lal_xpnr(keywords)),
+                                   parity_fix=larger(fixed, nofix), lean_vs_default=larger(our_xpnr(keywords), fixed))
+    record["seconds"] = time.perf_counter() - start
+    return record
+
+
+def measure(points_file, thorough, workers):
+    points = json.loads((DATA / points_file).read_text())["points"]
+    start = time.perf_counter()
+    context = multiprocessing.get_context("spawn")
+    with context.Pool(min(workers, len(points)), initializer=_init_worker) as pool:
+        out = []
+        for i, record in enumerate(pool.starmap(_measure_one, [(p, thorough) for p in points])):
+            print(i, record["label"], {k: f"{v['mismatch']:.2e}" for k, v in record.items()
+                                       if isinstance(v, dict) and "mismatch" in v},
+                  f"NRSur {record['nrsur_ours_vs_lal']:.1e}", flush=True)
+            out.append(record)
+    keep, tolerances = (THOROUGH_KEEP, THOROUGH_TOLERANCES) if thorough else (KEEP, TOLERANCES)
+    write("crossmodel_checks.json" if thorough else "crossmodel.json", dict(
+        description="IMRPhenomXPNR against NRSur7dq4 on the benchmark binaries (report/crossmodel.py"
+                    + (" --thorough)" if thorough else ")"),
+        settings=dict(delta_f=DELTA_F, f_low=F_LOW, f_max=F_MAX, f_ref=F_REF, starts=STARTS.tolist(), keep=keep,
+                      tolerances=tolerances, points=points_file, workers=workers),
         environment=environment(), seconds=time.perf_counter() - start, records=out,
     ))
 
@@ -363,12 +419,12 @@ def main():
     parser.add_argument("--seed", type=int, default=20261024)
     parser.add_argument("--workers", type=int, default=16)
     parser.add_argument("--points", default=POINTS)
-    parser.add_argument("--no-gradient", action="store_true", help="skip the gradient optimisation check")
+    parser.add_argument("--thorough", action="store_true", help="the slower checks of the procedure")
     args = parser.parse_args()
     if args.select:
         select(args.n_draws, args.seed, args.workers)
     else:
-        measure(args.points, not args.no_gradient)
+        measure(args.points, args.thorough, args.workers)
 
 
 if __name__ == "__main__":
