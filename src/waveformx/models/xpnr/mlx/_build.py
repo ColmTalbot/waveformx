@@ -4,8 +4,8 @@
 """The generated kernels of the stages of the model
 (:mod:`._stages`) for a set of co-precessing modes: traced in float32 from
 shapes alone (no JAX compilation), each stage at the structure of the
-previous one's outputs. Built once per set of modes, strain scale and
-reference convention (:func:`stages`)."""
+previous one's outputs. Built once per set of modes, strain scale,
+reference convention and precession prescription (:func:`stages`)."""
 
 from __future__ import annotations
 
@@ -36,10 +36,11 @@ def summary_example():
 class Built:
     """The kernels of the stages (built on first use)."""
 
-    def __init__(self, modes, amp_scale, reference_mf=None):
+    def __init__(self, modes, amp_scale, reference_mf=None, version=330):
         self.modes = modes
         self.amp_scale = amp_scale
         self.reference_mf = reference_mf
+        self.version = version
         self.n_modes = len(modes)
 
     @functools.cached_property
@@ -63,16 +64,29 @@ class Built:
                            (prec, wf, points, bank, st_range), 5, "xpnr_c2")
 
     @functools.cached_property
+    def c(self):
+        """The set-up of versions 102 and 223 (in place of C1 and C2)."""
+        base, wf0, _, _ = self.a.out_example()
+        modes, version = self.modes, self.version
+        return StageKernel(lambda b, w: _stages.stage_c_pn(b, w, version, modes), (base, wf0), 2, "xpnr_c")
+
+    def setup_example(self):
+        """The outputs of the set-up up to the grid (C2, or C)."""
+        return (self.c2 if self.version == 330 else self.c).out_example()
+
+    @functools.cached_property
     def d(self):
-        prec, wf, _, _ = self.c2.out_example()
+        prec, wf, _, _ = self.setup_example()
         st_values = (_s(), _s(), _s(), _s(), _s((), np.bool_))
-        return StageKernel(_stages.grid_point, (prec, wf, _s(), st_values), 2, "xpnr_d")
+        version = self.version
+        return StageKernel(lambda p, w, mf, st: _stages.grid_point(p, w, mf, st, version), (prec, wf, _s(), st_values),
+                           2, "xpnr_d")
 
     @functools.cached_property
     def e(self):
-        prec, wf, _, _ = self.c2.out_example()
-        modes = self.modes
-        return StageKernel(lambda p, w, a, i: _stages.stage_e(p, w, a, i, modes),
+        prec, wf, _, _ = self.setup_example()
+        modes, version = self.modes, self.version
+        return StageKernel(lambda p, w, a, i: _stages.stage_e(p, w, a, i, modes, version),
                            (prec, wf, _s((len(_stages.SPLINES),)), _s((), np.bool_)), 4, "xpnr_e")
 
     @functools.cached_property
@@ -84,23 +98,23 @@ class Built:
     @functools.cached_property
     def f2(self):
         prec, wf, extra, _ = self.e.out_example()
-        modes, n = self.modes, self.n_modes
+        modes, n, version = self.modes, self.n_modes, self.version
         examples = (prec, wf, extra, _s(), _s((n, len(_stages.SPLINES))), _s((n,), np.bool_), _s((n,), np.bool_),
                     _s(), _s(), _s((), np.bool_))
         return StageKernel(lambda p, w, e, f, v, i, me, k, sa, si: _stages.stage_f2(p, w, e, f, v, i, me, k, sa, si,
-                                                                                     modes),
+                                                                                     modes, version),
                            examples, 3, "xpnr_f2")
 
 
 def _f2_pieces(built):
     prec, wf, extra, _ = built.e.out_example()
-    modes, n = built.modes, built.n_modes
+    modes, n, version = built.modes, built.n_modes, built.version
     six = _s((len(_stages.SPLINES),))
     examples = (prec, wf, extra, _s((3,)), _s(), _s((n,)), _s((n,)), _s((n,), np.bool_), _s(), _s(),
                 _s((), np.bool_)) + (six,) * (4 * n)
 
     def function(p, w, e, g, f, x, k, me, kappa, sa, si, *pieces):
-        return _stages.stage_f2_pieces(p, w, e, g, f, x, k, me, kappa, sa, si, *pieces, modes=modes)
+        return _stages.stage_f2_pieces(p, w, e, g, f, x, k, me, kappa, sa, si, *pieces, modes=modes, version=version)
 
     return StageKernel(function, examples, 4, "xpnr_f2p")
 
@@ -150,7 +164,8 @@ def parts():
 
 
 @functools.lru_cache(maxsize=None)
-def stages(modes, amp_scale, reference_mf=None):
+def stages(modes, amp_scale, reference_mf=None, version=330):
     """The :class:`Built` kernels for the co-precessing ``modes`` (a tuple),
-    the scale of the strain and the mass-scaled reference frequency."""
-    return Built(tuple(modes), float(amp_scale), None if reference_mf is None else float(reference_mf))
+    the scale of the strain, the mass-scaled reference frequency and the
+    precession prescription ``version``."""
+    return Built(tuple(modes), float(amp_scale), None if reference_mf is None else float(reference_mf), int(version))

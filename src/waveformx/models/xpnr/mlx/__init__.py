@@ -30,8 +30,10 @@ axis of its fields (``mass_1`` of shape ``(B,)``, ``spin_1`` of shape
 ``(B, 3)``; fields without the axis are shared). Every output is the
 strain multiplied by ``1e21`` unless ``scaled_strain`` is false;
 ``reference_mf`` selects the mass-scaled reference frequency
-(``WaveformOptions.reference_mf``). Where the model fails (where the JAX
-model returns NaN) the result is NaN.
+(``WaveformOptions.reference_mf``) and ``approximant`` the precession
+prescription (``"IMRPhenomXPNR"``, the SpinTaylor angles, or
+``"IMRPhenomXPNR_NNLO"``, ``"IMRPhenomXPNR_MSA"``). Where the model fails
+(where the JAX model returns NaN) the result is NaN.
 """
 
 from __future__ import annotations
@@ -39,15 +41,17 @@ from __future__ import annotations
 __all__ = ["polarizations", "polarizations_and_jacobian"]
 
 
-def polarizations(binary, frequencies, mode_array=None, scaled_strain=True, reference_mf=None):
+def polarizations(binary, frequencies, mode_array=None, scaled_strain=True, reference_mf=None,
+                  approximant="IMRPhenomXPNR"):
     """``(h_+, h_x)`` of IMRPhenomXPNR (see :func:`._api.polarizations`)."""
     from ._api import polarizations as function
 
-    return function(binary, frequencies, mode_array, scaled_strain, reference_mf)
+    return function(binary, frequencies, mode_array, scaled_strain, reference_mf, approximant)
 
 
-def polarizations_and_jacobian(binary, frequencies, mode_array=None, scaled_strain=True, reference_mf=None):
+def polarizations_and_jacobian(binary, frequencies, mode_array=None, scaled_strain=True, reference_mf=None,
+                               approximant="IMRPhenomXPNR"):
     """``(h_+, h_x)`` and their Jacobian (see :func:`._api.polarizations_and_jacobian`)."""
     from ._api import polarizations_and_jacobian as function
 
-    return function(binary, frequencies, mode_array, scaled_strain, reference_mf)
+    return function(binary, frequencies, mode_array, scaled_strain, reference_mf, approximant)

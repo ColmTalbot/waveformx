@@ -22,6 +22,10 @@ from values read back from the GPU: the steps of the SpinTaylor solution
 (a capacity raised for the binaries that need more) and the points of the
 grids (a power of two at least the largest grid of the group). Large
 batches go in chunks (:func:`evaluate_chunked`).
+
+The NNLO and MSA prescriptions (``version`` 102 and 223) set up with one
+stage, without the SpinTaylor solution, and give the later stages zeros
+for the SpinTaylor angles.
 """
 
 from __future__ import annotations
@@ -126,9 +130,17 @@ class _Setup:
     """The set-up of a batch, up to the grid of the PNR interpolants."""
 
 
+def _no_angles(batch, n):
+    """Zeros in place of the SpinTaylor angles ``(alpha, dalpha, beta,
+    dbeta, inside)`` at ``n`` points, which versions 102 and 223 do not
+    read."""
+    zero = mx.zeros((batch, n))
+    return (zero, zero, zero, zero, mx.zeros((batch, n), dtype=mx.bool_))
+
+
 def setup(leaves, frequencies, S, n_directions):
     """Stages A, B (the SpinTaylor solution), C1, the bank and C2 for the
-    whole batch."""
+    whole batch (A and C for versions 102 and 223)."""
     P = n_directions
     batch = leaves["mass_1"].shape[0]
     f_min, f_max = frequencies[:, 0], frequencies[:, -1]
@@ -141,6 +153,18 @@ def setup(leaves, frequencies, S, n_directions):
     base, wf0, ode, error_a = _run(S.a, (leaves, f_min, f_max), (lt, None, None), batch, P)
     st.ode = ode.tree()
     st.error_a = error_a.tree()
+    st.spintaylor = S.version == 330
+    if not st.spintaylor:
+        # C: the set-up of versions 102 and 223
+        st.prec2, st.wf2, grid, error_c = _run(S.c, (base, wf0), (None, None), batch, P)
+        st.grid, st.grid_t = grid.tree(), grid.tangent_tree() if P else None
+        st.error_c = error_c.tree()
+        n_grid = mx.maximum(st.grid[:, 1], 0.0)
+        st.n_grid = mx.minimum(mx.where(mx.isfinite(n_grid), n_grid, 0.0), MAX_GRID).astype(mx.int32)
+        st.error = st.error_a | st.error_c
+        st.solution = st.tables = st.rotation = st.rotation_t = st.st_range = st.st_range_t = st.summary = None
+        st.extra = {}
+        return st
     # B: the SpinTaylor solution
     st.solution, st.summary, summary_t = integrate(st.ode, ode.tangent_tree() if P else None, P)
     # C1: finish_setup and the points of the bank
@@ -186,7 +210,11 @@ def finish(st, index, size, frequencies, S, modes, n_directions):
     k = mx.arange(size, dtype=mx.float32)[None, :]
     mf_grid, mf_grid_t = _call(_build.parts().grid_mf, (grid, wf2_tree.m_tot, k),
                                (grid_t, wf2_t.m_tot if P else None, None), batch, P, n_points=size, shared=True)
-    st_grid, st_grid_t = st_angles(solution, tab, st_range, st_range_t, rotation, rotation_t, mf_grid, mf_grid_t, P)
+    if st.spintaylor:
+        st_grid, st_grid_t = st_angles(solution, tab, st_range, st_range_t, rotation, rotation_t, mf_grid,
+                                       mf_grid_t, P)
+    else:
+        st_grid, st_grid_t = _no_angles(batch, size), None
     # D: the PNR angles on the grid
     (alpha, beta, err_grid), d_t = _call(S.d, (prec2, wf2, mf_grid, st_grid), (None, None, mf_grid_t, st_grid_t),
                                          batch, P, n_points=size, counts=n_grid)
@@ -219,8 +247,11 @@ def finish(st, index, size, frequencies, S, modes, n_directions):
             dkappa_s = mx.moveaxis(dkappa_s.reshape(batch, P, n_freq), 1, 2)
     else:
         kappa_s, dkappa_s = kappa, (f1_t[3] if P else None)
-    st_f, st_f_t = st_angles(solution, tab, st_range, st_range_t, rotation, rotation_t, mf_as,
-                             f1_t[2] if P else None, P)
+    if st.spintaylor:
+        st_f, st_f_t = st_angles(solution, tab, st_range, st_range_t, rotation, rotation_t, mf_as,
+                                 f1_t[2] if P else None, P)
+    else:
+        st_f, st_f_t = _no_angles(batch, n_freq), None
     # F2: the interpolants at the frequencies of the modes (read from their
     # table in the kernel), the angles, the modes and the twist
     gather = dict(table=splines.table, table_t=splines.dtable, index=k_index, args={})
@@ -230,7 +261,8 @@ def finish(st, index, size, frequencies, S, modes, n_directions):
     args = args + (None,) * (4 * n_modes)
     targs = None
     if P:
-        targs = (None, None, None, splines.dgrid, None, f1_t[0], None, None, dkappa_s, st_f_t[0], None)
+        targs = (None, None, None, splines.dgrid, None, f1_t[0], None, None, dkappa_s,
+                 st_f_t[0] if st_f_t is not None else None, None)
         targs = targs + (None,) * (4 * n_modes)
     h_out, err_out = S.f2p.run(args, targs, batch=batch, n_directions=P, n_points=n_freq, gather=gather)
     h, err_f = h_out.tree(), err_out.tree()
@@ -248,17 +280,18 @@ def finish(st, index, size, frequencies, S, modes, n_directions):
 CHUNK = {False: 1024, True: 64}
 
 
-def evaluate_chunked(leaves, frequencies, modes, amp_scale, n_directions=0, reference_mf=None):
+def evaluate_chunked(leaves, frequencies, modes, amp_scale, n_directions=0, reference_mf=None, version=330):
     """:func:`evaluate` in chunks of :data:`CHUNK` binaries."""
     batch = leaves["mass_1"].shape[0]
     chunk = CHUNK[bool(n_directions)]
     if batch <= chunk:
-        return evaluate(leaves, frequencies, modes, amp_scale, n_directions, reference_mf=reference_mf)
+        return evaluate(leaves, frequencies, modes, amp_scale, n_directions, reference_mf=reference_mf,
+                        version=version)
     outs = []
     for start in range(0, batch, chunk):
         part = {name: value[start:start + chunk] for name, value in leaves.items()}
         f = frequencies if frequencies.shape[0] == 1 else frequencies[start:start + chunk]
-        out = evaluate(part, f, modes, amp_scale, n_directions, reference_mf=reference_mf)
+        out = evaluate(part, f, modes, amp_scale, n_directions, reference_mf=reference_mf, version=version)
         mx.eval([x for x in out if x is not None])
         outs.append(out)
         # (the buffers of a chunk freed for the next: MLX keeps them in its
@@ -270,7 +303,7 @@ def evaluate_chunked(leaves, frequencies, modes, amp_scale, n_directions=0, refe
     return h, error, jacobian
 
 
-def evaluate(leaves, frequencies, modes, amp_scale, n_directions=0, keep=None, reference_mf=None):
+def evaluate(leaves, frequencies, modes, amp_scale, n_directions=0, keep=None, reference_mf=None, version=330):
     """The polarizations of a batch: ``leaves`` the fields of the binaries
     (``(B,)``, spins ``(B, 3)``, float32 MLX arrays), ``frequencies``
     ``(1, N)`` (shared) or ``(B, N)``. Returns ``(h, error, jacobian)``
@@ -279,8 +312,9 @@ def evaluate(leaves, frequencies, modes, amp_scale, n_directions=0, keep=None, r
     Jacobian ``(B, N, 4, P)`` along the first ``n_directions`` parameters
     (``None`` for none). ``keep`` (a dict) collects the intermediate
     values (of the set-up, and of the last group of binaries);
-    ``reference_mf`` the mass-scaled reference frequency, if any."""
-    S = _build.stages(tuple(modes), float(amp_scale), reference_mf)
+    ``reference_mf`` the mass-scaled reference frequency, if any;
+    ``version`` the precession prescription (330, 102 or 223)."""
+    S = _build.stages(tuple(modes), float(amp_scale), reference_mf, version)
     P = n_directions
     batch = leaves["mass_1"].shape[0]
     n_freq = frequencies.shape[1]
