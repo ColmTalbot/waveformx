@@ -40,6 +40,8 @@ REFERENCE_MODULES = {
     "IMRPhenomXAS": "waveformx.models.xas.reference",
     "IMRPhenomXHM": "waveformx.models.xas.reference",
     "IMRPhenomXPNR": "waveformx.models.xpnr.reference",
+    "IMRPhenomXPNR_NNLO": "waveformx.models.xpnr.reference",
+    "IMRPhenomXPNR_MSA": "waveformx.models.xpnr.reference",
     "NRSur7dq4": "waveformx.models.nrsur7dq4.reference",
 }
 

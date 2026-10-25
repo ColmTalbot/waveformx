@@ -604,3 +604,85 @@ def test_reference_invariance(mlx_model):
     assert np.all(np.isfinite(h1)) and np.all(np.isfinite(h2))
     assert mismatch(h1, want) < 1e-5
     assert mismatch(h1, h2) < 1e-5
+
+
+# ---------------------------------------------------------------------------
+# the NNLO and MSA prescriptions (IMRPhenomXPNR_NNLO, IMRPhenomXPNR_MSA)
+# ---------------------------------------------------------------------------
+
+PRESCRIPTIONS = {102: "IMRPhenomXPNR_NNLO", 223: "IMRPhenomXPNR_MSA"}
+
+
+@functools.lru_cache(maxsize=None)
+def jax_reference_version(name, dtype_name, version):
+    """:func:`jax_reference` of the prescription ``version``."""
+    binary = as_dtype(BINARIES[name], getattr(jnp, dtype_name))
+    f = jnp.asarray(frequencies_for(BINARIES[name]), getattr(jnp, dtype_name))
+    _, values = _stages.reference(binary, f, keep=True, tangents=True, version=version)
+    return values
+
+
+@pytest.mark.parametrize("name", ["generic", "aligned", "unequal"])
+@pytest.mark.parametrize("version", list(PRESCRIPTIONS))
+def test_prescription_stages_reproduce_the_model(version, name):
+    binary = as_dtype(BINARIES[name], jnp.float64)
+    f = jnp.asarray(frequencies_for(binary, 512))
+    expected = jax.jit(lambda b, f: model.polarizations(b, f, WaveformOptions(), version))(binary, f)
+    got = _stages.reference(binary, f, version=version)
+    for a, b in zip(got, expected):
+        a, b = np.asarray(a), np.asarray(b)
+        assert np.all(np.isfinite(b))
+        assert np.max(np.abs(a - b)) < 1e-12 * np.max(np.abs(b))
+
+
+@pytest.mark.parametrize("name", ["generic", "aligned", "unequal", "light"])
+@pytest.mark.parametrize("version", list(PRESCRIPTIONS))
+def test_prescription_polarizations(mlx_model, version, name):
+    """As close to float64 as JAX float32."""
+    binary = BINARIES[name]
+    f = frequencies_for(binary)
+    hp, hc = mlx_model.polarizations(binary, f, approximant=PRESCRIPTIONS[version])
+    ref64 = jax_reference_version(name, "float64", version)
+    ref32 = jax_reference_version(name, "float32", version)
+    for got, key in ((hp, "hp"), (hc, "hc")):
+        got = np.asarray(got)
+        want, single = np.asarray(ref64[key].tree), np.asarray(ref32[key].tree)
+        assert np.all(np.isfinite(got))
+        assert mismatch(got, want) <= max(3 * mismatch(single, want), 1e-8), (mismatch(got, want),
+                                                                                mismatch(single, want))
+
+
+@pytest.mark.parametrize("version", list(PRESCRIPTIONS))
+def test_prescription_jacobian(mlx_model, version):
+    """The forward-mode Jacobian, as close to float64 as JAX float32's."""
+    for name in ("generic", "light"):
+        binary = BINARIES[name]
+        f = frequencies_for(binary)
+        _, (jp, _) = mlx_model.polarizations_and_jacobian(binary, f, approximant=PRESCRIPTIONS[version])
+        jp = np.asarray(jp, np.complex128).T
+        want = jax_reference_version(name, "float64", version)["hp"].tangents[0]
+        single = jax_reference_version(name, "float32", version)["hp"].tangents[0]
+        for p in range(P):
+            scale = np.max(np.abs(want[p]))
+            if scale == 0:
+                continue
+            err = np.max(np.abs(jp[p] - want[p])) / scale
+            err32 = np.max(np.abs(single[p] - want[p])) / scale
+            assert err <= max(3 * err32, 1e-3), (name, p, err, err32)
+
+
+def test_prescription_nan_where_the_msa_system_fails(mlx_model):
+    """NaN where the MSA system fails (LAL takes the NNLO angles), as the
+    JAX model; the NNLO prescription is finite there."""
+    import json
+    from pathlib import Path
+
+    case = json.loads((Path(__file__).parent / "data" / "imrphenomxpnr_parityfix.json").read_text())["cases"][21]
+    binary = wf.Binary(case["mass_1"], case["mass_2"], tuple(case["spin_1"]), tuple(case["spin_2"]),
+                       case["luminosity_distance"], case["inclination"], case["phi_ref"], case["f_ref"])
+    f = np.linspace(20.0, 120.0, 64)
+    expected, _ = model.polarizations(as_dtype(binary, jnp.float64), jnp.asarray(f), WaveformOptions(), 223)
+    hp, _ = mlx_model.polarizations(binary, f, approximant="IMRPhenomXPNR_MSA")
+    hp_nnlo, _ = mlx_model.polarizations(binary, f, approximant="IMRPhenomXPNR_NNLO")
+    assert np.all(np.isnan(np.asarray(expected))) and np.all(np.isnan(np.asarray(hp)))
+    assert np.all(np.isfinite(np.asarray(hp_nnlo)))

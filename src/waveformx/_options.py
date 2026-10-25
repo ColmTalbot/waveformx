@@ -80,7 +80,8 @@ class WaveformOptions:
 
     * ``precession_version``: LAL's ``PhenomXPrecVersion`` (102 ``"NNLO"``,
       223 ``"MSA"`` or 320 ``"SpinTaylor"``). Kept for compatibility with
-      waveformrs; IMRPhenomXPNR always uses the SpinTaylor angles.
+      waveformrs; IMRPhenomXPNR ignores it: its NNLO and MSA prescriptions
+      are the approximants ``IMRPhenomXPNR_NNLO`` and ``IMRPhenomXPNR_MSA``.
     * ``mode_array``: LAL's ``ModeArray`` (``(l, m)`` pairs) or ``None`` for
       all modes. For IMRPhenomXPNR, the co-precessing modes.
     * ``extended_phase_grid``: interpolate the PNR angles of

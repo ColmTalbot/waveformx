@@ -163,8 +163,10 @@ def common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, phase_grid=False, gr
     s2y = chi2y * m2_2
     s_tot_perp = hypot2(s1x + s2x, s1y + s2y)
     chi_tot_perp = s_tot_perp * (big_m * big_m) / m1_2
-    s1_perp = m1_2 * hypot2(chi1x, chi1y)
-    s2_perp = m2_2 * hypot2(chi2x, chi2y)
+    # (zero for aligned spins, not hypot2's floor of ~1e-154: the PNR
+    # beta of versions 102 and 223, from chi_p, divides by its square)
+    s1_perp = m1_2 * _prec.hypot_safe(chi1x, chi1y)
+    s2_perp = m2_2 * _prec.hypot_safe(chi2x, chi2y)
     a1 = 2.0 + (3.0 * m2) / (2.0 * m1)
     a2 = 2.0 + (3.0 * m1) / (2.0 * m2)
     asp1 = a1 * s1_perp
@@ -183,8 +185,8 @@ def common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, phase_grid=False, gr
         chi2=list(chi2),
         chi1_norm=chi1_norm,
         chi2_norm=chi2_norm,
-        chi1_perp=hypot2(chi1x, chi1y),
-        chi2_perp=hypot2(chi2x, chi2y),
+        chi1_perp=_prec.hypot_safe(chi1x, chi1y),
+        chi2_perp=_prec.hypot_safe(chi2x, chi2y),
         s1_perp=s1_perp,
         s2_perp=s2_perp,
         chi_tot_perp=chi_tot_perp,
@@ -819,12 +821,21 @@ def _st_spline_put(prec, wf, mf, value):
     _cache_put("st", _st_anchors(prec), mf, value)
 
 
+def _msa_anchors(system):
+    anchor = jax.tree_util.tree_leaves(system)
+    return anchor[0], anchor[-1]
+
+
 def _msa_angles(system, mf):
     """``IMRPhenomX_Return_phi_zeta_costhetaL_MSA`` at ``v = (pi Mf)^(1/3)``
     (shared)."""
-    anchor = jax.tree_util.tree_leaves(system)
-    return barrier(_cached("msa", (anchor[0], anchor[-1]), mf,
+    return barrier(_cached("msa", _msa_anchors(system), mf,
                            lambda: _msa.phi_zeta_costhetal(system, jnp.cbrt(PI * mf))))
+
+
+def _msa_angles_put(system, mf, value):
+    """Record ``value`` as :func:`_msa_angles` at ``mf``."""
+    _cache_put("msa", _msa_anchors(system), mf, value)
 
 
 def _euler_points(prec, wf, context):
@@ -1078,6 +1089,46 @@ def pn_alpha(prec, wf, mf, version):
     return _by_version(version, nnlo, lambda: (_msa_angles(prec.msa, mf).phiz, no_error), st)
 
 
+#: The MSA ``beta`` of version 223 (:func:`_msa_beta`) goes from that of the
+#: roots of the cubic of ``|S|^2`` to that of a total spin of constant
+#: magnitude as their estimated relative separation falls from
+#: ``MSA_RESOLVED * sqrt(DBL_EPSILON)`` to a tenth of it.
+MSA_RESOLVED = 1000.0
+
+
+def _msa_beta(prec, mf):
+    """The MSA ``beta`` of version 223 at ``mf``: LAL's ``acos(cos(theta_L))``
+    where the oscillation of ``|S|^2`` between two roots of its cubic is
+    resolved, :func:`.msa.frozen_beta` (a total spin of constant magnitude,
+    LAL's construction for degenerate roots without their perturbation)
+    where it is small, blended (C2) across a decade of
+    :func:`.msa.root_resolution` (:data:`MSA_RESOLVED`, in-plane spins of
+    ``~3e-3`` to ``1e-2``).
+
+    LAL's ``beta`` does not vanish with the in-plane spins: where the two
+    roots are within ``~sqrt(DBL_EPSILON)`` their rounding leaves an
+    opening angle of up to ``~1e-4``, and late in the inspiral of binaries
+    whose heavier spin points along L and lighter one against it (the
+    up-down instability, where the third root of the cubic rises through
+    the two) the oscillation spans a range of ``|S|^2`` that does not
+    shrink with the in-plane spins (``beta ~ 0.1``), as the MSA has the
+    instability grow at once from any misalignment. Below in-plane spins
+    of ``~1e-2`` the model departs from LAL by up to a mismatch of
+    ``~2e-3`` for up-down binaries and ``~1e-5`` for others (seen nearly
+    edge-on; the oscillations of ``|S|`` it drops)."""
+    system = prec.msa
+    roots_beta = acos_safe(_msa_angles(system, mf).cos_theta_l)
+    frozen = _msa.frozen_beta(system, jnp.cbrt(PI * mf))
+    r = _msa.root_resolution(system)
+    resolved = MSA_RESOLVED * float(np.sqrt(dbl_epsilon()))
+    positive = r > 0.0
+    x = jnp.where(positive, jnp.log10(jnp.where(positive, r, 1.0) / resolved), -100.0)
+    w = pa._ramp(x + 0.5, 0.5)
+    # (selected: where w = 0, for aligned spins, the derivatives of the
+    # roots' beta are not finite)
+    return jnp.where(w > 0.0, fma(w, roots_beta - frozen, frozen), frozen)
+
+
 def _single_beta(prec, mf):
     """``acos(cos(theta_L))`` of the single-spin system (``SingleSpin``) at
     ``v = (pi Mf)^(1/3)``: ``atan2(S_perp, L + S_par)``.
@@ -1121,7 +1172,7 @@ def pn_beta(prec, wf, mf, bp, version, use_mr_beta):
 
     return _by_version(
         version, lambda: (nnlo_beta(prec, jnp.cbrt(PI * mf)), no_error),
-        lambda: (tapered(acos_safe(_msa_angles(prec.msa, mf).cos_theta_l), 223), no_error), st)
+        lambda: (tapered(_msa_beta(prec, mf), 223), no_error), st)
 
 
 def pn_beta_fulltwospin(prec, wf, mf, bp, version, use_mr_beta):
@@ -1133,7 +1184,7 @@ def pn_beta_fulltwospin(prec, wf, mf, bp, version, use_mr_beta):
         return beta, error | ~jnp.isfinite(beta)
 
     return _by_version(version, lambda: (nnlo_beta(prec, jnp.cbrt(PI * mf)), no_error),
-                       lambda: (acos_safe(_msa_angles(prec.msa, mf).cos_theta_l), no_error), st)
+                       lambda: (_msa_beta(prec, mf), no_error), st)
 
 
 def waveform_beta(prec, wf, mf, pn_beta_value):
@@ -1442,7 +1493,8 @@ def uniform_angles(prec, wf, mf, version, st_values=None):
     """``IMRPhenomX_PNR_GeneratePNRAngles_UniformFrequencies`` without
     ``gamma``: ``alpha`` and ``beta`` at ``mf`` (an array) and the error
     flag of each point. ``st_values`` are the SpinTaylor splines at ``mf``
-    (version 330), if computed already.
+    (version 330), if computed already. The MSA angles (version 223) are
+    computed once, for ``alpha``, and passed to the variants of ``beta``.
 
     LAL's ``beta`` depends on the region of the binary (calibration,
     transition, outside) and on whether the MR ``beta`` is attached: only
@@ -1458,6 +1510,7 @@ def uniform_angles(prec, wf, mf, version, st_values=None):
     tra = _in_transition(prec, wf)
     if st_values is not None:
         _st_spline_put(prec, wf, mf, st_values)
+    msa_values = _msa_angles(prec.msa, mf) if version == 223 else None
     # alpha: the regions share the PN alpha
     a_cal, ea_cal = pnr_alpha_at(prec, wf, mf, ap, version)
     a_tra, ea_tra = merged_alpha_at(prec, wf, mf, ap, version)
@@ -1478,16 +1531,18 @@ def uniform_angles(prec, wf, mf, version, st_values=None):
 
     def guarded(beta_of, needed, extra=None):
         def run(operands):
-            prec, wf, mf, bp, st_values, extra = operands
+            prec, wf, mf, bp, st_values, msa_values, extra = operands
             if st_values is not None:
                 _st_spline_put(prec, wf, mf, st_values)
+            if msa_values is not None:
+                _msa_angles_put(prec.msa, mf, msa_values)
             return beta_of(prec, wf, mf, bp, version, extra)
 
         def skip(operands):
             mf = operands[2]
             return jnp.zeros(mf.shape, real()), jnp.zeros(mf.shape, bool)
 
-        return cond(needed, run, skip, (prec, wf, mf, bp, st_values, extra))
+        return cond(needed, run, skip, (prec, wf, mf, bp, st_values, msa_values, extra))
 
     detached = guarded(lambda prec, wf, mf, bp, v, _: beta_no_mr(prec, wf, mf, bp, v, jnp.asarray(False)),
                        need_detached)
@@ -1681,6 +1736,12 @@ PHASE_GRID_MF = 1e-4
 #: LAL's uniform spacing (:func:`interpolation_delta_f`): finer than LAL's
 #: where L passes close to J above the start of the grid.
 NODE_REFINE = 0.25
+#: The largest step (rad) of the NNLO ``alpha`` between the first nodes of
+#: the phase grid (the interpolants follow ``alpha`` through a unit vector,
+#: which needs steps well below ``pi``; LAL's uniform spacing for the NNLO
+#: angles, from its error tolerance for the splines of ``alpha``, allows
+#: steps of tens of radians at low frequencies).
+PHASE_GRID_NNLO_STEP = 0.25
 
 
 def _phase_grid(f0, f_end, h, m_tot):
@@ -1698,6 +1759,17 @@ def _phase_grid(f0, f_end, h, m_tot):
     grid.f_first = f0
     grid.f_last = _phase_f(grid, grid.s0 + (n - 1.0) * ds)
     return grid
+
+
+def _nnlo_phase_spacing(prec, wf, f0, h):
+    """The spacing (Hz) of the phase grid at its start ``f0`` for the NNLO
+    angles: ``h``, or less where the NNLO ``alpha`` would advance by more
+    than :data:`PHASE_GRID_NNLO_STEP` over it (its slope at ``f0``; the
+    spacing then grows like ``f^2``, as ``1 / alpha'``)."""
+    f = jnp.stack([f0, f0 * (1.0 + 1e-4)])
+    alpha, _ = pn_alpha(prec, wf, hz_to_mf(f, wf.m_tot), 102)
+    slope = jnp.abs(alpha[1] - alpha[0]) / (f[1] - f[0])
+    return jnp.minimum(h, PHASE_GRID_NNLO_STEP / jnp.maximum(slope, tiny()))
 
 
 def _phase_s(grid, f):
@@ -1733,8 +1805,12 @@ def angle_interpolants(prec, wf, grid, version, active=True):
     prec, wf = barrier((prec, wf))
     chunk = PNR_GRID_CHUNK
     n_chunks = PNR_GRID_CAPACITY // chunk
-    node_map, error = node_grid(grid, wf.m_tot, prec.phase_grid)
-    n = node_map.n
+    h_start = None
+    if prec.phase_grid and version == 102:
+        i_start, _, delta_f_int, _ = grid
+        h_start = _nnlo_phase_spacing(prec, wf, i_start * delta_f_int, delta_f_int)
+    node_map, error = node_grid(grid, wf.m_tot, prec.phase_grid, h_start)
+    n = jnp.minimum(node_map.n, PNR_GRID_CAPACITY)
     n_eval = jnp.where(active, n, 0.0)
 
     def angles(index, args):
@@ -1764,15 +1840,16 @@ def angle_interpolants(prec, wf, grid, version, active=True):
     return splines
 
 
-def node_grid(grid, m_tot, geometric=False):
+def node_grid(grid, m_tot, geometric=False, h_start=None):
     """The nodes of the interpolants on the band of LAL's grid ``grid``
     (:func:`interpolation_grid`): the node map of :func:`_phase_grid` from
-    :data:`NODE_REFINE` times LAL's spacing (LAL's, for the geometric
-    interpolants) and the error flag (LAL's grid's, and more nodes than
-    :data:`PNR_GRID_CAPACITY`)."""
+    :data:`NODE_REFINE` times LAL's spacing (LAL's, or ``h_start``, for the
+    geometric interpolants) and the error flag (LAL's grid's, and more
+    nodes than :data:`PNR_GRID_CAPACITY`)."""
     i_start, n_lal, delta_f_int, error = grid
-    refine = 1.0 if geometric else NODE_REFINE
-    node_map = _phase_grid(i_start * delta_f_int, (i_start + n_lal - 1.0) * delta_f_int, delta_f_int * refine, m_tot)
+    if h_start is None:
+        h_start = delta_f_int * (1.0 if geometric else NODE_REFINE)
+    node_map = _phase_grid(i_start * delta_f_int, (i_start + n_lal - 1.0) * delta_f_int, h_start, m_tot)
     return node_map, error | (node_map.n > PNR_GRID_CAPACITY)
 
 

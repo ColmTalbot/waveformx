@@ -57,13 +57,16 @@ from ..exceptions import UnknownApproximantError
 
 __all__ = ["APPROXIMANTS", "get", "check_reference_mf"]
 
-#: approximant -> (domain, precessing, module)
+#: approximant -> (domain, precessing, module); ``module:NAME`` for a
+#: model other than the module's ``MODEL``
 APPROXIMANTS = {
     "TaylorF2": ("frequency", False, "waveformx.models.taylorf2"),
     "IMRPhenomD": ("frequency", False, "waveformx.models.phenomd"),
     "IMRPhenomXAS": ("frequency", False, "waveformx.models.xas"),
     "IMRPhenomXHM": ("frequency", False, "waveformx.models.xhm"),
     "IMRPhenomXPNR": ("frequency", True, "waveformx.models.xpnr"),
+    "IMRPhenomXPNR_NNLO": ("frequency", True, "waveformx.models.xpnr:MODEL_NNLO"),
+    "IMRPhenomXPNR_MSA": ("frequency", True, "waveformx.models.xpnr:MODEL_MSA"),
     "NRSur7dq4": ("time", True, "waveformx.models.nrsur7dq4"),
 }
 
@@ -77,7 +80,8 @@ def get(approximant: str):
             f"unknown approximant {approximant!r}: waveformx implements "
             f"{', '.join(APPROXIMANTS)}"
         ) from None
-    return importlib.import_module(module).MODEL
+    module, _, name = module.partition(":")
+    return getattr(importlib.import_module(module), name or "MODEL")
 
 
 def check_reference_mf(binary, options, approximant, supported=True):

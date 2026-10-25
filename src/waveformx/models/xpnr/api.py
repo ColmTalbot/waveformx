@@ -1,14 +1,17 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
-"""``MODEL`` of IMRPhenomXPNR: the contract of :mod:`waveformx.models`.
+"""``MODEL`` of IMRPhenomXPNR: the contract of :mod:`waveformx.models`;
+``MODEL_NNLO`` and ``MODEL_MSA`` the same with the NNLO and MSA
+prescriptions (``IMRPhenomXPNR_NNLO``, ``IMRPhenomXPNR_MSA``).
 
 * :meth:`XPNRModel.polarizations` is pure (``jax.jit`` with ``options``
   static, ``jax.vmap``, ``jax.grad``);
 * :meth:`XPNRModel.validate` applies the model's checks to concrete
   values (LALSimulation's, and :class:`~waveformx.exceptions.ModelError`
-  where the SpinTaylor angles cannot be computed), the latter after the
-  waveform (:meth:`XPNRModel.validate_result`) for the polarizations;
+  where the SpinTaylor angles, or the MSA system, cannot be computed), the
+  latter after the waveform (:meth:`XPNRModel.validate_result`) for the
+  polarizations;
 * :meth:`XPNRModel.modes` and :meth:`XPNRModel.choose_fd_modes` return the
   J-frame modes of ``SimIMRPhenomXPHMFrequencySequenceOneMode`` and
   ``SimInspiralChooseFDModes`` with the flags of IMRPhenomXPNR.
@@ -27,15 +30,15 @@ from ..._results import FrequencyModes
 from . import model, pnr
 from ._math import MTSUN_SI
 
-__all__ = ["MODEL", "XPNRModel"]
+__all__ = ["MODEL", "MODEL_MSA", "MODEL_NNLO", "XPNRModel"]
 
 
-@functools.partial(jax.jit, static_argnums=(3, 4, 5))
-def _checks(binary, f_min, f_max, modes, reference_mf=None, integrate=True):
+@functools.partial(jax.jit, static_argnums=(3, 4, 5, 6))
+def _checks(binary, f_min, f_max, modes, reference_mf=None, version=330, integrate=True):
     """The flags of the model's errors, for :meth:`XPNRModel.validate`
     (``f_min``, ``f_max`` the first and last frequencies, ``reference_mf``
-    the mass-scaled reference frequency); those of the SpinTaylor
-    integration with ``integrate`` only."""
+    the mass-scaled reference frequency, ``version`` the prescription);
+    those of the SpinTaylor integration with ``integrate`` only."""
     pnr.clear_cache()
     wf, m1, m2, chi1, chi2 = model.setup_waveform(binary, 0.0, f_min, f_max, reference_mf=reference_mf)
     wf.hm_release = 122019
@@ -48,18 +51,31 @@ def _checks(binary, f_min, f_max, modes, reference_mf=None, integrate=True):
         f_ref=wf.f_ref,
         cutoff=wf0.f_max_prime <= wf0.f_min,
     )
-    if integrate:
+    if version == 330 and integrate:
         st = pnr.spintaylor_solution(base, wf0, m1, m2)
         flags.update(st_failed=st.failed, st_incomplete=st.incomplete)
+    elif version == 223:
+        flags["msa_failed"] = pnr._msa.msa_error(pnr._msa.system(pnr.msa_inputs(base, wf0, base.chi1, base.chi2)))
     return flags
 
 
 class XPNRModel:
     """IMRPhenomXPNR (``SimInspiralChooseFDWaveformSequence`` and
-    ``SimInspiralChooseFDModes``)."""
+    ``SimInspiralChooseFDModes``) with the precession prescription
+    ``version`` (LAL's ``PhenomXPrecVersion``: 330, the SpinTaylor angles;
+    102, NNLO; 223, MSA), as the approximant ``name``."""
 
     domain = "frequency"
     precessing = True
+
+    def __init__(self, version=330, name="IMRPhenomXPNR"):
+        if version not in model.VERSIONS:
+            raise ValueError(f"unknown precession version {version}")
+        self.version = version
+        self.name = name
+
+    def __repr__(self):
+        return f"XPNRModel({self.version}, {self.name!r})"
 
     def validate(self, binary, frequencies, options, integrate=True):
         """The checks of IMRPhenomXPNR (LALSimulation's) for concrete values
@@ -73,9 +89,9 @@ class XPNRModel:
             if (int(ell), abs(int(emm))) not in model.DEFAULT_MODES:
                 raise InvalidParameterError(f"mode array contains unavailable mode ({ell}, {emm})")
         flags = {k: np.asarray(v) for k, v in _checks(binary, frequencies[0], frequencies[-1], modes,
-                                                       options.reference_mf, integrate).items()}
+                                                       options.reference_mf, self.version, integrate).items()}
         if flags["mass_ratio"]:
-            raise InvalidParameterError("IMRPhenomXPNR is not valid at mass ratios beyond 1000")
+            raise InvalidParameterError(f"{self.name} is not valid at mass ratios beyond 1000")
         if flags["final_mass"]:
             raise InvalidParameterError("the fitted final mass is not physical")
         if flags["final_spin"]:
@@ -95,10 +111,13 @@ class XPNRModel:
             raise InvalidParameterError("the cutoff frequency lies below f_min")
         if not integrate:
             return
-        if flags["st_failed"]:
+        if flags.get("st_failed", False):
             raise ModelError("the SpinTaylor angles cannot be computed")
-        if flags["st_incomplete"]:
+        if flags.get("st_incomplete", False):
             raise ModelError("the SpinTaylor integration exceeds the capacities of waveformx")
+        if flags.get("msa_failed", False):
+            raise ModelError("the MSA system cannot be set up for this binary (LAL takes the NNLO angles: "
+                             "IMRPhenomXPNR_NNLO)")
 
     def validate_result(self, binary, frequencies, options, result):
         """The checks of the SpinTaylor integration (:meth:`validate`) after
@@ -110,14 +129,14 @@ class XPNRModel:
 
     def polarizations(self, binary, frequencies, options):
         """``SimInspiralChooseFDWaveformSequence`` (see :func:`.model.polarizations`)."""
-        return model.polarizations(binary, frequencies, options)
+        return model.polarizations(binary, frequencies, options, self.version)
 
     def modes(self, binary, frequencies, options):
         """The J-frame modes of ``SimIMRPhenomXPHMFrequencySequenceOneMode``
         with the flags of IMRPhenomXPNR at ``frequencies``, on the two-sided
         frequencies ``-f[::-1], f``."""
         frequencies = jnp.asarray(frequencies, dtype=jnp.float64)
-        modes, theta, zeta = _jframe_jit(binary, frequencies, options, 0.0, None, None)
+        modes, theta, zeta = _jframe_jit(binary, frequencies, options, 0.0, None, None, self.version)
         two_sided = jnp.concatenate([-frequencies[::-1], frequencies])
         out = {key: jnp.concatenate([neg[::-1], pos]) for key, (pos, neg) in sorted(modes.items())}
         return FrequencyModes(two_sided, out, float(theta), 0.0, float(zeta))
@@ -141,7 +160,8 @@ class XPNRModel:
         n_full = int(2.0 ** np.ceil(np.log2(int(last / delta_f)))) + 1
         n = max(n_full, i_stop)
         band = jnp.arange(i_start, i_stop) * delta_f
-        modes, theta, zeta = _jframe_jit(binary, band, options, float(delta_f), float(f_min), float(f_max))
+        modes, theta, zeta = _jframe_jit(binary, band, options, float(delta_f), float(f_min), float(f_max),
+                                         self.version)
         frequencies = jnp.arange(n_full) * delta_f
         out = {}
         for key, (pos, neg) in sorted(modes.items()):
@@ -153,9 +173,11 @@ class XPNRModel:
         return FrequencyModes(two_sided, out, float(theta), 0.0, float(zeta))
 
 
-@functools.partial(jax.jit, static_argnums=(2, 3, 4, 5))
-def _jframe_jit(binary, frequencies, options, delta_f, f_min, f_max):
-    return model.jframe_modes(binary, frequencies, options, delta_f, f_min, f_max)
+@functools.partial(jax.jit, static_argnums=(2, 3, 4, 5, 6))
+def _jframe_jit(binary, frequencies, options, delta_f, f_min, f_max, version=330):
+    return model.jframe_modes(binary, frequencies, options, delta_f, f_min, f_max, version)
 
 
 MODEL = XPNRModel()
+MODEL_NNLO = XPNRModel(102, "IMRPhenomXPNR_NNLO")
+MODEL_MSA = XPNRModel(223, "IMRPhenomXPNR_MSA")

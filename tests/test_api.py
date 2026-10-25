@@ -24,10 +24,10 @@ def test_x64_enabled():
 
 
 def test_approximants():
-    assert wf.approximants() == ["TaylorF2", "IMRPhenomD", "IMRPhenomXAS", "IMRPhenomXHM", "IMRPhenomXPNR",
-                                 "NRSur7dq4"]
-    assert wf.approximants("frequency") == ["TaylorF2", "IMRPhenomD", "IMRPhenomXAS", "IMRPhenomXHM",
-                                            "IMRPhenomXPNR"]
+    xpnr = ["IMRPhenomXPNR", "IMRPhenomXPNR_NNLO", "IMRPhenomXPNR_MSA"]
+    assert wf.approximants() == ["TaylorF2", "IMRPhenomD", "IMRPhenomXAS", "IMRPhenomXHM", *xpnr, "NRSur7dq4"]
+    assert wf.approximants("frequency") == ["TaylorF2", "IMRPhenomD", "IMRPhenomXAS", "IMRPhenomXHM", *xpnr]
+    assert all(wf.is_precessing(name) and wf.is_frequency_domain(name) for name in xpnr)
     assert wf.approximants("time") == ["NRSur7dq4"]
     assert wf.is_frequency_domain("IMRPhenomXPNR") and not wf.is_frequency_domain("NRSur7dq4")
     assert wf.is_precessing("NRSur7dq4") and not wf.is_precessing("IMRPhenomXAS")
