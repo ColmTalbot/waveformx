@@ -89,8 +89,10 @@ class WaveformOptions:
       ``M f`` (default ``False``), rather than on LAL's uniform grid: far
       fewer points for light binaries, at the cost of a larger difference
       from LAL.
-    * ``reference_mf``: for IMRPhenomXPNR, the reference frequency of the
-      binary in units of the total mass, ``M f_ref`` (default ``None``:
+    * ``reference_mf``: for the models that take it (IMRPhenomXPNR,
+      TaylorF2 and IMRPhenomD; the others refuse it in their checks), the
+      reference frequency of the binary in units of the total mass,
+      ``M f_ref`` (default ``None``:
       LAL's convention, ``Binary.f_ref`` in Hz). The spins, the
       inclination and ``phi_ref`` are then given at ``f_ref =
       reference_mf / M``, late in the inspiral for every binary

@@ -93,6 +93,11 @@ _to_physical = jax.jit(lambda b, f: wf.to_physical_reference(b, f, return_angle=
 def test_options():
     assert wf.WaveformOptions(reference_mf=REF).reference_mf == REF
     assert wf.REFERENCE_MF == REF
+    # (refused by the models that do not take it, not by the options)
+    f = np.linspace(20.0, 512.0, 16)
+    for approximant, options in (("IMRPhenomXAS", {}), ("IMRPhenomXHM", {})):
+        with pytest.raises(InvalidParameterError, match="reference_mf"):
+            wf.polarizations(approximant, f, mass_1=36.0, mass_2=29.0, reference_mf=REF, **options)
     for bad in (0.0, -0.01, 0.02):
         with pytest.raises(InvalidParameterError):
             wf.WaveformOptions(reference_mf=bad)

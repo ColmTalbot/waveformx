@@ -22,8 +22,10 @@ def test_x64_enabled():
 
 
 def test_approximants():
-    assert wf.approximants() == ["IMRPhenomXAS", "IMRPhenomXHM", "IMRPhenomXPNR", "NRSur7dq4"]
-    assert wf.approximants("frequency") == ["IMRPhenomXAS", "IMRPhenomXHM", "IMRPhenomXPNR"]
+    assert wf.approximants() == ["TaylorF2", "IMRPhenomD", "IMRPhenomXAS", "IMRPhenomXHM", "IMRPhenomXPNR",
+                                 "NRSur7dq4"]
+    assert wf.approximants("frequency") == ["TaylorF2", "IMRPhenomD", "IMRPhenomXAS", "IMRPhenomXHM",
+                                            "IMRPhenomXPNR"]
     assert wf.approximants("time") == ["NRSur7dq4"]
     assert wf.is_frequency_domain("IMRPhenomXPNR") and not wf.is_frequency_domain("NRSur7dq4")
     assert wf.is_precessing("NRSur7dq4") and not wf.is_precessing("IMRPhenomXAS")
@@ -31,7 +33,7 @@ def test_approximants():
     with pytest.raises(wf.UnknownApproximantError):
         wf.is_precessing("IMRPhenomXPHM")
     with pytest.raises(ValueError):
-        wf.polarizations("TaylorF2", [20.0, 30.0], mass_1=1.4, mass_2=1.4)
+        wf.polarizations("SEOBNRv4_ROM", [20.0, 30.0], mass_1=1.4, mass_2=1.4)
 
 
 def test_options():

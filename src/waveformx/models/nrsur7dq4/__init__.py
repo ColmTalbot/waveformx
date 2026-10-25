@@ -57,6 +57,9 @@ class NRSur7dq4Model:
     def validate(binary, delta_t: float, f_min: float, options) -> None:
         """LAL's checks for concrete values (mass ratio and spin limits, the
         reference and starting frequencies, the mode array)."""
+        from .. import check_reference_mf
+
+        check_reference_mf(binary, options, "NRSur7dq4", supported=False)
         _driver.setup(binary, float(delta_t), float(f_min), options)
 
     @staticmethod

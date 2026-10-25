@@ -55,10 +55,12 @@ import importlib
 
 from ..exceptions import UnknownApproximantError
 
-__all__ = ["APPROXIMANTS", "get"]
+__all__ = ["APPROXIMANTS", "get", "check_reference_mf"]
 
 #: approximant -> (domain, precessing, module)
 APPROXIMANTS = {
+    "TaylorF2": ("frequency", False, "waveformx.models.taylorf2"),
+    "IMRPhenomD": ("frequency", False, "waveformx.models.phenomd"),
     "IMRPhenomXAS": ("frequency", False, "waveformx.models.xas"),
     "IMRPhenomXHM": ("frequency", False, "waveformx.models.xhm"),
     "IMRPhenomXPNR": ("frequency", True, "waveformx.models.xpnr"),
@@ -76,3 +78,19 @@ def get(approximant: str):
             f"{', '.join(APPROXIMANTS)}"
         ) from None
     return importlib.import_module(module).MODEL
+
+
+def check_reference_mf(binary, options, approximant, supported=True):
+    """The checks of the mass-scaled reference (``options.reference_mf``)
+    for concrete values: refused where not ``supported``, and
+    ``binary.f_ref`` must be zero with it."""
+    if options.reference_mf is None:
+        return
+    from ..exceptions import InvalidParameterError
+
+    if not supported:
+        raise InvalidParameterError(f"{approximant} does not take reference_mf")
+    if float(binary.f_ref) != 0.0:
+        raise InvalidParameterError(
+            "with reference_mf, the reference frequency is reference_mf / M: f_ref must be zero "
+            "(to_mass_scaled_reference converts a binary given at f_ref)")

@@ -12,6 +12,30 @@ The package has the same interface as the Python bindings of
 
 ## Models
 
+- **IMRPhenomD** (frequency domain): the dominant mode of binaries whose
+  spins are aligned with the orbital angular momentum, from inspiral to
+  ringdown, written for speed in the same way as IMRPhenomXAS. It follows
+  LALSimulation, except that the ringdown and damping frequencies of the
+  remnant come from closed-form fits in its spin rather than from
+  LALSimulation's interpolation of a table; the fits are as accurate as
+  that interpolation, and smooth, so that the derivatives are too
+  (`scripts/fit_phenomd_qnm.py` makes them).
+  - It runs in single precision (float32) when the binary's parameters are
+    float32, including its derivatives, with the extra precision of the
+    inspiral phase of IMRPhenomXAS.
+  - Its output is the strain multiplied by 10^21 unless
+    `scaled_strain=False`.
+  - It is also available in MLX, in single precision on Apple GPUs: the
+    polarizations for one binary or a batch, with their Jacobian and
+    derivatives for `mx.grad`.
+  - Like the lean IMRPhenomXPNR, it can take the binary at a reference
+    frequency scaled by its total mass (`reference_mf`) instead of one in
+    Hz; for this model that only moves where the reference phase is given.
+    `to_mass_scaled_reference` and `to_physical_reference` in its module
+    convert binaries between the two conventions (also in MLX), so that
+    both give the same waveform.
+  - Its modes and the conversions between the time and frequency domains
+    are not implemented.
 - **IMRPhenomXAS** (frequency domain): the dominant mode of binaries whose
   spins are aligned with the orbital angular momentum, written to be fast
   for few frequencies, for many binaries sharing their frequencies and for
@@ -126,6 +150,31 @@ The package has the same interface as the Python bindings of
     function for one binary or a batch, with derivatives; LALSimulation's
     polarizations and modes on its time grid, for one binary or a batch;
     and the conditioned waveforms in the time and frequency domains.
+- **TaylorF2** (frequency domain): the post-Newtonian inspiral of binaries
+  with aligned spins in the stationary-phase approximation, with
+  LALSimulation's default settings (the phase to the highest order, with
+  the spin terms, and the leading-order amplitude), written for speed in
+  the same way as IMRPhenomXAS. Tidal effects and the other orders of the
+  phase and amplitude are not implemented. As in LALSimulation's
+  evaluation at given frequencies, the waveform is not cut off at the
+  last stable orbit; a reference frequency of zero means the phase is
+  referred to coalescence.
+  - It runs in single precision (float32) when the binary's parameters are
+    float32, including its derivatives, with the extra precision of the
+    inspiral phase of IMRPhenomXAS.
+  - Its output is the strain multiplied by 10^21 unless
+    `scaled_strain=False`.
+  - It is also available in MLX, in single precision on Apple GPUs: the
+    polarizations for one binary or a batch, with their Jacobian and
+    derivatives for `mx.grad`.
+  - Like the lean IMRPhenomXPNR, it can take the binary at a reference
+    frequency scaled by its total mass (`reference_mf`) instead of one in
+    Hz; for this model that only moves where the reference phase is given.
+    `to_mass_scaled_reference` and `to_physical_reference` in its module
+    convert binaries between the two conventions (also in MLX), so that
+    both give the same waveform.
+  - Its modes and the conversions between the time and frequency domains
+    are not implemented.
 
 ## Features
 
