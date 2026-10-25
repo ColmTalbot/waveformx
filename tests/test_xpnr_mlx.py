@@ -427,10 +427,11 @@ def test_interpolants():
             assert np.max(np.abs(got - want)) <= max(3 * np.max(np.abs(single - want)), 1e-5 * scale), (name, field)
         mapped = mx.array(np.asarray(r32["mapped"].tree[0], np.float32).reshape(1, -1))
         values, inside, _ = _interpolants.spline_values(splines, mapped, None, 0)
-        want = np.asarray(r64["values"].tree[0], np.float64).reshape(-1, 6)
-        single = np.asarray(r32["values"].tree[0], np.float64).reshape(-1, 6)
+        width = len(_stages.SPLINES)
+        want = np.asarray(r64["values"].tree[0], np.float64).reshape(-1, width)
+        single = np.asarray(r32["values"].tree[0], np.float64).reshape(-1, width)
         got = np.asarray(values[0], np.float64)
-        for j in range(6):
+        for j in range(width):
             scale = np.max(np.abs(want[:, j]))
             assert np.max(np.abs(got[:, j] - want[:, j])) <= max(3 * np.max(np.abs(single[:, j] - want[:, j])),
                                                                   1e-5 * scale), (name, j)

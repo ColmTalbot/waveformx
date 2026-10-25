@@ -134,12 +134,8 @@ class Parts:
                            2, "xpnr_grid_mf")
 
     @functools.cached_property
-    def uvw(self):
-        return StageKernel(_stages.uvw, (_s(), _s()), 0, "xpnr_uvw")
-
-    @functools.cached_property
     def boole(self):
-        return StageKernel(_stages.boole_interval, (_s((3,)), _s(), _s((7,)), _s((7,))), 1, "xpnr_boole")
+        return StageKernel(_stages.boole_interval, (_s((3,)), _s(), _s((4,)), _s((4,))), 1, "xpnr_boole")
 
     @functools.cached_property
     def spline_point6(self):

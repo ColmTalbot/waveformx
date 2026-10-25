@@ -1659,8 +1659,9 @@ def _phase_f(grid, s):
 
 def angle_interpolants(prec, wf, grid, version, active=True, extra_mf=None, n_extra=None):
     """``IMRPhenomX_PNR_GeneratePNRAngleInterpolants``: the PNR ``alpha`` and
-    ``beta`` on the uniform grid (or the phase grid, with
-    ``prec.phase_grid``) and their interpolants (:func:`_geometric_interpolants`).
+    ``beta`` on the uniform grid, their splines and ``gamma`` integrated
+    from them with Boole's rule (on the phase grid, with
+    ``prec.phase_grid``, the interpolants of :func:`_geometric_interpolants`).
     Returns a :class:`~._math.Struct` of the interpolants and the error
     flag. Where ``active`` (traced) is false, nothing is evaluated.
 
@@ -1754,9 +1755,65 @@ def angle_interpolants(prec, wf, grid, version, active=True, extra_mf=None, n_ex
         splines.node_map = node_map
         splines.st_extra = st_extra
         return splines
-    splines = _geometric_interpolants(alpha, beta, i_start, n, h, n_eval, error)
+    # LAL's natural splines of alpha and beta, and gamma from them (on the
+    # phase grid the interpolants above, in the index of the nodes)
+    splines = _lal_interpolants(alpha, beta, i_start, n, h, n_eval, error)
     splines.st_extra = st_extra
     return splines
+
+
+def _lal_interpolants(alpha, beta, i_start, n, h, n_eval, error):
+    """LAL's interpolants of the PNR angles: natural cubic splines of
+    ``alpha`` and ``beta`` on the uniform grid ``(i_start + k) h``, ``k <
+    n``, and of ``gamma`` integrated from them with Boole's rule
+    (``IMRPhenomX_PNR_GeneratePNRGamma``, zero at the first node).
+
+    The interpolants of the unit vector of L (:func:`_geometric_interpolants`)
+    would follow L passing close to J, but where LAL's grid lets ``alpha``
+    turn by up to ~3 rad between nodes (at its lower end) they cut across
+    its circle, by up to a mismatch of 5e-4 with LAL, and refining the grid
+    until they do not costs more than LAL's splines."""
+    chunk = PNR_GRID_CHUNK
+    n_chunks = PNR_GRID_CAPACITY // chunk
+    x0 = i_start * h
+
+    def frequencies(k, i_start, n, h):
+        return (i_start + jnp.minimum(k, n - 1.0)) * h
+
+    m_alpha, m_beta = _uniform_natural_splines([alpha, beta], n, h, n_eval)
+
+    # gamma from the minimal rotation condition with Boole's rule, interval
+    # by interval, summed chunk by chunk
+    def boole(index, total, args):
+        alpha, m_alpha, beta, m_beta, i_start, n, h, x0 = args
+        cap = alpha.shape[0]
+        # the intervals [k, k + 1] of the chunk: values at k and k + 1
+        i = index * chunk + jnp.arange(chunk)
+        here, after = jnp.clip(i, 0, cap - 1), jnp.clip(i + 1, 0, cap - 1)
+        t1 = frequencies(here.astype(real()), i_start, n, h)
+        t2 = frequencies(after.astype(real()), i_start, n, h)
+        y0, y1, m0, m1 = alpha[here], alpha[after], m_alpha[here], m_alpha[after]
+        yb0, yb1, mb0, mb1 = beta[here], beta[after], m_beta[here], m_beta[after]
+        points = jnp.stack([t2, fma(3.0, t1, t2) / 4.0, (t1 + t2) / 2.0, t1, fma(3.0, t2, t1) / 4.0])
+        dx = points - (x0 + i * h)
+        b = (y1 - y0) / h - h * (m1 + 2.0 * m0) / 6.0
+        dalpha = b + dx * (m0 + (m1 - m0) / (2.0 * h) * dx)
+        bb = (yb1 - yb0) / h - h * (mb1 + 2.0 * mb0) / 6.0
+        beta_x = yb0 + dx * (bb + dx * (mb0 / 2.0 + dx * (mb1 - mb0) / (6.0 * h)))
+        f = -dalpha * jnp.cos(beta_x)
+        total_f = fma(7.0, f[0], fma(32.0, f[1], fma(12.0, f[2], fma(7.0, f[3], 32.0 * f[4]))))
+        increments = jnp.where(i + 1 < n, 1.0 / 90.0 * (t2 - t1) * total_f, 0.0)
+        # gamma at the chunk's points: the integral up to each
+        sums = jnp.cumsum(increments)
+        gamma = total + jnp.concatenate([jnp.zeros(1, real()), sums[:-1]])
+        return gamma, total + sums[-1]
+
+    gamma, _ = blocked_scan(boole, jnp.arange(n_chunks), jnp.ceil(n_eval / chunk), jnp.zeros((), real()),
+                            (alpha, m_alpha, beta, m_beta, i_start, n, h, x0))
+    gamma = gamma.reshape(-1)
+    (m_gamma,) = _uniform_natural_splines([gamma], n, h, n_eval)
+    return Struct(alpha=alpha, beta=beta, gamma=gamma, m_alpha=m_alpha, m_beta=m_beta, m_gamma=m_gamma, n=n, x0=x0,
+                  h=h, error=error)
 
 
 #: Half-width in ``cos(beta)`` of the band around ``beta = pi / 2`` across
@@ -1855,10 +1912,15 @@ def _geometric_interpolants(alpha, beta, i_start, n, h, n_eval, error):
 
 def spline_angles(splines, f):
     """The PNR ``alpha``, ``beta`` and ``gamma`` at ``f`` (Hz) and whether
-    ``f`` lies on the grid (GSL fails outside), from the interpolants of
-    :func:`_geometric_interpolants`: ``alpha`` and ``gamma`` are known
-    modulo ``2 pi``."""
+    ``f`` lies on the grid (GSL fails outside): LAL's splines, or the
+    interpolants of :func:`_geometric_interpolants` (the phase grid), for
+    which ``alpha`` and ``gamma`` are known modulo ``2 pi``."""
     inside = (f >= splines.x0) & (f <= splines.x0 + (splines.n - 1.0) * splines.h)
+    if "u" not in splines:
+        a, _ = _spline_at(splines.alpha, splines.m_alpha, splines.n, splines.x0, splines.h, f)
+        b, _ = _spline_at(splines.beta, splines.m_beta, splines.n, splines.x0, splines.h, f)
+        g, _ = _spline_at(splines.gamma, splines.m_gamma, splines.n, splines.x0, splines.h, f)
+        return a, b, g, inside
     x = f
     if "node_map" in splines:
         m = splines.node_map
