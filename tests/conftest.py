@@ -11,9 +11,12 @@
 * Compiled code is kept in JAX's persistent cache (``~/.cache/waveformx/jax``,
   or ``WAVEFORMX_TEST_CACHE``; empty to turn it off), so that a run with
   unchanged models skips their compilation.
+* A run of the quick tier alone (``pytest``) warns when it takes longer
+  than its budget (see AGENTS.md).
 """
 
 import os
+import time
 from pathlib import Path
 
 # before lalsimulation (and its OpenMP runtime) is loaded
@@ -70,3 +73,24 @@ def compare(test, reference):
     bb = np.vdot(reference, reference).real
     mismatch = 0.0 if aa == 0 and bb == 0 else 1.0 - np.vdot(reference, test).real / np.sqrt(aa * bb)
     return error, mismatch
+
+
+# the quick tier (testpaths in pyproject.toml): its time against its budget
+QUICK_FILES = {"test_quick.py", "test_api.py"}
+QUICK_BUDGET = 90.0
+
+
+def pytest_sessionstart(session):
+    session.config._waveformx_start = time.perf_counter()
+
+
+def pytest_collection_modifyitems(config, items):
+    config._waveformx_files = {Path(str(item.fspath)).name for item in items}
+
+
+def pytest_terminal_summary(terminalreporter, config):
+    files = getattr(config, "_waveformx_files", set())
+    seconds = time.perf_counter() - getattr(config, "_waveformx_start", time.perf_counter())
+    if "test_quick.py" in files and files <= QUICK_FILES and seconds > QUICK_BUDGET:
+        terminalreporter.write_line(
+            f"the quick tier took {seconds:.0f} s, beyond its budget of {QUICK_BUDGET:.0f} s (AGENTS.md)", yellow=True)
