@@ -15,7 +15,7 @@ along a direction ``v``, so one call checks ``jax.jit``, ``jax.vmap``, the
 derivative (against the central difference along ``v``), that everything is
 finite, and the waveform at ``x`` against LAL (or waveformrs, which
 reproduces LAL to rounding). The functions are compiled concurrently, in
-threads, when the first test asks for one.
+processes, when the first test asks for one.
 
 * TaylorF2, IMRPhenomD, IMRPhenomXAS: an aligned-spin binary on 64
   frequencies, against LAL; float32 against float64;
@@ -190,9 +190,7 @@ if NRSUR_DATA is not None:
 @pytest.fixture(scope="session")
 def results():
     """The jobs' results (futures), all started at once in processes of
-    their own: tracing is serial under the GIL, and the models keep the
-    precision being traced in a global (``models.xpnr._math.precision``),
-    so threads would mix float32 and float64."""
+    their own: tracing is serial under the GIL."""
     context = multiprocessing.get_context("spawn")
     with ProcessPoolExecutor(max_workers=len(JOBS), mp_context=context) as pool:
         yield {name: pool.submit(JOBS[name]) for name in JOBS}
