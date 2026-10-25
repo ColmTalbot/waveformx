@@ -379,8 +379,10 @@ def test_spintaylor():
 
 def test_spintaylor_angles():
     """The SpinTaylor angles at the points of the set-up (``alpha``,
-    ``cos(beta)`` and their derivatives in ``Mf``), and their derivatives
-    along the parameters, against float64: as close as JAX float32's."""
+    ``beta`` and their derivatives in ``Mf``), and their derivatives along
+    the parameters, against float64: as close as JAX float32's (``beta``
+    where the points lie on the solution: beyond it, where the set-up reads
+    only ``alpha``, the extrapolated LNhat is not a unit vector)."""
     from waveformx.models.xpnr.mlx import _solution
 
     names = ("generic", "unequal", "beyond", "light")
@@ -390,15 +392,17 @@ def test_spintaylor_angles():
     got, dgot = _solution.st_angles(solution, tab, trees[2], ttrees[2], trees[1], ttrees[1], trees[3], ttrees[3], P)
     for b, name in enumerate(names):
         r64, r32 = jax_reference(name, "float64")["bank"], jax_reference(name, "float32")["bank"]
+        on = np.asarray(r64.tree[4])
         for k in range(4):
-            want = np.asarray(r64.tree[k], np.float64)
-            single = np.asarray(r32.tree[k], np.float64)
-            value = np.asarray(got[k][b], np.float64)
+            keep = slice(None) if k < 2 else on
+            want = np.asarray(r64.tree[k], np.float64)[keep]
+            single = np.asarray(r32.tree[k], np.float64)[keep]
+            value = np.asarray(got[k][b], np.float64)[keep]
             scale = np.max(np.abs(want))
             assert np.max(np.abs(value - want)) <= max(3 * np.max(np.abs(single - want)), 1e-5 * scale), (name, k)
-            t64 = np.asarray(r64.tangents[k], np.float64).T
-            t32 = np.asarray(r32.tangents[k], np.float64).T
-            tangent = np.asarray(dgot[k][b], np.float64)
+            t64 = np.asarray(r64.tangents[k], np.float64).T[keep]
+            t32 = np.asarray(r32.tangents[k], np.float64).T[keep]
+            tangent = np.asarray(dgot[k][b], np.float64)[keep]
             scale = np.max(np.abs(t64))
             assert np.max(np.abs(tangent - t64)) <= max(3 * np.max(np.abs(t32 - t64)), 1e-4 * scale), (name, k)
         assert np.array_equal(np.asarray(got[4][b]), np.asarray(r64.tree[4]))

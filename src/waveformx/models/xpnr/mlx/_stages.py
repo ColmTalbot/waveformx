@@ -182,7 +182,7 @@ def _with_bank(prec, points, values, st_range):
 
 def stage_c2(prec, wf, points, values, st_range, modes):
     """The rest of ``model._spintaylor_setup`` with the SpinTaylor angles at the
-    bank's points ``values`` (``(alpha, dalpha, cosbeta, dcosbeta,
+    bank's points ``values`` (``(alpha, dalpha, beta, dbeta,
     inside)``, each of shape ``(15,)``): returns ``(prec, wf, grid,
     error)`` with ``grid = (i_start, n, delta_f)`` of the PNR interpolants."""
     pnr.clear_cache()
@@ -313,7 +313,7 @@ def stage_f2(prec, wf, extra, f, spline_values, inside, map_errors, kappa, st_al
         if emm % 2:
             err = err & ~vanishing_odd
         error = error | (err & keep)
-        angles.append((a - prec.alpha_offset, jnp.cos(b), -g - prec.epsilon_offset))
+        angles.append((a - prec.alpha_offset, b, -g - prec.epsilon_offset))
     h_as = None
     if (2, 2) in modes:
         co = extra.co
@@ -385,7 +385,7 @@ def st_point_angles(st_range, rotation, mf, y0, dense, t0, h, x, node):
     """:func:`..spintaylor.lean.angles` at one point ``mf`` in its step
     (``y0``, ``dense``, ``t0``, ``h``) at ``x`` (:func:`st_newton`), with
     ``node`` the continuous ``alpha`` of the node before it: ``(alpha,
-    dalpha, cosbeta, dcosbeta, inside)``."""
+    dalpha, beta, dbeta, inside)``."""
     from ..spintaylor import trajectory
     from ..spintaylor.angles import _rotate, small_atan2, small_square
 
@@ -409,7 +409,8 @@ def st_point_angles(st_range, rotation, mf, y0, dense, t0, h, x, node):
     big = r2 > small_square()
     dalpha_dt = jnp.where(big, lx * dly - ly * dlx, 0.0) / jnp.where(big, r2, 1.0)
     inside = (mf >= first_mf) & (mf <= last_mf)
-    return alpha, safe_div(dalpha_dt, dmf_dt), lz, safe_div(dlz, dmf_dt), inside
+    beta, dbeta_dt = st_angles.polar_angle(lx, ly, lz, dlx, dly, dlz)
+    return alpha, safe_div(dalpha_dt, dmf_dt), beta, safe_div(dbeta_dt, dmf_dt), inside
 
 
 def st_node_raw(rotation, lnhat):

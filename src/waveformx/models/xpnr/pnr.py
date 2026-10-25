@@ -343,29 +343,36 @@ def set_pnr_variables(prec, wf, version):
     chipar = wf.m_tot * chieff / m1
     m1sq = m1 * m1
     m2sq = m2 * m2
-    chis = hypot2(fma(m1sq, chi1x, m2sq * chi2x), fma(m1sq, chi1y, m2sq * chi2y)) / (m1 * m1)
+    # (zero for aligned spins, not hypot2's floor: the ratios of the PNR beta
+    # divide by its square)
+    chis = _prec.hypot_safe(fma(m1sq, chi1x, m2sq * chi2x), fma(m1sq, chi1y, m2sq * chi2y)) / (m1 * m1)
     s = jnp.sin((q - 1.0) * PI)
     c = jnp.cos((q - 1.0) * PI)
     if version == 330:
         chiperp = chis
     else:
         chiperp = jnp.where(q <= 1.5, fma(s * s, prec.chi_p, c * c * chis), prec.chi_p)
-    antisymmetric_chis = hypot2(fma(m1sq, chi1x, -(m2sq * chi2x)), fma(m1sq, chi1y, -(m2sq * chi2y))) / (m1 * m1)
+    antisymmetric_chis = _prec.hypot_safe(fma(m1sq, chi1x, -(m2sq * chi2x)), fma(m1sq, chi1y, -(m2sq * chi2y))) / (m1 * m1)
     chiperp_antisymmetric = jnp.where(q <= 1.5, fma(s * s, prec.chi_p, c * c * antisymmetric_chis), prec.chi_p)
     chi_mag = hypot2(chipar, chiperp)
     prec.chi_single_spin = chi_mag
+    prec.chi_parallel_single_spin = chipar
+    prec.chi_perp_single_spin = chiperp
     chi_mag_antisymmetric = hypot2(chipar, chiperp_antisymmetric)
     prec.chi_single_spin_antisymmetric = chi_mag_antisymmetric
     costheta = jnp.where(chi_mag >= 1.0e-6, safe_div(chipar, chi_mag), 0.0)
-    prec.theta_antisymmetric = jnp.where(
-        chi_mag_antisymmetric >= 1.0e-6, acos_safe(safe_div(chipar, chi_mag_antisymmetric)), 0.0
-    )
     prec.costheta_single_spin = _off_poles(prec, costheta)
-    xfparr = utilities.final_spin_2017(wf.eta, chi_mag * costheta, 0.0)
+    # (the polar angles and sines from the components of the spins: LAL's
+    # acos and sqrt(1 - cos^2) of their cosines lose half the digits of
+    # small in-plane spins, and those kept off the poles leave a residual
+    # in-plane spin, and an opening angle, for aligned spins; LAL's
+    # choices below |chi| = 1e-6, which tend to these, are not kept)
+    prec.sintheta_single_spin = safe_div(chiperp, chi_mag)
+    prec.theta_antisymmetric = _prec._atan2_safe(chiperp_antisymmetric, chipar)
+    xfparr = utilities.final_spin_2017(wf.eta, chipar, 0.0)
     qfactor = q / (1.0 + q)
-    xfperp = qfactor * qfactor * chi_mag * pa.sqrt_one_minus_square(costheta)
-    xf = hypot2(xfparr, xfperp)
-    prec.costheta_final_single_spin = jnp.where(xf > 1.0e-6, safe_div(xfparr, xf), 0.0)
+    xfperp = qfactor * qfactor * chiperp
+    prec.theta_final_single_spin = _prec._atan2_safe(xfperp, xfparr)
     prec.pnr_hm_mflow = jnp.zeros((), real())
     prec.pnr_hm_mfhigh = jnp.zeros((), real())
     # beyond q = 12, from LAL's angles at the edge of the transition region
@@ -383,7 +390,10 @@ def set_coprec_params(prec, wf, tuned, version):
     """``IMRPhenomX_PNR_GetAndSetCoPrecParams`` (``wf.coprec`` in place);
     ``tuned`` is traced (the PNR machinery is on)."""
     a1 = prec.chi_single_spin
-    theta_ls = acos_safe(prec.costheta_single_spin)
+    # (the polar angle of the single spin from its components: LAL's acos
+    # of its cosine, kept off the poles, loses half the digits of small
+    # in-plane spins, and is pi / 2 below |chi| = 1e-6, where dev vanishes)
+    theta_ls = _prec._atan2_safe(prec.chi_perp_single_spin, prec.chi_parallel_single_spin)
     pnr_window = jnp.where(tuned, pa.coprec_window(wf.q), 0.0)
     apply = jnp.where(tuned, 1.0, 0.0)
     dev = a1 * jnp.sin(theta_ls) * apply
@@ -415,11 +425,32 @@ def set_coprec_params(prec, wf, tuned, version):
     return wf
 
 
+#: The fits of the PNR coefficients of the form ``chi sin(theta) g(eta, chi,
+#: cos(theta))``: the table of the polynomial and ``g`` of it.
+_IN_PLANE_FITS = {
+    "alpha_a1": (_pnr_fits.COEFF_A1, lambda p: p * p),
+    "alpha_a2": (_pnr_fits.COEFF_A2, lambda p: -(p * p)),
+    "beta_b0": (_pnr_fits.COEFF_B0, lambda p: p),
+    "beta_b1": (_pnr_fits.COEFF_B1, jnp.exp),
+    "beta_b2": (_pnr_fits.COEFF_B2, lambda p: -jnp.exp(p)),
+    "beta_bf": (_pnr_fits.COEFF_BF, lambda p: p),
+}
+
+
+def in_plane_fit(name, eta, chi, costheta, sintheta):
+    """The fit ``pnr_fits.<name>`` (one of :data:`_IN_PLANE_FITS`) with
+    ``sin(theta)`` given: LAL's takes it from ``costheta``, which for
+    aligned spins is kept off the poles, so that the fit, which vanishes
+    with the in-plane spin, does not."""
+    coeff, g = _IN_PLANE_FITS[name]
+    return chi * sintheta * g(pnr_fits.evaluate(coeff, eta, chi, costheta))
+
+
 def ringdown_pnr_beta(prec, wf):
     """``IMRPhenomX_PNR_GenerateRingdownPNRBeta``."""
-    return pa.arctan_window(
-        acos_safe(prec.costheta_final_single_spin)
-        - pnr_fits.beta_bf(wf.eta, prec.chi_single_spin, prec.costheta_single_spin)
+    return pa.beta_window(
+        prec.theta_final_single_spin
+        - in_plane_fit("beta_bf", wf.eta, prec.chi_single_spin, prec.costheta_single_spin, prec.sintheta_single_spin)
     )
 
 
@@ -478,7 +509,11 @@ def interpolation_delta_f(prec, wf, f_min, version):
         v02 = v0 * v0
         v06 = v02 * v02 * v02
         dpsi = g0 * deltam * PI / (4.0 * v06) * fma(psi2, v02, fma(2.0 * psi1, v0, 3.0))
-        dpsi_inv = jnp.abs(safe_div(1.0, dpsi))
+        # (at equal masses, deltam == 0, psi1 and psi2 are infinite: LAL's
+        # dpsi is NaN and its grid the coarse one without the two-spin
+        # oscillations, a step in the waveform of ~1e-3 at q = 1; dpsi
+        # diverges as q -> 1, so that the limit is the finest grid)
+        dpsi_inv = jnp.where(deltam == 0.0, 0.0, jnp.abs(safe_div(1.0, dpsi)))
         l_fmin = wf.m_tot * wf.m_tot * _prec.l_ansatz(l_coeffs, v0, wf.eta / v0)
         beta_min = jnp.arctan2(jnp.abs(prec.s1_perp - prec.s2_perp), l_fmin + prec.sl)
         beta_max = jnp.arctan2(prec.s1_perp + prec.s2_perp, l_fmin + prec.sl)
@@ -529,13 +564,13 @@ def fit_parameters(prec, wf, version):
 def precompute_alpha_coefficients(prec, wf, version):
     """``IMRPhenomX_PNR_precompute_alpha_coefficients``."""
     eta, chi = fit_parameters(prec, wf, version)
-    costheta = prec.costheta_single_spin
-    a2 = jnp.minimum(pnr_fits.alpha_a2(eta, chi, costheta), 0.0)
+    costheta, sintheta = prec.costheta_single_spin, prec.sintheta_single_spin
+    a2 = jnp.minimum(in_plane_fit("alpha_a2", eta, chi, costheta, sintheta), 0.0)
     a3 = jnp.maximum(jnp.abs(pnr_fits.alpha_a3(eta, chi, costheta)), 0.00001)
     max_a2 = PI * PI * jnp.sqrt(a3)
     a2 = jnp.where(a2 < -max_a2, -max_a2, a2)
     return pa.alpha_params(
-        a1=jnp.abs(pnr_fits.alpha_a1(eta, chi, costheta)), a2=a2, a3=a3, a4=pnr_fits.alpha_a4(eta, chi, costheta)
+        a1=jnp.abs(in_plane_fit("alpha_a1", eta, chi, costheta, sintheta)), a2=a2, a3=a3, a4=pnr_fits.alpha_a4(eta, chi, costheta)
     )
 
 
@@ -543,13 +578,12 @@ def precompute_alpha_coefficients(prec, wf, version):
 def precompute_beta_coefficients(prec, wf, version):
     """``IMRPhenomX_PNR_precompute_beta_coefficients``."""
     eta, chi = fit_parameters(prec, wf, version)
-    costheta = prec.costheta_single_spin
-    costhetaf = prec.costheta_final_single_spin
+    costheta, sintheta = prec.costheta_single_spin, prec.sintheta_single_spin
     b4 = jnp.maximum(pnr_fits.beta_b4(eta, chi, costheta), 175.0)
-    b2 = pnr_fits.beta_b2(eta, chi, costheta)
+    b2 = in_plane_fit("beta_b2", eta, chi, costheta, sintheta)
     return pa.beta_params(
-        b0=acos_safe(costhetaf) - pnr_fits.beta_b0(eta, chi, costheta),
-        b1=pnr_fits.beta_b1(eta, chi, costheta),
+        b0=prec.theta_final_single_spin - in_plane_fit("beta_b0", eta, chi, costheta, sintheta),
+        b1=in_plane_fit("beta_b1", eta, chi, costheta, sintheta),
         b2=b2,
         b3=b2 * pnr_fits.beta_b3(eta, chi, costheta),
         b4=b4,
@@ -577,7 +611,8 @@ def polarization_angle(prec, wf, nx_jf, nz_jf):
 def rotate_to_l_frame(lx, ly, lz, s1, s2):
     """The spins in the frame of ``L`` (lalsuite !2593)."""
     lperp_sq = fma(lx, lx, ly * ly)
-    lperp = safe_sqrt(lperp_sq, tiny())
+    # (zero for aligned spins: a floor would tilt the spins by it)
+    lperp = _prec.hypot_safe(lx, ly)
     lnorm = jnp.sqrt(fma(lz, lz, lperp_sq))
     cos_theta, sin_theta = lz / lnorm, lperp / lnorm
     has_perp = lperp > 0.0
@@ -629,7 +664,10 @@ def finish_setup(prec, wf, version, st=None):
     j0 = [fma(m1_2, chi1[0], m2_2 * chi2[0]), fma(m1_2, chi1[1], m2_2 * chi2[1]), fma(m1_2, chi1[2], m2_2 * chi2[2]) + prec.l_ref]
     prec.j0 = j0
     prec.j0_norm = jnp.sqrt(fma(j0[2], j0[2], fma(j0[0], j0[0], j0[1] * j0[1])))
-    prec.theta_j_sf = jnp.where(prec.j0_norm < 1e-10, 0.0, acos_safe(j0[2] / prec.j0_norm))
+    # (LAL's acos(J0z / |J0|) and acos(J0.N / |J0|) lose half the digits of
+    # small angles, those of small in-plane spins: their atan2 forms)
+    theta_j_sf = _prec._atan2_safe(_prec.hypot_safe(j0[0], j0[1]), j0[2])
+    prec.theta_j_sf = jnp.where(prec.j0_norm < 1e-10, 0.0, theta_j_sf)
     prec.phi_j_sf = atan2_tol(j0[1], j0[0], MAX_TOL_ATAN)
     wf.phi0 = jnp.zeros_like(wf.phi0)
     n_sf = line_of_sight(wf)
@@ -637,7 +675,9 @@ def finish_setup(prec, wf, version, st=None):
     prec.kappa = atan2_tol(tmp[1], tmp[0], MAX_TOL_ATAN)
     prec.alpha0 = PI - prec.kappa
     j0_dot_n = fma(j0[2], n_sf[2], fma(j0[0], n_sf[0], j0[1] * n_sf[1]))
-    prec.theta_jn = acos_safe(j0_dot_n / prec.j0_norm)
+    j0_cross_n = [fnms(j0[2], n_sf[1], j0[1] * n_sf[2]), fnms(j0[0], n_sf[2], j0[2] * n_sf[0]),
+                  fnms(j0[1], n_sf[0], j0[0] * n_sf[1])]
+    prec.theta_jn = _prec._atan2_safe(_prec.hypot_safe(*j0_cross_n), j0_dot_n)
     prec.zeta_polarization = polarization_angle(prec, wf, jnp.sin(prec.theta_jn), jnp.cos(prec.theta_jn))
     if version // 100 == 1:
         m1 = prec.m1
@@ -742,8 +782,8 @@ def _st_anchors(prec):
 
 
 def _st_spline(prec, wf, mf):
-    """The splines of the SpinTaylor ``alpha`` and ``cos(beta)`` (shared):
-    ``(alpha, dalpha, cosbeta, dcosbeta, inside)`` at ``mf``."""
+    """The splines of the SpinTaylor ``alpha`` and ``beta`` (shared):
+    ``(alpha, dalpha, beta, dbeta, inside)`` at ``mf``."""
     if "st_bank" in prec:
         # the points evaluated together by st_bank
         for _, entry in prec.st_bank.items():
@@ -897,7 +937,7 @@ def initialize_euler_angles(prec, wf):
     # times fmax_inspiral)
     f1 = q[0]
     f2 = q[1]
-    a, da, cb, dcb, inside = _st_spline(prec, wf, q)
+    a, da, b, db, inside = _st_spline(prec, wf, q)
     error = error | ~(inside[0] & inside[1])
     alpha1, dalpha1, alpha2 = -a[0], -da[0], -a[1]
     f1sq, f2sq = f1 * f1, f2 * f2
@@ -918,15 +958,12 @@ def initialize_euler_angles(prec, wf):
     g2 = 0.98 * fmax_inspiral
     ef1 = jnp.exp(kappa * g1)
     ef2 = jnp.exp(kappa * g2)
-    cosbeta1 = cb[0]
-    cosbeta2, dcosbeta2 = cb[2], dcb[2]
-    cosbetamax = cb[3]
-    success = inside[3]
-    flat = (jnp.abs(cosbeta1) > 1.0) | (jnp.abs(cosbeta2) > 1.0) | (jnp.abs(cosbetamax) > 1.0) | ~success
-    beta1 = acos_safe(cosbeta1)
-    beta2 = acos_safe(cosbeta2)
-    sqrtarg = fnms(cosbeta2, cosbeta2, 1.0)
-    dbeta2 = -dcosbeta2 / jnp.sqrt(jnp.where(sqrtarg <= 0.0, 1.0, sqrtarg))
+    # (beta from the SpinTaylor solution directly, LAL's acos of its
+    # cos(beta), whose |cos(beta)| > 1 from the rounding of its spline LAL
+    # also tests for)
+    beta1 = b[0]
+    beta2, dbeta2 = b[2], db[2]
+    flat = ~inside[3]
     gden = (g1 - g2) ** 2
     g1_4 = g1 ** 4
     g2_3 = g2 ** 3
@@ -946,7 +983,7 @@ def initialize_euler_angles(prec, wf):
         b=fma(2.0 * ef1 * g1_4 * g2, off - beta1, ef2 * g2_3 * z_b) / gden,
         c=fma(-(ef1 * g1_4 * g2sq), off - beta1, ef2 * g1 * g2_4 * z_c) / gden,
         d=off,
-        cosbeta_sign=jnp.where(cosbetamax < 0, -1.0, 1.0),
+        cosbeta_sign=jnp.where(b[3] > 0.5 * PI, -1.0, 1.0),
         flat=flat,
         dfdamp=dfdamp,
     )
@@ -999,11 +1036,10 @@ def st_beta(prec, wf, mf, bp, use_mr_beta):
         jnp.where(sa.ftrans_mrd <= 0.9 * bp.mf_beta_lower, sa.ftrans_mrd - 0.0005, fma(0.9, bp.mf_beta_lower, -0.0005)),
         sa.ftrans_mrd,
     )
-    _, _, cb, _, inside = _st_spline(prec, wf, mf)
+    _, _, beta, _, inside = _st_spline(prec, wf, mf)
     inspiral = mf < ftrans
-    cosbeta = jnp.clip(cb, -1.0, 1.0)
     value = jnp.where(
-        inspiral, acos_safe(cb),
+        inspiral, beta,
         jnp.where(use_mr_beta, pa.beta_connection(mf, bp), beta_mrd(sa.beta_mrd, mf)),
     )
     return value, inspiral & ~inside
@@ -1039,14 +1075,25 @@ def pn_alpha(prec, wf, mf, version):
 
 def _single_beta(prec, mf):
     """``acos(cos(theta_L))`` of the single-spin system (``SingleSpin``) at
-    ``v = (pi Mf)^(1/3)``."""
+    ``v = (pi Mf)^(1/3)``: ``atan2(S_perp, L + S_par)``.
+
+    That is LAL's MSA ``cos(theta_L) = (J^2 + L^2 - S^2) / (2 J L)`` with
+    ``J^2 = L^2 + 2 L S_par + S^2``, for a single spin, whose magnitude
+    ``S`` is constant (the two roots ``S_-^2 = S_+^2``), without its
+    cancellations: LAL takes ``S_+^2 = S_-^2 + 1e-9`` for the degenerate
+    roots, which leaves ``beta ~ 3e-5`` for aligned spins. ``S_perp`` and
+    ``S_par`` are the components of the effective spin, not those of its
+    polar angle kept off the poles."""
     single = prec.single
-    cos_l_msa = _msa_angles(single.msa, mf).cos_theta_l
-    anchor = jax.tree_util.tree_leaves(single.msa)
-    cos_l_102 = _cached("msa102", (anchor[0], anchor[-1]), mf,
-                        lambda: _msa.cos_theta_l_with(single.msa, jnp.cbrt(PI * mf), single.l_102))
-    cos_l = jnp.where(single.error, cos_l_102, cos_l_msa)
-    return acos_safe(cos_l)
+    system = single.msa
+    v = jnp.cbrt(PI * mf)
+    l_norm = system.eta / v
+    l_msa = _msa.l_norm_3pn(system, v, v * v, l_norm)
+    l_102 = _prec.l_ansatz(single.l_102, v, l_norm)
+    l = jnp.where(single.error, l_102, l_msa)
+    # (m1 / M)^2
+    m1_2 = system.eta / system.qq
+    return jnp.arctan2(m1_2 * prec.chi_perp_single_spin, fma(m1_2, prec.chi_parallel_single_spin, l))
 
 
 def pn_beta(prec, wf, mf, bp, version, use_mr_beta):
@@ -1093,9 +1140,11 @@ def waveform_beta(prec, wf, mf, pn_beta_value):
     v = jnp.cbrt(PI * mf)
     l_norm = wf.eta / v
     l_3pn = big_m * big_m * _prec.l_ansatz(prec.l, v, l_norm)
-    chi_temp = pa.chi_calc(m1, l_3pn, prec.j0_norm, prec.l_ref, chi_parr, pn_beta_value)
-    costheta_temp = _off_poles(prec, safe_div(chi_parr, chi_temp))
-    return pa.pn_waveform_beta(mf, pn_beta_value, m1, m2, chi_temp, costheta_temp)
+    # (the in-plane part of the effective spin of pa.chi_calc, which with
+    # chi_parr is all that pa.pn_waveform_beta reads: LAL's polar angle,
+    # kept off the poles, left a residual beta for aligned spins)
+    chi_perp = jnp.abs((prec.j0_norm - (prec.l_ref - l_3pn)) * jnp.sin(pn_beta_value)) / (m1 * m1)
+    return pa.pn_waveform_beta_components(mf, pn_beta_value, m1, m2, chi_parr, chi_perp)
 
 
 # ---------------------------------------------------------------------------
@@ -1173,8 +1222,7 @@ def st_beta_connection(prec, wf, bp):
         pts = prec.st_bank.beta.mf
         mfa = pts[1]
     mfb = bp.mf_beta_lower
-    _, _, cb, _, inside = _st_spline(prec, wf, pts)
-    st_b = acos_safe(cb)
+    _, _, st_b, _, inside = _st_spline(prec, wf, pts)
     error = ~jnp.all(inside)
     ba1, ba, ba2 = st_b[0], st_b[1], st_b[2]
     omega = PI * mfb
@@ -1342,11 +1390,11 @@ def pnr_beta_at(prec, wf, mf, bp, version, use_mr_beta):
     """``IMRPhenomX_PNR_GeneratePNRBetaAtMf``."""
     beta_pn, error = pn_beta(prec, wf, mf, bp, version, use_mr_beta)
     beta_waveform = waveform_beta(prec, wf, mf, beta_pn)
-    low = pa.arctan_window(beta_waveform * pa.rescale_beta(mf, bp))
+    low = pa.beta_window(beta_waveform * pa.rescale_beta(mf, bp))
     if version == 223:
-        low = jnp.where(bp.beta_lower < 0.01 * bp.beta_upper, pa.arctan_window(pa.mr_beta(bp.mf_beta_lower, bp)), low)
-    upper = pa.arctan_window(pa.mr_beta(bp.mf_beta_upper, bp))
-    mid = pa.arctan_window(pa.mr_beta(mf, bp))
+        low = jnp.where(bp.beta_lower < 0.01 * bp.beta_upper, pa.beta_window(pa.mr_beta(bp.mf_beta_lower, bp)), low)
+    upper = pa.beta_window(pa.mr_beta(bp.mf_beta_upper, bp))
+    mid = pa.beta_window(pa.mr_beta(mf, bp))
     below = mf <= bp.mf_beta_lower
     value = jnp.where(below, low, jnp.where(mf >= bp.mf_beta_upper, _held(bp, upper, mid), mid))
     return value, error & below
@@ -1378,10 +1426,10 @@ def merged_beta_at(prec, wf, mf, bp, version, beyond=None):
         error = e1 | e2
         beta_waveform_high = beta_waveform2
         error_high = e2
-    low = pa.arctan_window(fma(pnr_window, pnr_beta, msa_window * pn_b))
+    low = pa.beta_window(fma(pnr_window, pnr_beta, msa_window * pn_b))
     mr_mf = pa.mr_beta(mf, bp)
     mr = jnp.where(mf >= bp.mf_beta_upper, _held(bp, pa.mr_beta(bp.mf_beta_upper, bp), mr_mf), mr_mf)
-    high = pa.arctan_window(fma(pnr_window, mr, msa_window * beta_waveform_high))
+    high = pa.beta_window(fma(pnr_window, mr, msa_window * beta_waveform_high))
     value, error = jnp.where(below, low, high), jnp.where(below, error, error_high)
     if beyond is None:
         beyond = beta_no_mr(prec, wf, mf, bp, version, jnp.asarray(False))
@@ -1395,7 +1443,7 @@ def merged_beta_at(prec, wf, mf, bp, version, beyond=None):
 def beta_no_mr(prec, wf, mf, bp, version, use_mr_beta):
     """``IMRPhenomX_PNR_GeneratePNRBetaNoMR``."""
     beta, error = pn_beta_fulltwospin(prec, wf, mf, bp, version, use_mr_beta)
-    return pa.arctan_window(waveform_beta(prec, wf, mf, beta)), error
+    return pa.beta_window(waveform_beta(prec, wf, mf, beta)), error
 
 
 def uniform_angles(prec, wf, mf, version, st_values=None):
@@ -1961,7 +2009,7 @@ def remap_theta_jsf(prec, wf, beta_ref):
     remapped.theta_j_sf = theta_j_sf
     remapped.kappa = kappa
     remapped.alpha0 = alpha0
-    theta_jn = acos_safe(n_jf[2])
+    theta_jn = _prec._atan2_safe(_prec.hypot_safe(n_jf[0], n_jf[1]), n_jf[2])
     zeta = polarization_angle(remapped, wf, n_jf[0], n_jf[2])
     prec.alpha_offset = jnp.where(skip, prec.alpha_offset, prec.alpha_offset - jnp.where(small, prec.alpha0, alpha0))
     keep = skip | small

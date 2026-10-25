@@ -16,6 +16,10 @@
   ``alpha``.
 * Its gradients are finite, also for aligned and vanishing spins, and
   agree with finite differences.
+* It tends linearly to the waveform of aligned spins as the in-plane spins
+  vanish (LAL's construction left an opening angle there), also as all
+  spins vanish, and across equal masses; its derivatives along a direction
+  of the in-plane spin tend to the one-sided derivative at zero.
 """
 
 import functools
@@ -320,3 +324,128 @@ def test_vmap_matches_single_calls():
     for i, b in enumerate(xs):
         for a, s in zip(batch, single(b)):
             np.testing.assert_allclose(np.asarray(a[i]), np.asarray(s), rtol=0, atol=1e-10 * float(jnp.max(jnp.abs(s))))
+
+
+# ---------------------------------------------------------------------------
+# vanishing spins and equal masses
+# ---------------------------------------------------------------------------
+
+def test_beta_window():
+    """The window of the PNR beta: beta itself within [0, pi], LAL's window
+    beyond 0.01 outside, continuous with its derivative across both."""
+    from waveformx.models.xpnr import pnr_angles as pa
+
+    inside = jnp.asarray([0.0, 1e-12, 1e-3, 0.005, 0.01, 1.0, np.pi - 0.005, np.pi])
+    np.testing.assert_array_equal(np.asarray(pa.beta_window(inside)), np.asarray(inside))
+    outside = jnp.asarray([-0.5, -0.1, -0.0100001, np.pi + 0.0100001, np.pi + 0.2])
+    np.testing.assert_array_equal(np.asarray(pa.beta_window(outside)), np.asarray(pa.arctan_window(outside)))
+    grad = jax.vmap(jax.grad(pa.beta_window))
+    for edge in (0.0, -0.01, np.pi, np.pi + 0.01):
+        x = jnp.asarray([edge - 1e-9, edge + 1e-9])
+        values, slopes = np.asarray(pa.beta_window(x)), np.asarray(grad(x))
+        assert abs(values[1] - values[0]) < 1e-8 and abs(slopes[1] - slopes[0]) < 1e-6, edge
+
+
+#: The steps towards a vanishing in-plane spin, total spin or mass difference.
+STEPS = (1e-4, 1e-6, 1e-8, 1e-10)
+
+
+def _ray(make, base):
+    """``|h(eps) - h(0)| / |h(0)|`` along ``make(eps)`` for :data:`STEPS`."""
+    f = frequencies(50.0, n=256)
+    h0 = compiled(OPTIONS)(base, f)
+    return np.array([relative(compiled(OPTIONS)(make(eps), f), h0) for eps in STEPS])
+
+
+def _assert_linear(changes):
+    """The changes vanish linearly with the step: the waveform is continuous
+    (LAL's floors and windows left a step of ~1e-3)."""
+    rates = changes / np.asarray(STEPS)
+    assert np.all(rates < 1.5 * rates[0]) and np.all(rates > rates[0] / 1.5), changes
+
+
+@pytest.mark.parametrize("inclination", [0.0, 0.7, 1.5])
+def test_continuous_as_in_plane_spins_vanish(inclination):
+    """As the in-plane spins vanish, along several directions, the waveform
+    tends linearly to that of the aligned spins: no residual opening angle
+    (LAL's arctan window, the perturbed MSA roots of the single-spin system,
+    the polar angles kept off the poles) along an arbitrary ``alpha``."""
+    for phi in (0.0, 0.5 * np.pi, np.pi, 1.5 * np.pi):
+        def make(eps):
+            return binary(mass_1=30.0, mass_2=20.0, spin_1=(eps * np.cos(phi), eps * np.sin(phi), 0.3),
+                          spin_2=(0.0, 0.0, -0.2), inclination=inclination)
+
+        _assert_linear(_ray(make, make(0.0)))
+
+
+#: Directions of the two spins whose aligned total spin is positive
+#: (``s_tot_r > 0``).
+DIRECTIONS = [((0.6, -0.2, 0.3), (0.5, 0.5, 0.1)), ((-0.3, 0.1, 0.8), (0.2, -0.7, -0.4))]
+
+
+@pytest.mark.parametrize("directions", DIRECTIONS)
+def test_continuous_as_all_spins_vanish(directions):
+    def make(eps):
+        return binary(mass_1=30.0, mass_2=20.0, spin_1=tuple(eps * np.asarray(directions[0])),
+                      spin_2=tuple(eps * np.asarray(directions[1])))
+
+    _assert_linear(_ray(make, make(0.0)))
+
+
+@pytest.mark.xfail(strict=True, reason="IMRPhenomXHM: the (3,3) intermediate phase changes its collocation "
+                                       "points across s_tot_r = 0")
+def test_continuous_as_all_spins_vanish_negative_total_spin():
+    def make(eps):
+        return binary(mass_1=30.0, mass_2=20.0, spin_1=(0.0, 0.0, -eps), spin_2=(0.0, 0.0, -eps))
+
+    _assert_linear(_ray(make, make(0.0)))
+
+
+def test_continuous_at_equal_masses():
+    """Across ``q = 1`` (where the bodies are swapped, and where LAL's
+    estimate of the period of the two-spin oscillations is NaN, which took
+    the coarse grid of the PNR interpolants rather than its limit, the
+    finest)."""
+    def make(eps):
+        return binary(mass_1=30.0 * (1.0 + eps), mass_2=30.0, spin_1=(0.2, 0.1, 0.3), spin_2=(-0.1, 0.2, 0.3))
+
+    base = make(0.0)
+    _assert_linear(_ray(make, base))
+    _assert_linear(_ray(lambda eps: make(-eps), base))
+
+
+@functools.lru_cache(maxsize=None)
+def _ray_function(direction):
+    f = frequencies(50.0, n=128)
+
+    def h(eps):
+        b = binary(mass_1=30.0, mass_2=20.0, spin_1=(eps * direction[0], eps * direction[1], 0.3),
+                   spin_2=(0.0, 0.0, -0.2))
+        hp, hc = MODEL.polarizations(b, f, OPTIONS_22)
+        return jnp.concatenate([hp, hc]) * 1e21
+
+    return jax.jit(h), jax.jit(lambda eps: jax.jvp(h, (eps,), (jnp.ones_like(eps),))[1])
+
+
+@pytest.mark.parametrize("phi", [0.0, np.pi])
+def test_derivatives_continuous_as_in_plane_spins_vanish(phi):
+    """Along a direction of the in-plane spin, the derivative agrees with
+    finite differences down to tiny spins and tends to the one-sided
+    derivative at zero. (The waveform has no derivative at zero: LAL's fits
+    of the co-precessing modes and of the PNR angles depend on the
+    magnitude of the in-plane spin, so that the one-sided derivatives along
+    opposite directions differ. There the derivatives are finite.)"""
+    h, dh = _ray_function((float(np.cos(phi)), float(np.sin(phi))))
+    for eps in (1e-3, 1e-6, 1e-8):
+        step = 0.1 * eps
+
+        def central(s):
+            return (np.asarray(h(jnp.float64(eps + s))) - np.asarray(h(jnp.float64(eps - s)))) / (2 * s)
+
+        numeric = (4.0 * central(step / 2) - central(step)) / 3.0
+        tangent = np.asarray(dh(jnp.float64(eps)))
+        assert np.max(np.abs(tangent - numeric)) < 1e-3 * np.max(np.abs(numeric)), eps
+    one_sided = (np.asarray(h(jnp.float64(1e-9))) - np.asarray(h(jnp.float64(0.0)))) / 1e-9
+    tangent = np.asarray(dh(jnp.float64(1e-9)))
+    assert np.max(np.abs(tangent - one_sided)) < 1e-4 * np.max(np.abs(one_sided))
+    assert np.all(np.isfinite(np.asarray(dh(jnp.float64(0.0)))))

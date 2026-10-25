@@ -180,7 +180,7 @@ def tables(solution, rotation, rotation_t, n_directions):
 
 
 def st_angles(solution, tab, st_range, st_range_t, rotation, rotation_t, mf, mf_t, n_directions):
-    """The SpinTaylor angles ``(alpha, dalpha, cosbeta, dcosbeta, inside)``
+    """The SpinTaylor angles ``(alpha, dalpha, beta, dbeta, inside)``
     at ``mf`` (``(B, M)``), and their tangents. The kernels read the steps
     holding the points from the tables of the solution (no copies of the
     steps for every point)."""
