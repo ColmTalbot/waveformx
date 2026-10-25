@@ -455,3 +455,40 @@ def test_simulate_function(nrsur):
     function = nrsur.simulate_td_function(binary, 1 / 4096, f_min, OPTIONS)
     hp, _ = mx.compile(function)(as_mlx(binary))
     assert_close(np.array(hp), np.array(function.reference.hplus))
+
+
+def test_reference_mf(nrsur):
+    """The mass-scaled reference: the MLX waveform against JAX's, NaN for a
+    non-zero ``f_ref``, and the converters against JAX's, with ``mx.grad``
+    and in a batch."""
+    from waveformx.models.nrsur7dq4 import reference
+    from waveformx.models.nrsur7dq4.mlx import reference as mlx_reference
+
+    options = wf.WaveformOptions(reference_mf=0.01)
+    function = jax.jit(lambda b: MODEL.polarizations_at(b, TIMES, options))
+    for name in ("precessing", "m1<m2, f_ref=0", "light, aligned"):
+        binary = BINARIES[name]._replace(f_ref=0.0)
+        hp, hc = nrsur.polarizations_at(binary, TIMES, options)
+        for a, b in zip((hp, hc), function(as_float64(binary))):
+            assert_close(np.array(a), np.asarray(b))
+        assert np.all(np.isnan(np.array(nrsur.polarizations_at(binary._replace(f_ref=20.0), TIMES, options)[0])))
+    for name in ("precessing", "heavy, q=6"):
+        binary = BINARIES[name]
+        ours, psi = mlx_reference.to_mass_scaled_reference(binary, 0.01, return_angle=True)
+        theirs, psi64 = reference.to_mass_scaled_reference(as_float64(as_mlx(binary)), 0.01, return_angle=True)
+        for a, b in zip(ours, theirs):
+            np.testing.assert_allclose(np.array(a), np.asarray(b), atol=1e-4)
+        assert float(psi) == pytest.approx(float(psi64), abs=1e-4)
+        # (the round trip of the q = 6 binary is off by ~4e-3 in float64
+        # too: the surrogate's integrations from two references differ)
+        back = mlx_reference.to_physical_reference(ours, float(binary.f_ref), 0.01)
+        np.testing.assert_allclose(np.array(back.spin_1), np.asarray(binary.spin_1), atol=1e-2)
+        grad = mx.grad(lambda m: mlx_reference.to_mass_scaled_reference(binary._replace(mass_1=m), 0.01).phi_ref)(
+            mx.array(np.float32(binary.mass_1)))
+        expected = jax.grad(lambda m: reference.to_mass_scaled_reference(
+            as_float64(as_mlx(binary))._replace(mass_1=m), 0.01).phi_ref)(jnp.float64(np.float32(binary.mass_1)))
+        assert float(grad) == pytest.approx(float(expected), rel=1e-3, abs=1e-5)
+    batch = stacked([BINARIES["precessing"], BINARIES["heavy, q=6"]])
+    out = mlx_reference.to_mass_scaled_reference(batch, 0.01)
+    single = mlx_reference.to_mass_scaled_reference(BINARIES["heavy, q=6"], 0.01)
+    np.testing.assert_allclose(np.array(out.spin_1[1]), np.array(single.spin_1), atol=1e-6)

@@ -163,10 +163,10 @@ def setup(binary, delta_t: float, f_min: float, options, data: Optional[NRSurDat
     if data is None:
         data = default_data()
     values = _intrinsic(binary)
-    key = (id(data), float(delta_t), float(f_min), values)
+    key = (id(data), float(delta_t), float(f_min), values, options.reference_mf)
     grid = _GRIDS.get(key)
     if grid is None:
-        grid = _grid(values, float(delta_t), float(f_min), data)
+        grid = _grid(values, float(delta_t), float(f_min), data, options.reference_mf)
         if len(_GRIDS) >= _GRIDS_SIZE:
             _GRIDS.popitem(last=False)
         _GRIDS[key] = grid
@@ -174,16 +174,22 @@ def setup(binary, delta_t: float, f_min: float, options, data: Optional[NRSurDat
     return Setup(binary._replace(f_ref=f_ref), t0, dt, n, epoch, m_tot_sec)
 
 
-def _grid(values: tuple, delta_t: float, f_min: float, data: NRSurData) -> tuple:
+def _grid(values: tuple, delta_t: float, f_min: float, data: NRSurData, reference_mf=None) -> tuple:
     """:func:`setup` for the intrinsic parameters ``values``
-    (:func:`_intrinsic`): ``(f_ref, t0, dt, n, epoch, m_tot_sec)``."""
+    (:func:`_intrinsic`): ``(f_ref, t0, dt, n, epoch, m_tot_sec)``. With the
+    mass-scaled reference ``reference_mf`` the reference is ``pi
+    reference_mf`` (``f_ref`` stays zero), which may lie below ``f_min``
+    but must lie inside the surrogate."""
     switched, m1_si, m2_si, chi_a, chi_b, q, m_tot_sec = _host_labels(values)
     f_ref = values[8]
     # get_dimless_omega
     omega_min = (m_tot_sec * f_min) * np.pi
-    omega_ref = omega_min if f_ref == 0 else (m_tot_sec * f_ref) * np.pi
-    if omega_ref + 1e-13 < omega_min:
-        raise InvalidParameterError(f"fRef ({f_ref}) cannot be lesser than fMin ({f_min})")
+    if reference_mf is not None:
+        omega_ref = np.pi * reference_mf
+    else:
+        omega_ref = omega_min if f_ref == 0 else (m_tot_sec * f_ref) * np.pi
+        if omega_ref + 1e-13 < omega_min:
+            raise InvalidParameterError(f"fRef ({f_ref}) cannot be lesser than fMin ({f_min})")
     # PrecessingNRSur_IntegrateDynamics
     if q > Q_MAX:
         raise InvalidParameterError(
@@ -198,6 +204,11 @@ def _grid(values: tuple, delta_t: float, f_min: float, data: NRSurData) -> tuple
             )
     t_ds = np.asarray(data.t_ds)
     omegas = np.asarray(_omegas(data, q, chi_a, chi_b))
+    if reference_mf is not None and omega_ref < omegas[0]:
+        raise InvalidParameterError(
+            f"reference_mf = {reference_mf} (M omega = {omega_ref:.4f}) lies before the start of NRSur7dq4 for "
+            f"this binary (M omega = {omegas[0]:.4f}): use reference_mf >= {omegas[0] / np.pi:.5f}"
+        )
     _reference_time(t_ds, omegas, omega_ref)
     # the start of the output (PrecessingNRSur_StartFrequency with the
     # masses in kg)
@@ -218,7 +229,7 @@ def _grid(values: tuple, delta_t: float, f_min: float, data: NRSurData) -> tuple
     dt = delta_t / m_tot_sec
     tf = float(np.asarray(data.t_coorb)[-1])
     n = max(int(math.ceil((tf - t0) / dt)), 0)
-    effective = f_ref if f_ref != 0 else f_min
+    effective = f_ref if f_ref != 0 or reference_mf is not None else f_min
     return float(effective), float(t0), float(dt), n, gps_epoch(m_tot_sec * t0), float(m_tot_sec)
 
 
@@ -239,23 +250,23 @@ def bucket(n: int) -> int:
     return max(MIN_BUCKET, 1 << max(0, int(n) - 1).bit_length())
 
 
-@functools.partial(jax.jit, static_argnames=("n", "mode_array"))
-def _polarizations_grid(data, binary, t0, dt, scale, n, mode_array):
+@functools.partial(jax.jit, static_argnames=("n", "mode_array", "reference_mf"))
+def _polarizations_grid(data, binary, t0, dt, scale, n, mode_array, reference_mf=None):
     tau = t0 + dt * jnp.arange(n)
-    return _waveform.polarizations_at_dimensionless(data, binary, tau, mode_array, scale)
+    return _waveform.polarizations_at_dimensionless(data, binary, tau, mode_array, scale, reference_mf)
 
 
-@functools.partial(jax.jit, static_argnames=("n", "mode_array"))
-def _modes_grid(data, binary, t0, dt, scale, n, mode_array):
+@functools.partial(jax.jit, static_argnames=("n", "mode_array", "reference_mf"))
+def _modes_grid(data, binary, t0, dt, scale, n, mode_array, reference_mf=None):
     tau = t0 + dt * jnp.arange(n)
-    return _waveform.modes_at_dimensionless(data, binary, tau, mode_array, scale)
+    return _waveform.modes_at_dimensionless(data, binary, tau, mode_array, scale, reference_mf)
 
 
-@functools.partial(jax.jit, static_argnames=("n", "mode_array"))
-def _batch_polarizations_grid(data, binaries, t0, dt, scale, n, mode_array):
+@functools.partial(jax.jit, static_argnames=("n", "mode_array", "reference_mf"))
+def _batch_polarizations_grid(data, binaries, t0, dt, scale, n, mode_array, reference_mf=None):
     def one(binary, t0, dt):
         tau = t0 + dt * jnp.arange(n)
-        return _waveform.polarizations_at_dimensionless(data, binary, tau, mode_array, scale)
+        return _waveform.polarizations_at_dimensionless(data, binary, tau, mode_array, scale, reference_mf)
 
     return jax.vmap(one)(binaries, t0, dt)
 
@@ -271,7 +282,7 @@ def td_polarizations(binary, delta_t: float, f_min: float, options) -> TimeSerie
     data = default_data()
     grid = setup(binary, delta_t, f_min, options, data)
     hp, hc = _polarizations_grid(data, _as_numpy(grid.binary), grid.t0, grid.dt, _waveform.strain_scale(options),
-                                 bucket(grid.n), options.mode_array)
+                                 bucket(grid.n), options.mode_array, options.reference_mf)
     return TimeSeriesPolarizations(hp[: grid.n], hc[: grid.n], grid.epoch, float(delta_t))
 
 
@@ -281,7 +292,7 @@ def td_modes(binary, delta_t: float, f_min: float, options) -> TimeSeriesModes:
     data = default_data()
     grid = setup(binary, delta_t, f_min, options, data)
     modes = _modes_grid(data, _as_numpy(grid.binary), grid.t0, grid.dt, _waveform.strain_scale(options),
-                        bucket(grid.n), options.mode_array)
+                        bucket(grid.n), options.mode_array, options.reference_mf)
     return TimeSeriesModes({mode: h[: grid.n] for mode, h in modes.items()}, grid.epoch, float(delta_t))
 
 
@@ -312,7 +323,7 @@ def batch_td_polarizations(
         t0 = jnp.asarray([grids[i].t0 for i in padded])
         dt = jnp.asarray([grids[i].dt for i in padded])
         hp, hc = _batch_polarizations_grid(data, binaries, t0, dt, _waveform.strain_scale(options), n,
-                                           options.mode_array)
+                                           options.mode_array, options.reference_mf)
         hp, hc = np.asarray(hp), np.asarray(hc)
         for k, index in enumerate(members):
             grid = grids[index]

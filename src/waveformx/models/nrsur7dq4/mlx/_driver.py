@@ -111,8 +111,12 @@ def grids(table, delta_t: float, f_min: float, options) -> Tuple[Grids, Dict[int
     # get_dimless_omega
     f_ref = table[:, 11]
     omega_min = (m_tot_sec * f_min) * np.pi
-    omega_ref = np.where(f_ref == 0, omega_min, (m_tot_sec * f_ref) * np.pi)
-    fail = omega_ref + 1e-13 < omega_min
+    if options.reference_mf is None:
+        omega_ref = np.where(f_ref == 0, omega_min, (m_tot_sec * f_ref) * np.pi)
+        fail = omega_ref + 1e-13 < omega_min
+    else:
+        omega_ref = np.full_like(m_tot_sec, np.pi * options.reference_mf)
+        fail = f_ref != 0
     # PrecessingNRSur_IntegrateDynamics
     fail |= q > _jax_driver.Q_MAX
     for chi in (chi_a, chi_b):
@@ -140,7 +144,7 @@ def grids(table, delta_t: float, f_min: float, options) -> Tuple[Grids, Dict[int
     n = np.where(fail, 0, n).astype(np.int64)
     epoch = np.array([_jax_driver.gps_epoch(m * t) if not bad else np.nan
                       for m, t, bad in zip(m_tot_sec, t0, fail)])
-    out = Grids(np.where(f_ref != 0, f_ref, f_min), t0, dt, n, epoch, m_tot_sec)
+    out = Grids(np.where((f_ref != 0) | (options.reference_mf is not None), f_ref, f_min), t0, dt, n, epoch, m_tot_sec)
     errors = {}
     for index in np.flatnonzero(fail):
         # LAL's error, from the checks in its order
@@ -156,7 +160,7 @@ def grids(table, delta_t: float, f_min: float, options) -> Tuple[Grids, Dict[int
 
 
 @functools.lru_cache(maxsize=None)
-def _compiled(data: NRSurData, kind: str, mode_array, scale: float):
+def _compiled(data: NRSurData, kind: str, mode_array, scale: float, reference_mf=None):
     """The compiled evaluation of :func:`evaluate`, cached per data,
     output and options (and by MLX per shape)."""
 
@@ -165,8 +169,8 @@ def _compiled(data: NRSurData, kind: str, mode_array, scale: float):
         # nearest the peak: rounded relative to tau rather than to t0
         tau = (k[None] - k0[:, None]) * dt[:, None] + c[:, None]
         if kind == "modes":
-            return tuple(_waveform.modes_at_dimensionless(data, binary, tau, mode_array, scale).values())
-        return _waveform.polarizations_at_dimensionless(data, binary, tau, mode_array, scale)
+            return tuple(_waveform.modes_at_dimensionless(data, binary, tau, mode_array, scale, reference_mf).values())
+        return _waveform.polarizations_at_dimensionless(data, binary, tau, mode_array, scale, reference_mf)
 
     return mx.compile(function)
 
@@ -186,7 +190,7 @@ def evaluate(data: NRSurData, binaries: Binary, t0, dt, n: int, options, kind: s
     k0 = np.round(-t0 / dt)
     c = t0 + k0 * dt
     binary = Binary(*(_float32(value) for value in binaries))
-    function = _compiled(data, kind, options.mode_array, strain_scale(options))
+    function = _compiled(data, kind, options.mode_array, strain_scale(options), options.reference_mf)
     out = function(binary, mx.arange(n, dtype=mx.float32), _float32(k0), _float32(dt), _float32(c))
     if kind == "modes":
         ells = output_ells(options.mode_array)
