@@ -76,8 +76,8 @@ class _XPNR:
         """``f_max -> f_max'``: ``min(f_max, f_cut)`` (``f_cut`` for ``f_max
         = 0``) with ``f_cut = 0.3 / M`` (``0.33 / M`` for ``chi_eff >
         0.99``), as ``IMRPhenomXSetWaveformVariables`` computes it."""
-        m1 = float(binary.mass_1) * c.MSUN_SI / c.MSUN_SI
-        m2 = float(binary.mass_2) * c.MSUN_SI / c.MSUN_SI
+        m1 = float(binary.mass_1)
+        m2 = float(binary.mass_2)
         chi1 = float(np.asarray(binary.spin_1)[2])
         chi2 = float(np.asarray(binary.spin_2)[2])
         if m1 < m2:

@@ -43,7 +43,7 @@ import numpy as np
 __all__ = [
     "HOST", "TRACED", "EXTRA_TIME_FRACTION", "EXTRA_CYCLES",
     "c_round", "c_int_difference", "next_power_of_two_above", "nyquist_frequency",
-    "chirp_time_bound", "merge_time_bound", "ringdown_time_bound_kg", "final_black_hole_spin_bound",
+    "chirp_time_bound", "merge_time_bound", "ringdown_time_bound", "final_black_hole_spin_bound",
     "chirp_start_frequency_bound", "kerr_isco_frequency", "schwarzschild_isco_frequency",
     "merge_and_ringdown_time", "GpsTime", "wave_taper_start", "apply_wave_taper_start",
     "hann_taper_start", "hann_taper_end", "high_pass", "butterworth_high_pass", "taper_frequency_band",
@@ -53,11 +53,7 @@ __all__ = [
 # LAL's constants (lal 7.7)
 PI = math.pi
 TWO_PI = 2.0 * PI
-MSUN_SI = 1.988409870698050731911960804878414216e30
-MRSUN_SI = 1.476625038050124729627979840144936351e3
 MTSUN_SI = 4.925490947641266978197229498498379006e-6
-G_SI = 6.67430e-11
-C_SI = 299792458.0
 
 #: Fraction of the chirp time added before ``f_min`` for tapering.
 EXTRA_TIME_FRACTION = 0.1
@@ -154,33 +150,23 @@ def nyquist_frequency(f_max: float, delta_f: float) -> float:
 
 
 # ---------------------------------------------------------------------------
-# bounds on the duration of the signal (masses in solar masses, converted
-# to kilograms for each body as callers of LAL do)
+# bounds on the duration of the signal (masses in solar masses; LAL's are
+# in kg)
 # ---------------------------------------------------------------------------
-
-
-def _kilograms(mass_1, mass_2):
-    return mass_1 * MSUN_SI, mass_2 * MSUN_SI
-
-
-#: ``G / c^3``, the conversion from kilograms to seconds of the PN
-#: coefficient functions.
-KG_TO_SECONDS = G_SI / math.pow(C_SI, 3.0)
 
 
 def chirp_time_bound(f_start, mass_1, mass_2, spin_1, spin_2, m=HOST):
     """``XLALSimInspiralChirpTimeBound``: an upper bound on the time from the
     gravitational-wave frequency ``f_start`` to coalescence."""
-    m1, m2 = _kilograms(mass_1, mass_2)
-    total = m1 + m2
-    mu = m1 * m2 / total
+    total = mass_1 + mass_2
+    mu = mass_1 * mass_2 / total
     eta = mu / total
     chi = m.abs(m.where(m.abs(spin_1) > m.abs(spin_2), spin_1, spin_2))
-    c0 = m.abs(-5.0 * (total * KG_TO_SECONDS) / (256.0 * eta))
+    c0 = m.abs(-5.0 * (total * MTSUN_SI) / (256.0 * eta))
     c2 = m.fma(11.0 / 3.0, eta, 7.43 / 2.52)
     c3 = (226.0 / 15.0) * chi
     c4 = m.fma(61.7 / 7.2 * eta, eta, m.fma(54.29 / 5.04, eta, 30.58673 / 5.08032))
-    v = m.cbrt(PI * G_SI * total * f_start) / C_SI
+    v = m.cbrt(PI * MTSUN_SI * total * f_start)
     inner = m.fma(m.fma(c4, v, c3), v, c2)
     return c0 * m.pow(v, -8.0) * m.fma(inner * v, v, 1.0)
 
@@ -188,16 +174,16 @@ def chirp_time_bound(f_start, mass_1, mass_2, spin_1, spin_2, m=HOST):
 def merge_time_bound(mass_1, mass_2, m=HOST):
     """``XLALSimInspiralMergeTimeBound``: one orbit at ``r = 9 M`` with
     speed ``c / 3``."""
-    m1, m2 = _kilograms(mass_1, mass_2)
-    r = 9.0 * (m1 + m2) * MRSUN_SI / MSUN_SI
-    v = C_SI / 3.0
-    return 1.0 * (TWO_PI * r / v)
+    r = 9.0 * (mass_1 + mass_2) * MTSUN_SI
+    v = 1.0 / 3.0
+    return TWO_PI * r / v
 
 
-def ringdown_time_bound_kg(total_mass_kg, final_spin, m=HOST):
+def ringdown_time_bound(total_mass, final_spin, m=HOST):
     """``XLALSimInspiralRingdownTimeBound``: 11 e-folds of the (2,2)
-    quasinormal mode (Berti, Cardoso & Will 2006), the mass in kg."""
-    omega = m.fma(-1.1568, m.pow(1.0 - final_spin, 0.1292), 1.5251) / (total_mass_kg * MTSUN_SI / MSUN_SI)
+    quasinormal mode (Berti, Cardoso & Will 2006), the mass in solar
+    masses."""
+    omega = m.fma(-1.1568, m.pow(1.0 - final_spin, 0.1292), 1.5251) / (total_mass * MTSUN_SI)
     q = m.fma(1.4187, m.pow(1.0 - final_spin, -0.4990), 0.7000)
     tau = 2.0 * q / omega
     return 11.0 * tau
@@ -214,32 +200,28 @@ def final_black_hole_spin_bound(spin_1z, spin_2z, m=HOST):
 def chirp_start_frequency_bound(t_chirp, mass_1, mass_2, m=HOST):
     """``XLALSimInspiralChirpStartFrequencyBound``: a lower bound on the
     frequency at which the Newtonian chirp lasts ``t_chirp``."""
-    m1, m2 = _kilograms(mass_1, mass_2)
-    total = m1 + m2
-    mu = m1 * m2 / total
+    total = mass_1 + mass_2
+    mu = mass_1 * mass_2 / total
     eta = mu / total
-    c0 = 1.0 / (8.0 * PI * (total * KG_TO_SECONDS))
-    return c0 * m.pow(5.0 * total * (MTSUN_SI / MSUN_SI) / (eta * t_chirp), 3.0 / 8.0)
+    c0 = 1.0 / (8.0 * PI * (total * MTSUN_SI))
+    return c0 * m.pow(5.0 * total * MTSUN_SI / (eta * t_chirp), 3.0 / 8.0)
 
 
 def kerr_isco_frequency(mass_1, mass_2, m=HOST):
     """The lowest Kerr ISCO frequency, ``1 / (9^(3/2) pi M)``."""
-    m1, m2 = _kilograms(mass_1, mass_2)
-    return 1.0 / (math.pow(9.0, 1.5) * PI * (m1 + m2) * MTSUN_SI / MSUN_SI)
+    return 1.0 / (math.pow(9.0, 1.5) * PI * (mass_1 + mass_2) * MTSUN_SI)
 
 
 def schwarzschild_isco_frequency(mass_1, mass_2, m=HOST):
     """The Schwarzschild ISCO frequency, ``1 / (6^(3/2) pi M)``."""
-    m1, m2 = _kilograms(mass_1, mass_2)
-    return 1.0 / (math.pow(6.0, 1.5) * PI * (m1 + m2) * MTSUN_SI / MSUN_SI)
+    return 1.0 / (math.pow(6.0, 1.5) * PI * (mass_1 + mass_2) * MTSUN_SI)
 
 
 def merge_and_ringdown_time(mass_1, mass_2, spin_1z, spin_2z, m=HOST):
     """``t_merge``: the merger bound plus the ringdown bound of the final
     spin bound."""
     s = final_black_hole_spin_bound(spin_1z, spin_2z, m)
-    m1, m2 = _kilograms(mass_1, mass_2)
-    return merge_time_bound(mass_1, mass_2, m) + ringdown_time_bound_kg(m1 + m2, s, m)
+    return merge_time_bound(mass_1, mass_2, m) + ringdown_time_bound(mass_1 + mass_2, s, m)
 
 
 # ---------------------------------------------------------------------------
