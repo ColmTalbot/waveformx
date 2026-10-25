@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
-"""The lean IMRPhenomXPNR (:mod:`..lean`) in MLX, for Apple GPUs, in
+"""IMRPhenomXPNR (:mod:`..model`) in MLX, for Apple GPUs, in
 float32.
 
 * :func:`polarizations`: ``(h_+, h_x)`` at given frequencies, for one
@@ -9,7 +9,7 @@ float32.
 * :func:`polarizations_and_jacobian`: with their forward-mode Jacobian
   with respect to the twelve parameters of the binary.
 
-The port is generated from the JAX lean model rather than written again:
+The port is generated from the JAX model rather than written again:
 the model is cut into stages that are functions of one binary's scalars,
 or of its scalars and one point (:mod:`._stages`); each is traced to a
 jaxpr, lowered to straight-line scalar code (:mod:`._program`) and run as
@@ -31,7 +31,7 @@ axis of its fields (``mass_1`` of shape ``(B,)``, ``spin_1`` of shape
 strain multiplied by ``1e21`` unless ``scaled_strain`` is false;
 ``reference_mf`` selects the mass-scaled reference frequency
 (``WaveformOptions.reference_mf``). Where the model fails (where the JAX
-lean model returns NaN) the result is NaN.
+model returns NaN) the result is NaN.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ __all__ = ["polarizations", "polarizations_and_jacobian"]
 
 
 def polarizations(binary, frequencies, mode_array=None, scaled_strain=True, reference_mf=None):
-    """``(h_+, h_x)`` of the lean IMRPhenomXPNR (see :func:`._api.polarizations`)."""
+    """``(h_+, h_x)`` of IMRPhenomXPNR (see :func:`._api.polarizations`)."""
     from ._api import polarizations as function
 
     return function(binary, frequencies, mode_array, scaled_strain, reference_mf)

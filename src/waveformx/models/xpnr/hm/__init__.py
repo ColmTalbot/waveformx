@@ -14,8 +14,7 @@ arXiv:2001.10914), after waveformrs's ``imrphenomx/xhm.rs`` and
 * the quasi-normal-mode fits of the higher modes (``fring21``, ``fdamp21``,
   ..., ``fring44``, ``fdamp44`` and the (3,2) mixing coefficients
   ``re_l2m2lp2`` ... ``im_l3m2lp3``), also as the module :mod:`.qnm`, and
-  :func:`~.variables.mixing_coefficients` (rounded to single precision as LAL
-  stores them).
+  :func:`~.variables.mixing_coefficients`.
 """
 
 from . import qnm  # noqa: F401

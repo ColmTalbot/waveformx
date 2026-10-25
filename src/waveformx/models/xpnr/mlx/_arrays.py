@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
-"""Operations on whole arrays of a batch of binaries that the lean model
+"""Operations on whole arrays of a batch of binaries that the model
 does with loops or searches, in MLX:
 
 * :func:`count_le`: the binary searches (``jnp.searchsorted``) in sorted

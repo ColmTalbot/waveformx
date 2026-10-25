@@ -66,7 +66,6 @@ from .exceptions import (  # noqa: E402
     DataFileNotFoundError,
     InvalidParameterError,
     ModelError,
-    PrecessionVersionUnavailableError,
     UnknownApproximantError,
     UnsupportedError,
     WaveformError,
@@ -118,7 +117,6 @@ __all__ = [
     "UnsupportedError",
     "UnknownApproximantError",
     "ModelError",
-    "PrecessionVersionUnavailableError",
     "DataFileError",
     "DataFileNotFoundError",
 ]

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
-"""The lean SpinTaylor solution (:func:`..spintaylor.lean.solution`) as
+"""The SpinTaylor solution (:func:`..spintaylor.lean.solution`) as
 Metal kernels: the loop of DOP853 steps (backward, then forward until the
 stopping conditions) and the end of the inspiral (``_end``: a bisection on
 the dense output and a Newton step). The pieces of arithmetic are the JAX

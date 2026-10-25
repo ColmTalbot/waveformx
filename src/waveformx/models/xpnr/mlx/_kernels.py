@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
-"""Stages of the lean model (:mod:`._stages`) as generated Metal kernels.
+"""Stages of the model (:mod:`._stages`) as generated Metal kernels.
 
 A :class:`StageKernel` traces a JAX function of pytrees ``f(*rows,
 *points)`` (``rows``: the binary's values; ``points``: the values at one
@@ -32,7 +32,6 @@ import jax
 import mlx.core as mx
 import numpy as np
 
-from .._math import lean as lean_mode
 from .._math import precision
 from . import _metal
 from ._program import BOOL, FLOAT, INT, Complex, kind_of, lower
@@ -163,7 +162,7 @@ class StageKernel:
             return [combine([next(it) for _ in range(n)], meta) for n, meta in zip(self.n_leaves, self.metas)]
 
         def flat_function(*flat):
-            with precision(np.float32), lean_mode(True):
+            with precision(np.float32):
                 result = function(*rebuild(flat))
                 out, holder["meta"] = partition(result)
                 if isinstance(result, tuple):

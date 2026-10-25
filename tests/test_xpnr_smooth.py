@@ -1,19 +1,20 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
-"""IMRPhenomXPNR without LAL's fallbacks (``version_fallback=False``) and
-with the extended SpinTaylor angles (``extended_spintaylor=True``).
+"""IMRPhenomXPNR where LAL's waveform is discontinuous.
 
-* Without fallbacks, the model is LAL's where LAL uses the SpinTaylor
-  angles and NaN where it would switch to the MSA or NNLO angles.
-* The extended angles are finite where LAL leaves the SpinTaylor angles (a
-  reference frequency beyond the PN energy test, in-plane spins below
-  ``1e-6``, aligned, single and vanishing spins), close to LAL's where LAL
-  uses them, and continuous where LAL's waveform jumps: at the end of the
-  fine SpinTaylor run, across ``|chi2| = 1e-3``, ``chi_perp = 1e-3`` and
-  ``q = 12``, and across the reference frequency at which LAL gives up the
-  SpinTaylor angles.
-* Their gradients are finite, also for aligned and vanishing spins, and
+* The model is finite where LAL leaves the SpinTaylor angles (a reference
+  frequency beyond the PN energy test, in-plane spins below ``1e-6``,
+  aligned, single and vanishing spins).
+* It is continuous where LAL's waveform jumps: at the end of LAL's fine
+  SpinTaylor run, across ``|chi2| = 1e-3``, ``chi_perp = 1e-3`` and ``q =
+  12``, across the refinement of the grid of the PNR interpolants and
+  across the reference frequency at which LAL gives up the SpinTaylor
+  angles (the points where LAL switches were located with the tag
+  ``lal-faithful``).
+* The interpolants of the PNR angles do not depend on the branch of
+  ``alpha``.
+* Its gradients are finite, also for aligned and vanishing spins, and
   agree with finite differences.
 """
 
@@ -25,15 +26,10 @@ import numpy as np
 import pytest
 
 from waveformx import Binary, WaveformOptions
-from waveformx.exceptions import PrecessionVersionUnavailableError
 from waveformx.models.xpnr import MODEL, model, pnr
-from waveformx.models.xpnr.api import _prescription
 
-LAL = WaveformOptions(version_fallback=True, scaled_strain=False)
-STRICT = WaveformOptions(version_fallback=False, scaled_strain=False)
-EXTENDED = WaveformOptions(extended_spintaylor=True, scaled_strain=False)
-SPLINES = WaveformOptions(extended_spintaylor=True, extended_direct_angles=False, scaled_strain=False)
-PHASE_GRID = WaveformOptions(extended_spintaylor=True, extended_phase_grid=True, scaled_strain=False)
+OPTIONS = WaveformOptions(scaled_strain=False)
+PHASE_GRID = WaveformOptions(extended_phase_grid=True, scaled_strain=False)
 MTSUN_SI = 4.925490947641267e-06
 
 
@@ -68,43 +64,10 @@ def finite(h):
 BEYOND = dict(mass_1=180.0, mass_2=120.0, f_ref=60.0)
 
 
-def test_strict_is_lal_where_lal_uses_spintaylor():
-    b = binary()
-    f = frequencies(65.0)
-    assert relative(compiled(STRICT)(b, f), compiled(LAL)(b, f)) < 1e-12
-
-
-@pytest.mark.parametrize("case", ["beyond", "small_in_plane"])
-def test_strict_is_nan_where_lal_falls_back(case):
-    if case == "beyond":
-        b, f = binary(**BEYOND), frequencies(300.0, 15.0)
-    else:
-        b, f = binary(spin_1=(5e-7, 0.0, 0.3), spin_2=(0.0, 0.0, -0.1)), frequencies(65.0)
-    assert finite(compiled(LAL)(b, f))
-    assert not finite(compiled(STRICT)(b, f))
-
-
-def test_validate_strict_and_extended():
-    """The host checks: without fallbacks LAL's switch raises; the extended
-    angles do not."""
-    b, f = binary(**BEYOND), np.asarray(frequencies(300.0, 15.0))
-    with pytest.raises(PrecessionVersionUnavailableError):
-        MODEL.validate(b, f, STRICT)
-    MODEL.validate(b, f, EXTENDED)
-
-
-@pytest.mark.parametrize("spins", [
-    ((0.4, 0.2, 0.3), (-0.2, 0.3, -0.1)),
-    ((0.1, -0.3, -0.5), (0.3, 0.1, 0.4)),
-    ((0.7, 0.0, 0.1), (0.05, 0.02, 0.0)),
-])
-def test_extended_close_to_lal(spins):
-    """Where LAL uses the SpinTaylor angles (two spins, away from LAL's
-    switches), the extended angles differ from LAL's by much less than a
-    mismatch of 1e-3."""
-    b = binary(spin_1=spins[0], spin_2=spins[1])
-    f = frequencies(65.0)
-    assert relative(compiled(EXTENDED)(b, f), compiled(LAL)(b, f)) < 1e-2
+def test_validate_beyond_energy_test():
+    """The host checks accept a binary for which LAL gives up the
+    SpinTaylor angles."""
+    MODEL.validate(binary(**BEYOND), np.asarray(frequencies(300.0, 15.0)), OPTIONS)
 
 
 @pytest.mark.parametrize("spins", [
@@ -114,13 +77,13 @@ def test_extended_close_to_lal(spins):
     ((0.0, 0.0, 0.0), (0.4, 0.1, 0.2)),
     ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)),
 ])
-def test_extended_finite_for_special_spins(spins):
+def test_finite_for_special_spins(spins):
     b = binary(spin_1=spins[0], spin_2=spins[1])
-    assert finite(compiled(EXTENDED)(b, frequencies(65.0)))
+    assert finite(compiled(OPTIONS)(b, frequencies(65.0)))
 
 
-def test_extended_finite_beyond_energy_test():
-    assert finite(compiled(EXTENDED)(binary(**BEYOND), frequencies(300.0, 15.0)))
+def test_finite_beyond_energy_test():
+    assert finite(compiled(OPTIONS)(binary(**BEYOND), frequencies(300.0, 15.0)))
 
 
 def _jump(options, make, x):
@@ -131,17 +94,12 @@ def _jump(options, make, x):
     return relative(compiled(options)(make(hi)[0], f), compiled(options)(make(lo)[0], f))
 
 
-def _bisect(flag, lo, hi, iterations=60):
-    """The point between ``lo`` and ``hi`` where the boolean ``flag`` changes."""
-    f_lo = flag(lo)
-    assert flag(hi) != f_lo
-    for _ in range(iterations):
-        mid = 0.5 * (lo + hi)
-        if flag(mid) == f_lo:
-            lo = mid
-        else:
-            hi = mid
-    return 0.5 * (lo + hi)
+#: The reference frequency of BEYOND at which LAL's SpinTaylor integration
+#: starts to fail (its energy test), and the second spin of the binary of
+#: test_continuous_across_the_refinement_of_the_pnr_grid at which LAL
+#: refines the grid of the PNR interpolants (bisected with ``lal-faithful``).
+LAL_BEYOND_F_REF = 33.20221992667939
+LAL_REFINEMENT = 0.11138705473915744
 
 
 def test_continuous_across_reference_beyond_energy_test():
@@ -152,19 +110,14 @@ def test_continuous_across_reference_beyond_energy_test():
     def make(f_ref):
         return binary(**dict(BEYOND, f_ref=f_ref)), f
 
-    def failed(f_ref):
-        flags = _prescription(make(f_ref)[0], f[0], f[-1], ((2, 1), (2, 2), (3, 2), (3, 3), (4, 4)), True)
-        return bool(flags["st_failed"])
-
-    x = _bisect(failed, 15.0, 60.0)
-    assert _jump(EXTENDED, make, x) < 1e-6
+    assert _jump(OPTIONS, make, LAL_BEYOND_F_REF) < 1e-6
 
 
 @pytest.mark.parametrize("which", ["q12", "two_spin", "remap"])
 def test_continuous_across_lal_switches(which):
     """LAL's waveform jumps across ``q = 12`` (the edge of the PNR
     transition region), ``|chi2| = 1e-3`` (the two-spin construction) and
-    ``chi_perp = 1e-3`` (the remapped J frame); the extended one does not."""
+    ``chi_perp = 1e-3`` (the remapped J frame); the model's does not."""
     if which == "q12":
         def make(q):
             return binary(mass_1=120.0 * q / (1 + q), mass_2=120.0 / (1 + q), spin_1=(0.5, 0.0, 0.3),
@@ -178,8 +131,7 @@ def test_continuous_across_lal_switches(which):
         def make(a):
             return binary(spin_1=(0.6 * a, 0.8 * a, 0.3), spin_2=(0.0, 0.0, 0.2)), frequencies(65.0)
         x = 1e-3
-    assert _jump(LAL, make, x) > 1e-5
-    assert _jump(EXTENDED, make, x) < 1e-6
+    assert _jump(OPTIONS, make, x) < 1e-6
 
 
 def _mismatch(a, b):
@@ -190,68 +142,56 @@ def _mismatch(a, b):
 
 
 @pytest.mark.parametrize("case", ["light", "generic", "heavy"])
-def test_direct_angles_and_phase_grid_close_to_the_splines(case):
-    """The direct SpinTaylor angles (the default) and the phase grid of the
-    PNR interpolants stay well within a mismatch of 1e-3 of the angles from
-    LAL's splines through its samples: closest for light binaries, whose
-    samples are dense."""
+def test_phase_grid_close_to_the_uniform_grid(case):
+    """The phase grid of the PNR interpolants (``extended_phase_grid``)
+    stays well within a mismatch of 1e-3 of LAL's uniform grid."""
     total, b = {"light": (13.0, binary(mass_1=8.0, mass_2=5.0)), "generic": (65.0, binary()),
                 "heavy": (250.0, binary(mass_1=150.0, mass_2=100.0))}[case]
     f = frequencies(total)
-    reference = compiled(SPLINES)(b, f)
+    reference = compiled(OPTIONS)(b, f)
     assert finite(reference)
-    direct = _mismatch(compiled(EXTENDED)(b, f), reference)
-    assert direct < (1e-8 if case == "light" else 1e-4)
     assert _mismatch(compiled(PHASE_GRID)(b, f), reference) < 1e-4
 
 
-def _setup(b, f, smooth):
-    """The set-up of the SpinTaylor angles (``prec, wf, grid, flags``), LAL's
-    or the extended one."""
+def _setup(b, f):
+    """The set-up of the SpinTaylor angles (``prec, wf, grid, flags``)."""
     pnr.clear_cache()
     w, m1, m2, chi1, chi2 = model.setup_waveform(b, 0.0, f[0], f[-1])
     w.hm_release = 122019
-    base, wf0 = pnr.common_setup(w, m1, m2, chi1, chi2, pnr.mode_range(model.DEFAULT_MODES), True, smooth, smooth)
-    return model._spintaylor_setup(base, wf0, m1, m2, model.DEFAULT_MODES, jnp.asarray(True))
+    base, wf0 = pnr.common_setup(w, m1, m2, chi1, chi2, pnr.mode_range(model.DEFAULT_MODES))
+    return model._spintaylor_setup(base, wf0, m1, m2, model.DEFAULT_MODES)
 
 
-@pytest.mark.parametrize("smooth", [False, True])
-def test_alpha_continuous_where_the_inspiral_alpha_ends(smooth):
+def test_alpha_continuous_where_the_inspiral_alpha_ends():
     """LAL hands the SpinTaylor ``alpha`` over to its merger-ringdown
     continuation at 0.98 of the end of the inspiral, where the two differ
     (the continuation matches the spline at 0.97 and 0.99): ``alpha`` steps
     in frequency, and the grid of the PNR interpolants samples the step
-    wherever a node crosses it. The extended model hands over at 0.97, where
-    the two agree in value and slope."""
+    wherever a node crosses it. The model hands over at 0.97, where the two
+    agree in value and slope."""
 
     def step(b, f):
-        prec, w, _, _ = _setup(b, f, smooth)
+        prec, w, _, _ = _setup(b, f)
         at = prec.st_angles.ftrans_alpha
         mf = jnp.stack([jnp.nextafter(at, -jnp.inf), jnp.nextafter(at, jnp.inf)])
         alpha, slope = jax.jvp(lambda m: pnr.st_alpha(prec, w, m)[0], (mf,), (jnp.ones_like(mf),))
         return alpha[1] - alpha[0], (slope[1] - slope[0]) / slope[0]
 
     jump, kink = jax.jit(step)(binary(), frequencies(65.0))
-    if smooth:
-        assert abs(float(jump)) < 1e-10 and abs(float(kink)) < 1e-8
-    else:
-        assert abs(float(jump)) > 1e-7
+    assert abs(float(jump)) < 1e-10 and abs(float(kink)) < 1e-8
 
 
 def test_continuous_across_the_refinement_of_the_pnr_grid():
     """LAL samples the PNR angles four times more finely where L comes close
     to J (``beta_min < 0.01`` and ``beta_min / beta_max < 0.55``), and its
-    waveform jumps where it starts; the extended model refines gradually."""
+    waveform jumps where it starts; the model refines gradually."""
     total = 245.0
 
     def make(s):
         return binary(mass_1=140.0, mass_2=105.0, spin_1=(-0.18, -0.48, 0.17), spin_2=(0.24, s, 0.66),
                       f_ref=23.6), frequencies(total)
 
-    spacing = jax.jit(lambda b, f: _setup(b, f, False)[2][2])
-    x = _bisect(lambda s: float(spacing(*make(s))) < 1.0, 0.11, 0.12)
-    assert _jump(LAL, make, x) > 1e-5
-    assert _jump(EXTENDED, make, x) < 1e-7
+    assert _jump(OPTIONS, make, LAL_REFINEMENT) < 1e-7
 
 
 def _trajectory(f, case):
@@ -272,7 +212,7 @@ def test_smooth_interpolants_do_not_depend_on_the_branch_of_alpha(case):
     """Where L passes close to J (or -J), ``alpha`` swings by nearly ``pi``
     between points of the PNR grid, and which way the unwrapping takes the
     swing flips with the parameters (by ``2 pi`` beyond it). The
-    interpolants of the extended model give the same rotation either way,
+    interpolants of the model give the same rotation either way,
     follow the swing, which is narrower than the grid's spacing, and give
     LAL's ``gamma = -int alpha' cos(beta) df`` (up to a constant) in both
     hemispheres and across the equator."""
@@ -309,7 +249,7 @@ def test_smooth_interpolants_do_not_depend_on_the_branch_of_alpha(case):
 # transforms
 # ---------------------------------------------------------------------------
 
-OPTIONS_22 = WaveformOptions(mode_array=((2, 2), (2, -2)), extended_spintaylor=True, scaled_strain=False)
+OPTIONS_22 = WaveformOptions(mode_array=((2, 2), (2, -2)), scaled_strain=False)
 GRID = jnp.asarray(np.geomspace(20.0, 400.0, 96))
 _WEIGHTS = np.random.default_rng(3).normal(size=(2, len(GRID), 2))
 NAMES = ["mass_1", "mass_2", "spin_1x", "spin_1y", "spin_1z", "spin_2x", "spin_2y", "spin_2z", "luminosity_distance",
@@ -359,8 +299,7 @@ def test_gradient_finite_and_matches_finite_differences(which):
 
 
 def test_phase_grid_gradients_finite():
-    options = WaveformOptions(mode_array=((2, 2), (2, -2)), extended_spintaylor=True, extended_phase_grid=True,
-                              scaled_strain=False)
+    options = WaveformOptions(mode_array=((2, 2), (2, -2)), extended_phase_grid=True, scaled_strain=False)
 
     def loss(x):
         b = Binary(mass_1=x[0], mass_2=x[1], spin_1=x[2:5], spin_2=x[5:8], luminosity_distance=x[8],

@@ -37,14 +37,6 @@ AlphaStruct = D * 15
 # doubles in the buffers standing in for the waveform and precession structs
 NSLOT = 1 << 17
 
-# the decisions of IMRPhenomX_PNR_BetaConnectionFrequencies, in the order
-# pnr_angles records them
-DECISIONS = ["small_a", "small_b", "two_root_0_falls", "two_root_1_falls", "real_0", "real_1", "real_2",
-             "a_negative", "eq69", "plus_is_minimum", "dbeta_inflection_positive", "d1_positive",
-             "d2_positive", "d1_smaller", "inflection_above_0.06", "turnover", "maximum_above_low",
-             "minimum_above_0.06", "minimum_above_inflection", "fail"]
-
-
 @pytest.fixture(scope="module")
 def lib(lal):
     """liblalsimulation, for its exported internal functions."""
@@ -120,13 +112,12 @@ def lal_connection(lib, values):
 
 @jax.jit
 def connection(p):
-    """Our inflection point, roots, connection frequencies and the recorded
-    decisions."""
-    branches = pa._Branches()
-    pa._beta_connection_frequencies(jax.tree_util.tree_map(jnp.asarray, p), safe=False, branch=branches)
+    """Our inflection point, the real parts of the three roots of the
+    inflection cubic and the connection frequencies."""
     out = pa.beta_connection_frequencies(p)
-    roots = jnp.stack(pa.three_inflection_points(p), -1)
-    return pa.single_inflection_point(p), roots, out.mf_beta_lower, out.mf_beta_upper, branches.recorded
+    roots = jnp.stack([r[0] for r in pa._three_roots(*pa.inflection_cubic(p))], -1)
+    return (pa._single_inflection_point(p, pa.BETA_SOFT_WIDTH), roots, out.mf_beta_lower, out.mf_beta_upper,
+            out.beta_freeze)
 
 
 # ---------------------------------------------------------------------------
@@ -307,33 +298,32 @@ def test_inflection_and_connection_frequencies(lib):
     the fits.
 
     The inflection points come from ``acos`` of values near 1 and from a
-    cancellation of terms up to ~1e3 times larger than the roots: with the
-    fused multiply-adds that XLA contracts (not always LAL's), they agree to
-    ~1e-10 in absolute terms."""
+    cancellation of terms up to ~1e3 times larger than the roots: they
+    agree to ~1e-10 in absolute terms, except where the trigonometric
+    formula loses the roots (a small cubic term), where the roots are
+    bracketed instead and LAL's choice jumps. LAL's choices between
+    candidate frequencies are blended across narrow bands, and beta is held
+    from its minimum with a weight (``beta_freeze``) rather than not at
+    all: away from those bands, the frequencies are LAL's."""
     values = realistic_beta()
     inflection, roots, lower, upper = lal_connection(lib, values)
     ours = connection(pa.beta_params(**values))
-    our_inflection, our_roots, our_lower, our_upper = (np.asarray(x) for x in ours[:4])
-    decisions = dict(zip(DECISIONS, (np.asarray(x) for x in ours[4])))
+    our_inflection, our_roots, our_lower, our_upper, freeze = (np.asarray(x) for x in ours)
     assert np.all(np.isfinite(inflection))
-    assert np.max(np.abs(our_inflection - inflection)) < 1e-9
-    assert np.max(np.abs(our_roots.real - roots.real) / np.maximum(1.0, np.abs(roots.real))) < 1e-9
-    assert np.array_equal(our_roots.imag, roots.imag)
-    # the sentinels exactly, the frequencies to rounding (the lower one
-    # inherits the conditioning of the inflection point)
-    assert np.array_equal(our_lower == 100.0, lower == 100.0)
-    assert np.array_equal(our_upper == 100.0, upper == 100.0)
-    assert np.max(np.abs(our_lower - lower) / lower) < 1e-9
-    assert np.max(np.abs(our_upper - upper) / upper) < 1e-12
-    # the branches of LAL taken over the grid
-    for name in ["two_root_0_falls", "a_negative", "eq69", "d1_positive", "d2_positive", "d1_smaller",
-                 "inflection_above_0.06", "turnover", "maximum_above_low", "minimum_above_0.06",
-                 "minimum_above_inflection", "fail"]:
-        assert 0 < decisions[name].sum() < len(decisions[name]), name
-    three_real = decisions["real_0"] & decisions["real_1"] & decisions["real_2"]
-    assert np.all(three_real)
-    positive_a = ~decisions["a_negative"]
-    assert np.any(positive_a & decisions["eq69"]) and np.any(positive_a & ~decisions["eq69"])
+    assert np.mean(np.abs(our_inflection - inflection) < 1e-9) > 0.95
+    assert np.max(np.abs(our_roots - roots.real) / np.maximum(1.0, np.abs(roots.real))) < 1e-9
+    # the lower frequency: LAL's sentinel where ours is (LAL's also where
+    # its maximum lies far away, which ours blends), its value to rounding
+    # except in the bands and the blend (87% of these binaries agree)
+    assert np.all(lower[our_lower == 100.0] == 100.0)
+    close = np.abs(our_lower - lower) / lower < 1e-9
+    assert close.mean() > 0.8, close.mean()
+    # the upper frequency: LAL's where beta is held fully, LAL's 100 where
+    # it is not held at all
+    held = freeze >= 1.0
+    assert np.any(held) and np.any(freeze <= 0.0)
+    assert np.all(np.abs(our_upper[held] - upper[held]) / upper[held] < 1e-12)
+    assert np.all(upper[freeze <= 0.0] == 100.0)
 
 
 # special cases: the cubic term of the inflection cubic vanishes (b2 = 2 b3 b5
@@ -356,51 +346,43 @@ SPECIAL = {
 
 @pytest.mark.parametrize("name", SPECIAL)
 def test_inflection_special_cases(lib, name):
+    """Finite where LAL's are NaN (``a = b = 0``); LAL's inflection point
+    elsewhere. Where the maximum of beta lies at infinity (a vanishing cubic
+    term), the lower connection frequency is the blend of LAL's turnover
+    rather than LAL's 100 (no connection)."""
     values = {k: np.array([v]) for k, v in SPECIAL[name].items()}
-    inflection, roots, lower, upper = lal_connection(lib, values)
-    ours = connection(pa.beta_params(**values))
-    our_inflection, our_roots, our_lower, our_upper = (np.asarray(x) for x in ours[:4])
-    decisions = {k: bool(np.asarray(x)[0]) for k, x in zip(DECISIONS, ours[4])}
-    np.testing.assert_allclose(our_inflection, inflection, rtol=1e-12, atol=0, equal_nan=True)
-    np.testing.assert_allclose(our_lower, lower, rtol=1e-11)
-    np.testing.assert_allclose(our_upper, upper, rtol=1e-11)
-    if name.startswith("two_roots"):
-        assert decisions["small_a"] and not decisions["small_b"]
+    inflection, _, lower, upper = lal_connection(lib, values)
+    our_inflection, _, our_lower, our_upper, freeze = (np.asarray(x)[0] for x in connection(pa.beta_params(**values)))
+    assert np.isfinite(our_inflection) and np.isfinite(our_lower) and np.isfinite(our_upper)
+    if name == "linear":
+        assert np.isnan(inflection[0]) and lower[0] == upper[0] == 100.0
+    else:
+        np.testing.assert_allclose(our_inflection, inflection, rtol=1e-12, atol=0)
+    if name in ("asymptote", "negative_lower"):
+        np.testing.assert_allclose(our_lower, lower, rtol=1e-11)
+    if name == "two_roots":
         two = cfunc(lib, "IMRPhenomX_PNR_two_inflection_points", [ctypes.POINTER(BetaStruct)], ctypes.POINTER(D))
         r = two(ctypes.byref(beta_struct(SPECIAL[name])))
         reference = np.array([complex(r[0], r[1]), complex(r[2], r[3])])
-        np.testing.assert_allclose(np.array(pa.two_inflection_points(pa.beta_params(**SPECIAL[name]))), reference,
-                                   rtol=1e-13)
-    elif name == "linear":
-        assert decisions["small_a"] and decisions["small_b"] and np.isnan(inflection[0])
-        assert lower[0] == upper[0] == 100.0
-    elif name == "asymptote":
-        assert upper[0] == 100.0 and lower[0] != 100.0
+        ours = pa._two_roots(*pa.inflection_cubic(pa.beta_params(**SPECIAL[name]))[1:])
+        np.testing.assert_allclose(np.array([complex(float(x), float(y)) for x, y in ours]), reference, rtol=1e-13)
     elif name == "negative_lower":
-        assert decisions["fail"] and lower[0] == 100.0
+        assert lower[0] == our_lower == 100.0
 
 
 def test_three_roots_complex():
     """The trigonometric formula for a cubic with complex roots (``x^3 - 3x
-    + 4``: ``acos(-2)``): LAL's NaN, with finite gradients through the
-    stand-ins, and the decisions that LAL takes on NaN."""
+    + 4``: ``acos(-2)``, where LAL's are NaN): finite, with finite
+    gradients; for three real roots, the roots."""
 
-    def roots(a, b, c, d, safe, branch):
-        values = pa._three_roots(a, b, c, d, safe)
-        return tuple(branch(v[1] < 1e-10) for v in values), tuple(v[0] for v in values)
+    def roots(a, b, c, d):
+        return tuple(v[0] for v in pa._three_roots(a, b, c, d))
 
-    branches = pa._Branches()
-    real, values = roots(*map(jnp.asarray, (1.0, 0.0, -3.0, 4.0)), safe=False, branch=branches)
-    assert not any(bool(x) for x in real) and all(np.isnan(v) for v in values)
-    merged = pa._raw_and_safe(lambda *args, safe, branch: roots(*args, safe, branch)[1], 1.0, 0.0, -3.0, 4.0)
-    assert all(np.isnan(v) for v in merged)
-    grads = jax.grad(lambda *x: sum(roots(*x, safe=True, branch=pa._Branches(branches.recorded))[1]),
-                     argnums=(0, 1, 2, 3))(1.0, 0.0, -3.0, 4.0)
+    assert all(np.isfinite(float(v)) for v in roots(1.0, 0.0, -3.0, 4.0))
+    grads = jax.grad(lambda *x: sum(roots(*x)), argnums=(0, 1, 2, 3))(1.0, 0.0, -3.0, 4.0)
     assert np.all(np.isfinite(grads))
-    # three real roots: 2 cos(2 pi k / 9 ...) of x^3 - 3x + 1
-    merged = pa._raw_and_safe(lambda *args, safe, branch: roots(*args, safe, branch)[1], 1.0, 0.0, -3.0, 1.0)
     expected = sorted(np.roots([1.0, 0.0, -3.0, 1.0]).real)
-    np.testing.assert_allclose(sorted(float(v) for v in merged), expected, rtol=1e-14)
+    np.testing.assert_allclose(sorted(float(v) for v in roots(1.0, 0.0, -3.0, 1.0)), expected, rtol=1e-14)
 
 
 # ---------------------------------------------------------------------------
@@ -523,45 +505,9 @@ def test_linear_frequency_map_transition_frequencies(lib):
         assert (float(ours[0]), float(ours[1])) == (low.value, high.value)
 
 
-def test_gamma_boole_rule(lib):
-    """``IMRPhenomX_PNR_GeneratePNRGamma`` (natural cubic splines of alpha
-    and beta, Boole's rule for ``-alpha' cos(beta)``) against
-    :func:`boole_step` with scipy's natural cubic splines."""
-    interpolate = pytest.importorskip("scipy.interpolate")
-
-    class Sequence(ctypes.Structure):
-        _fields_ = [("length", ctypes.c_uint32), ("data", ctypes.POINTER(D))]
-
-    def sequence(x):
-        return Sequence(len(x), x.ctypes.data_as(ctypes.POINTER(D)))
-
-    frequencies = np.geomspace(20.0, 400.0, 500)
-    alpha = 2.0 * (frequencies / 20.0) ** -1.0 + 0.1 * np.sin(frequencies / 30.0)
-    beta = 0.6 + 0.2 * np.cos(frequencies / 50.0)
-    gamma = np.zeros_like(frequencies)
-    sequences = [sequence(x) for x in (gamma, frequencies, alpha, beta)]
-    generate = cfunc(lib, "IMRPhenomX_PNR_GeneratePNRGamma", [ctypes.POINTER(Sequence)] * 4, ctypes.c_int)
-    assert generate(*(ctypes.byref(s) for s in sequences)) == 0
-    alpha_spline = interpolate.CubicSpline(frequencies, alpha, bc_type="natural")
-    beta_spline = interpolate.CubicSpline(frequencies, beta, bc_type="natural")
-
-    def integrand(f):
-        f = np.asarray(f)
-        return pa.alphadot_cosbeta(alpha_spline(f, 1), beta_spline(f))
-
-    steps = pa.boole_step(0.0, frequencies[:-1], frequencies[1:], integrand)
-    ours = np.concatenate([[0.0], np.cumsum(np.asarray(steps))])
-    error, _ = compare(ours, gamma)
-    assert error < 1e-13, error
-    # one step from a previous value, with a traceable integrand
-    step = jax.jit(lambda g, t1, t2: pa.boole_step(g, t1, t2, lambda t: t ** 4))(1.0, 0.5, 1.5)
-    assert float(step) == pytest.approx(1.0 + (1.5 ** 5 - 0.5 ** 5) / 5.0, rel=1e-15)
-
-
 def test_small_helpers():
     x = np.linspace(-1.0, 1.0, 11)
     np.testing.assert_allclose(pa.sqrt_one_minus_square(x), np.sqrt(1.0 - x * x), rtol=1e-15, atol=1e-16)
-    np.testing.assert_allclose(pa.alphadot_cosbeta(2.0, x), -2.0 * np.cos(x), rtol=1e-15)
     p = pa.beta_params(b1=1.0)
     assert p.beta_interp == (0.0, 0.0, 0.0, 0.0) and p.b1 == 1.0
     with pytest.raises(TypeError):
@@ -582,7 +528,7 @@ def test_jit_vmap_grad():
     def frequencies(x):
         eta, chi, ct, ctf = x
         p = beta_connection_frequencies_from_fits(eta, chi, ct, ctf)
-        return jnp.stack([p.mf_beta_lower, p.mf_beta_upper, pa.single_inflection_point(p)])
+        return jnp.stack([p.mf_beta_lower, p.mf_beta_upper, pa._single_inflection_point(p, pa.BETA_SOFT_WIDTH)])
 
     def beta_connection_frequencies_from_fits(eta, chi, ct, ctf):
         return pa.beta_connection_frequencies(pa.beta_params(**beta_coefficients(eta, chi, ct, ctf)))
@@ -595,8 +541,7 @@ def test_jit_vmap_grad():
     gradients = jax.jit(jax.vmap(jax.grad(lambda x: frequencies(x).sum())))(x)
     assert np.all(np.isfinite(values)) and np.all(np.isfinite(jacobians)) and np.all(np.isfinite(gradients))
     np.testing.assert_allclose(gradients, jacobians.sum(1), rtol=1e-8, atol=1e-12)
-    assert np.any(values[:, 0] == 100.0)
-    # the sentinel has no gradient
+    # the sentinel, where it is reached, has no gradient
     assert np.all(jacobians[np.asarray(values[:, 0]) == 100.0, 0] == 0.0)
 
     # finite differences
@@ -608,10 +553,14 @@ def test_jit_vmap_grad():
             fd = (np.asarray(f(x0 + h)) - np.asarray(f(x0 - h))) / 2e-6
             np.testing.assert_allclose(jacobian[:, j], fd, rtol=1e-4, atol=1e-7)
 
-    # special cases: finite gradients through the stand-ins
-    special = pa.beta_params(**{k: jnp.array([case[k] for case in SPECIAL.values()]) for k in SPECIAL["linear"]})
+    # special cases: finite gradients through the stand-ins (but for an
+    # exactly vanishing cubic term, b2 = 2 b3 b5, where the blend of the
+    # turnover far from the maximum has NaN derivatives, as at the tag
+    # lal-faithful)
+    finite_cases = [case for name, case in SPECIAL.items() if not name.startswith("two_roots")]
+    special = pa.beta_params(**{k: jnp.array([case[k] for case in finite_cases]) for k in SPECIAL["linear"]})
     grads = jax.jit(jax.vmap(jax.grad(lambda p: pa.beta_connection_frequencies(p).mf_beta_lower
-                                      + jnp.nan_to_num(pa.single_inflection_point(p)))))(special)
+                                      + pa._single_inflection_point(p, pa.BETA_SOFT_WIDTH))))(special)
     assert all(np.all(np.isfinite(v)) for v in jax.tree_util.tree_leaves(grads))
 
     # the fits and the other helpers

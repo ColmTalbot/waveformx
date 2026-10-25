@@ -3,7 +3,7 @@
 # waveformrs: see NOTICE.md for the original code and its authors.
 """JAX functions of scalars as straight-line programs of scalar operations.
 
-The stages of the lean model (:mod:`._stages`) are functions of one
+The stages of the model (:mod:`._stages`) are functions of one
 binary's scalars, or of one binary's scalars and one point: their jaxprs
 hold scalars and small arrays of static shape only. :func:`lower` turns
 such a jaxpr into a :class:`Program`: a list of operations on scalars

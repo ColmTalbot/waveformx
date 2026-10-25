@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
-"""The mass-scaled reference frequency of the lean IMRPhenomXPNR
-(``WaveformOptions(lean=True, reference_mf=...)``) and the converters
+"""The mass-scaled reference frequency of IMRPhenomXPNR
+(``WaveformOptions(reference_mf=...)``) and the converters
 between the reference conventions.
 
 * The options are checked; a non-zero ``f_ref`` is rejected.
@@ -21,7 +21,7 @@ between the reference conventions.
   ``REFERENCE_MF``.
 * Equivalence: as the in-plane spins vanish, the waveforms of the two
   conventions agree. Against LAL (with the parity fix, where available):
-  the lean model with the mass-scaled reference agrees with LAL given the
+  the model with the mass-scaled reference agrees with LAL given the
   converted binary at the physical ``f_ref = reference_mf / M``. (XPNR is
   not invariant under a change of its reference: LAL at two references
   differs by as much as 1e-2 for strongly precessing binaries.)
@@ -36,8 +36,9 @@ import jax
 import jax.numpy as jnp
 
 import waveformx as wf
+from waveformx import WaveformOptions
 from waveformx.exceptions import InvalidParameterError
-from waveformx.models.xpnr import lean
+from waveformx.models.xpnr import model
 
 MTSUN_SI = 4.925490947641267e-06
 REF = 0.01
@@ -74,11 +75,12 @@ _SCALED = {}
 def scaled(binary, frequencies, modes=None, reference_mf=REF):
     key = modes, reference_mf
     if key not in _SCALED:
-        _SCALED[key] = jax.jit(lambda b, f: lean.polarizations(b, f, mode_array=modes, reference_mf=reference_mf))
+        options = WaveformOptions(mode_array=modes, reference_mf=reference_mf)
+        _SCALED[key] = jax.jit(lambda b, f: model.polarizations(b, f, options))
     return _SCALED[key](binary, frequencies)
 
 
-_physical = jax.jit(lambda b, f: lean.polarizations(b, f))
+_physical = jax.jit(lambda b, f: model.polarizations(b, f, WaveformOptions()))
 _to_scaled = jax.jit(lambda b: wf.to_mass_scaled_reference(b, return_angle=True))
 _to_physical = jax.jit(lambda b, f: wf.to_physical_reference(b, f, return_angle=True))
 
@@ -89,15 +91,13 @@ _to_physical = jax.jit(lambda b, f: wf.to_physical_reference(b, f, return_angle=
 
 
 def test_options():
-    assert wf.WaveformOptions(lean=True, reference_mf=REF).reference_mf == REF
+    assert wf.WaveformOptions(reference_mf=REF).reference_mf == REF
     assert wf.REFERENCE_MF == REF
-    with pytest.raises(InvalidParameterError):
-        wf.WaveformOptions(reference_mf=REF)
     for bad in (0.0, -0.01, 0.02):
         with pytest.raises(InvalidParameterError):
-            wf.WaveformOptions(lean=True, reference_mf=bad)
+            wf.WaveformOptions(reference_mf=bad)
     with pytest.raises(TypeError):
-        wf.WaveformOptions(lean=True, reference_mf=True)
+        wf.WaveformOptions(reference_mf=True)
 
 
 def test_public_api():
@@ -106,10 +106,10 @@ def test_public_api():
     keywords = dict(mass_1=36.0, mass_2=29.0, spin_1=(0.6, 0.3, -0.2), spin_2=(0.1, 0.2, 0.3), inclination=0.7,
                     phi_ref=1.2)
     f = np.linspace(20.0, 512.0, 64)
-    hp, hc = wf.polarizations("IMRPhenomXPNR", f, lean=True, reference_mf=REF, **keywords)
+    hp, hc = wf.polarizations("IMRPhenomXPNR", f, reference_mf=REF, **keywords)
     assert np.all(np.isfinite(np.asarray(hp)))
     with pytest.raises(InvalidParameterError, match="f_ref must be zero"):
-        wf.polarizations("IMRPhenomXPNR", f, lean=True, reference_mf=REF, f_ref=20.0, **keywords)
+        wf.polarizations("IMRPhenomXPNR", f, reference_mf=REF, f_ref=20.0, **keywords)
     hp, _ = scaled(as_dtype(GENERIC._replace(f_ref=20.0), jnp.float64), jnp.asarray(f))
     assert np.all(np.isnan(np.asarray(hp)))
 
@@ -143,8 +143,8 @@ def test_finite(modes):
     f_min = rng.uniform(10, 30, n)
     f_min[0] = 20.0
     frequencies = jnp.asarray(np.stack([np.geomspace(f, 1024.0, 1000) for f in f_min]))
-    hp, hc = jax.jit(jax.vmap(lambda b, f: lean.polarizations(b, f, mode_array=modes, reference_mf=REF)))(
-        batch, frequencies)
+    options = WaveformOptions(mode_array=modes, reference_mf=REF)
+    hp, hc = jax.jit(jax.vmap(lambda b, f: model.polarizations(b, f, options)))(batch, frequencies)
     finite = np.all(np.isfinite(np.asarray(hp)), axis=1) & np.all(np.isfinite(np.asarray(hc)), axis=1)
     assert np.all(finite), np.where(~finite)[0]
 
@@ -159,13 +159,14 @@ def test_derivatives_finite(dtype, modes, reference_mf):
     f = jnp.asarray(np.geomspace(20.0, 1024.0, 256), dtype)
     binaries = [GENERIC, GENERIC._replace(mass_1=180.0, mass_2=120.0),
                 GENERIC._replace(spin_1=(0.0, 0.0, 0.3), spin_2=(0.0, 0.0, -0.2))]
+    options = WaveformOptions(mode_array=modes, reference_mf=reference_mf)
     for binary in binaries:
-        data = lean.polarizations(as_dtype(binary._replace(mass_1=binary.mass_1 * 1.01), jnp.float64),
-                                  jnp.asarray(f, jnp.float64), mode_array=modes, reference_mf=reference_mf)
+        data = model.polarizations(as_dtype(binary._replace(mass_1=binary.mass_1 * 1.01), jnp.float64),
+                                   jnp.asarray(f, jnp.float64), options)
         data = [jnp.asarray(x, jnp.complex64 if dtype == jnp.float32 else jnp.complex128) for x in data]
 
         def log_likelihood(b):
-            hp, hc = lean.polarizations(b, f, mode_array=modes, reference_mf=reference_mf)
+            hp, hc = model.polarizations(b, f, options)
             return jnp.real(jnp.vdot(data[0], hp) + jnp.vdot(data[1], hc)) - 0.5 * jnp.sum(
                 jnp.abs(hp) ** 2 + jnp.abs(hc) ** 2)
 
@@ -175,9 +176,8 @@ def test_derivatives_finite(dtype, modes, reference_mf):
         # no dependence on f_ref, which the option ignores
         assert float(grad.f_ref) == 0.0
         if dtype == jnp.float32:
-            hp32, _ = lean.polarizations(as_dtype(binary, dtype), f, mode_array=modes, reference_mf=reference_mf)
-            hp64, _ = lean.polarizations(as_dtype(binary, jnp.float64), jnp.asarray(f, jnp.float64),
-                                         mode_array=modes, reference_mf=reference_mf)
+            hp32, _ = model.polarizations(as_dtype(binary, dtype), f, options)
+            hp64, _ = model.polarizations(as_dtype(binary, jnp.float64), jnp.asarray(f, jnp.float64), options)
             a, b = np.asarray(hp32, np.complex128), np.asarray(hp64)
             assert 1 - abs(np.vdot(a, b)) / (np.linalg.norm(a) * np.linalg.norm(b)) < 1e-5
 
@@ -344,9 +344,9 @@ def _patched_lalsimulation():
 
 
 def test_against_lal():
-    """The lean model with the mass-scaled reference against LAL (with the
+    """The model with the mass-scaled reference against LAL (with the
     parity fix) given the converted binary at ``f_ref = reference_mf / M``
-    (inside the band): as close as the lean model in LAL's convention is to
+    (inside the band): as close as the model in LAL's convention is to
     LAL (well within its tolerances)."""
     import lal
 
@@ -401,7 +401,7 @@ def test_continuity(modes, mass):
     def h(m):
         b = wf.Binary(m * q / (1 + q), m / (1 + q), jnp.asarray([0.5, -0.3, 0.2]), jnp.asarray([0.2, 0.3, -0.4]),
                       jnp.asarray(500.0), jnp.asarray(0.8), jnp.asarray(0.4), jnp.asarray(0.0))
-        hp, hc = lean.polarizations(b, f, mode_array=modes, reference_mf=REF)
+        hp, hc = model.polarizations(b, f, WaveformOptions(mode_array=modes, reference_mf=REF))
         return jnp.concatenate([hp, hc])
 
     masses = mass * (1 + 0.15 * np.linspace(-1, 1, 161))

@@ -119,18 +119,14 @@ def test_exact_derivatives():
     """The derivatives of the rotated (3,2) ringdown phase that fix its
     intermediate phase against fourth-order finite differences with steps
     at which they are well conditioned."""
-    from waveformx.models.xpnr._math import lean
-
     for case in (CASES[0], CASES[6]):
         p = tuple(jnp.float64(case[k]) for k in (0, 1, 2, 3, 4, 5, 6, 8))
-        with lean(True):
-            s = reference.setup(p, case[7], 1.0)
+        s = reference.setup(p, case[7], 1.0)
         c = s.modes[(3, 2)]
         fcut = float(c.phase.f_phase_match_im)
 
         def phase(f):
-            with lean(True):
-                re, im = reference.spheroidal_to_spherical(f, c.mix, c.amp)
+            re, im = reference.spheroidal_to_spherical(f, c.mix, c.amp)
             return jnp.arctan2(im, re)
 
         d1 = float(jax.grad(phase)(jnp.float64(fcut)))

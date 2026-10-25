@@ -19,7 +19,7 @@ from __future__ import annotations
 import jax.numpy as jnp
 
 from .._generated import hm_qnm, utilities
-from .._math import PI, Struct, fnms, is_lean, real
+from .._math import PI, Struct, fnms, real
 
 __all__ = ["HIGHER_MODES", "hm_waveform_struct", "qnm_fits", "mixing_coefficients", "is_mode", "both", "where_mode"]
 
@@ -78,25 +78,21 @@ def qnm_fits(ell, emm):
     return getattr(hm_qnm, f"fring{tag}"), getattr(hm_qnm, f"fdamp{tag}")
 
 
-def _single(x):
-    """A double rounded to single precision (LAL stores the mixing
-    coefficients as ``COMPLEX8``; not in the lean model)."""
-    if is_lean():
-        return jnp.asarray(x, real())
-    return jnp.asarray(x, real()).astype(jnp.float32).astype(real())
-
-
 def mixing_coefficients(af):
     """``IMRPhenomXHM_Initialize_MixingCoeffs``: the spheroidal-spherical
     mixing coefficients ``a222``, ``a223``, ``-a322``, ``-a323`` of the (3,2)
     mode for the final spin ``af`` (Berti & Klein 2014), each as ``(re,
-    im)`` rounded to single precision, with the signs of the (3,2) ones
-    flipped to the conventions of the hybrids."""
+    im)``, with the signs of the (3,2) ones flipped to the conventions of
+    the hybrids (in double precision, where LAL stores them as
+    ``COMPLEX8``)."""
+    def value(x):
+        return jnp.asarray(x, real())
+
     return (
-        (_single(hm_qnm.re_l2m2lp2(af)), _single(hm_qnm.im_l2m2lp2(af))),
-        (_single(hm_qnm.re_l2m2lp3(af)), _single(hm_qnm.im_l2m2lp3(af))),
-        (-_single(hm_qnm.re_l3m2lp2(af)), -_single(hm_qnm.im_l3m2lp2(af))),
-        (-_single(hm_qnm.re_l3m2lp3(af)), -_single(hm_qnm.im_l3m2lp3(af))),
+        (value(hm_qnm.re_l2m2lp2(af)), value(hm_qnm.im_l2m2lp2(af))),
+        (value(hm_qnm.re_l2m2lp3(af)), value(hm_qnm.im_l2m2lp3(af))),
+        (-value(hm_qnm.re_l3m2lp2(af)), -value(hm_qnm.im_l3m2lp2(af))),
+        (-value(hm_qnm.re_l3m2lp3(af)), -value(hm_qnm.im_l3m2lp3(af))),
     )
 
 

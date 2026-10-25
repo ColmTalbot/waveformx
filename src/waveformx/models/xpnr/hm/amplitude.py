@@ -17,12 +17,11 @@ is a traced boolean selecting among values computed for all cases; the
 zero-crossing tests (:mod:`.roots`) see the coefficients through
 ``jax.lax.stop_gradient``.
 
-Accuracy: the intermediate polynomial is fixed by the derivative of the
-inspiral amplitude (and of the rotated ringdown of the (3,2)), which LAL
-takes by finite differences with a step of 1e-9 (:mod:`.finite_differences`).
-Rounding differences in the ansatz become ~1e-7 in the derivative and ~1e-8
-in the intermediate amplitude, the level at which different builds of LAL
-differ; elsewhere the amplitude agrees with LAL to ~1e-13.
+The intermediate polynomial is fixed by the derivative of the inspiral
+amplitude (and of the rotated ringdown of the (3,2)), which LAL takes by
+finite differences with a step of 1e-9 and which is exact here
+(:mod:`.derivatives`): the intermediate amplitude differs from LAL's by
+~1e-8, the level at which different builds of LAL differ.
 """
 
 from __future__ import annotations
@@ -33,9 +32,9 @@ from jax import lax
 
 from .._generated import hm_amp_122019 as gen
 from .._generated import hm_fits_122018 as fits
-from .._math import Struct, fma, is_lean, powers, real
+from .._math import Struct, fma, powers, real
 from . import roots
-from .finite_differences import value_and_nd_derivative
+from .derivatives import value_and_derivative
 from .inspiral import pn21_coefficients, pn_amp_rescaled, pn_amplitude_coefficients
 from .variables import both, is_mode, where_mode
 
@@ -352,10 +351,9 @@ def amplitude_coefficients(wf, hm, rotate=None, defer=False):
     amp.fcut_insp_eight_thirds = p_cut.eight_thirds
     amp.fcut_insp_three = p_cut.three
 
-    # the inspiral at its end and its derivative (by finite differences)
+    # the inspiral at its end and its derivative
     f1 = f_amp_match_in
-    exact = "exact_derivatives" in wf
-    insp_f1, d1 = value_and_nd_derivative(f1, lambda x: inspiral_rescaled(powers(x), amp), exact)
+    insp_f1, d1 = value_and_derivative(f1, lambda x: inspiral_rescaled(powers(x), amp))
 
     # ------------------------------ ringdown ------------------------------
     amp.rd = list(fit.rd) + [1.0 / 12.0]
@@ -382,7 +380,7 @@ def amplitude_coefficients(wf, hm, rotate=None, defer=False):
             re, im = rotate(x, amp.rd)
             return jnp.hypot(re, im)
 
-        rd_mix, d_mix = value_and_nd_derivative(f4, rotated, exact)
+        rd_mix, d_mix = value_and_derivative(f4, rotated)
         if is32 is True:
             rd_f4, d4 = rd_mix, d_mix
         else:
@@ -481,8 +479,8 @@ def amplitude_coefficients(wf, hm, rotate=None, defer=False):
 
 def choose_polynomial(choice):
     """The intermediate polynomial of ``choice`` (``amp.choice`` of
-    :func:`amplitude_coefficients`): ``(delta, order, error_poly_roots)``,
-    LAL's ``ChoosePolOrder``. The same code for every mode (``jax.vmap``
+    :func:`amplitude_coefficients`): ``(delta, order)``, LAL's
+    ``ChoosePolOrder``. The same code for every mode (``jax.vmap``
     computes it for several at once)."""
     inputs = Struct(**dict(zip(_INPUTS, [choice.x[k] for k in range(len(_INPUTS))])))
     version = choice.version
@@ -500,11 +498,9 @@ def choose_polynomial(choice):
     # zero in [fAmpMatchIN, fAmpMatchIM]
     sg = lax.stop_gradient
     fstart, fend = sg(choice.fstart), sg(choice.fend)
-    if is_lean():
-        # (the lean model: the signs of the quintic rather than GSL's roots)
-        cz5, ok5 = roots.changes_sign(sg(jnp.stack(candidates[105])), fstart, fend), jnp.asarray(True)
-    else:
-        cz5, ok5 = roots.cross_zero_p5(sg(jnp.stack(candidates[105])), fstart, fend)
+    # (the signs of the quintic rather than the roots of GSL's companion
+    # matrix)
+    cz5 = roots.changes_sign(sg(jnp.stack(candidates[105])), fstart, fend)
     cz4 = roots.cross_zero_p4(sg(jnp.stack(candidates[104])), fstart, fend)
     cz3 = roots.cross_zero_p3(sg(jnp.stack(candidates[103])), fstart, fend)
     cz2 = roots.cross_zero_p2(sg(jnp.stack(candidates[102])), fstart, fend)
@@ -519,13 +515,13 @@ def choose_polynomial(choice):
     delta = [candidates[101][k] for k in range(6)]
     for o in (102, 103, 104, 105):
         delta = [jnp.where(order == o, candidates[o][k], delta[k]) for k in range(6)]
-    return jnp.stack(delta), order, (version == 105) & ~ok5
+    return jnp.stack(delta), order
 
 
 def finish_amplitude(amp, chosen):
     """``amp`` with the polynomial chosen by :func:`choose_polynomial`."""
-    delta, order, error = chosen
-    amp = amp.replace(delta=[delta[k] for k in range(6)], inter_amp_pol_order=order, error_poly_roots=error)
+    delta, order = chosen
+    amp = amp.replace(delta=[delta[k] for k in range(6)], inter_amp_pol_order=order)
     del amp._fields["choice"]
     return amp
 

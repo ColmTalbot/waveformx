@@ -192,8 +192,8 @@ def test_frame_matches_lalsimulation(lal_globals, name, version):
 
     @jax.jit
     def frame(m1, m2, chi1, chi2, inclination):
-        m1_si, m2_si, chi1, chi2 = precession.check_masses_and_spins(
-            m1 * lal_module.MSUN_SI, m2 * lal_module.MSUN_SI, chi1, chi2)
+        # (the model's masses are in solar masses)
+        m1_si, m2_si, chi1, chi2 = precession.check_masses_and_spins(m1, m2, chi1, chi2)
         from waveformx.models.xpnr.internals import waveform_struct
 
         wf = waveform_struct(m1_si, m2_si, chi1[2], chi2[2], 0.125, f_ref, phi_ref, 30.0, 1024.0,
@@ -223,7 +223,8 @@ def test_final_spin_and_atan2tol_match_lalsimulation(lal):
     msun = 1.988409870698050731911960804878414216e30
     for f, m1, m2, s1, s2 in [(20.0, 36.0, 29.0, 0.3, -0.1), (10.0, 250.0, 30.0, -0.4, 0.5),
                               (52.6, 65.4, 5.5, 0.0016, -0.27), (15.0, 1.4, 1.3, 0.0, 0.0)]:
-        assert float(precession.chirp_time_bound(f, m1 * msun, m2 * msun, s1, s2)) == pytest.approx(
+        # (the model's masses are in solar masses)
+        assert float(precession.chirp_time_bound(f, m1, m2, s1, s2)) == pytest.approx(
             lalsim.SimInspiralChirpTimeBound(f, m1 * msun, m2 * msun, s1, s2), rel=1e-14)
 
 

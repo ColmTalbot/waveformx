@@ -9,9 +9,11 @@ total masses log-uniform in 5 to 300 solar masses, mass ratios uniform in
 1/20 to 1, isotropic spins of magnitude up to 0.99, ``f_min`` among 10, 15
 and 20 Hz, ``f_ref = f_min`` or uniform up to ``3 f_min``, isotropic lines of
 sight. The frequencies are 256 geometrically spaced points from ``f_min`` to
-``min(0.3 / M, 2048 Hz)`` (one compilation for all draws) and the model
-without the parity fix is compared with the installed LALSimulation. Where
-LAL fails the model must give NaN.
+``min(0.3 / M, 2048 Hz)`` (one compilation for all draws), and the model
+is compared with waveformrs, which reproduces LALSimulation (with the
+parity fix) to rounding, where LAL uses the SpinTaylor angles: within the
+tolerances of test_xpnr.py. Where LAL leaves them, or fails, the model must
+be finite.
 """
 
 import os
@@ -29,7 +31,9 @@ pytestmark = pytest.mark.skipif(os.environ.get("WAVEFORMX_SLOW") != "1",
                                 reason="slow: set WAVEFORMX_SLOW=1 to run")
 
 N_DRAWS = 64
-TOLERANCE = (1e-4, 1e-9)
+#: mismatch up to q = 12 and beyond (see test_xpnr.py)
+TOLERANCE = 1e-4
+TOLERANCE_BEYOND_Q12 = 1e-3
 MTSUN_SI = 4.925490947641267e-06
 
 
@@ -62,32 +66,32 @@ def draws(seed=20261020):
 
 
 DRAWS = draws()
-OPTIONS = WaveformOptions(pnr_parity_fix=False, version_fallback=True, scaled_strain=False)
+OPTIONS = WaveformOptions(scaled_strain=False)
 POLARIZATIONS = jax.jit(lambda b, f: MODEL.polarizations(b, f, OPTIONS))
 
 
 @pytest.mark.parametrize("index", range(N_DRAWS))
-def test_random_binary_matches_lalsimulation(lal, index):
-    lal_module, lalsim = lal
+def test_random_binary_close_to_lalsimulation(index):
+    rs = pytest.importorskip("waveformrs")
     case = DRAWS[index]
-    vector = lal_module.CreateREAL8Vector(len(case["frequencies"]))
-    vector.data = case["frequencies"]
     binary = Binary(mass_1=jnp.float64(case["mass_1"]), mass_2=jnp.float64(case["mass_2"]),
                     spin_1=jnp.asarray(case["spin_1"]), spin_2=jnp.asarray(case["spin_2"]),
                     luminosity_distance=jnp.float64(case["luminosity_distance"]),
                     inclination=jnp.float64(case["inclination"]), phi_ref=jnp.float64(case["phi_ref"]),
                     f_ref=jnp.float64(case["f_ref"]))
     hp, hc = (np.asarray(h) for h in POLARIZATIONS(binary, jnp.asarray(case["frequencies"])))
+    assert np.all(np.isfinite(hp)) and np.all(np.isfinite(hc))
+    keywords = {k: case[k] for k in ("mass_1", "mass_2", "luminosity_distance", "inclination", "phi_ref", "f_ref")}
     try:
-        reference = lalsim.SimInspiralChooseFDWaveformSequence(
-            case["phi_ref"], case["mass_1"] * lal_module.MSUN_SI, case["mass_2"] * lal_module.MSUN_SI,
-            *case["spin_1"], *case["spin_2"], case["f_ref"], case["luminosity_distance"] * 1e6 * lal_module.PC_SI,
-            case["inclination"], None, lalsim.IMRPhenomXPNR, vector,
-        )
-    except RuntimeError:
-        assert np.all(np.isnan(hp)) and np.all(np.isnan(hc))
+        # (without fallbacks: an error where LAL leaves the SpinTaylor angles)
+        reference = rs.polarizations("IMRPhenomXPNR", case["frequencies"], spin_1=tuple(case["spin_1"]),
+                                     spin_2=tuple(case["spin_2"]), pnr_parity_fix=True, version_fallback=False,
+                                     **keywords)
+    except (rs.PrecessionVersionUnavailableError, rs.WaveformError):
         return
-    for test, ref in zip((hp, hc), (reference[0].data.data, reference[1].data.data)):
-        error, mismatch = compare(test, ref)
+    q = max(case["mass_1"], case["mass_2"]) / min(case["mass_1"], case["mass_2"])
+    tolerance = TOLERANCE_BEYOND_Q12 if q > 12.0 else TOLERANCE
+    for test, ref in zip((hp, hc), reference):
+        error, mismatch = compare(test, np.asarray(ref))
         print(f"draw {index}: masses ({case['mass_1']:.2f}, {case['mass_2']:.2f}) error {error:.2e} mismatch {mismatch:.2e}")
-        assert error < TOLERANCE[0] and mismatch < TOLERANCE[1], (error, mismatch)
+        assert mismatch < tolerance, (error, mismatch)

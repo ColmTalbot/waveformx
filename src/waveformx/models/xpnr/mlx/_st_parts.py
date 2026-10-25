@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
-"""The pieces of the lean SpinTaylor solution (:mod:`..spintaylor.lean`)
+"""The pieces of the SpinTaylor solution (:mod:`..spintaylor.lean`)
 that the integration kernel (:mod:`._spintaylor`) calls, as JAX functions
 of flat float arrays, and their Metal translations (:func:`device_source`):
 each is traced in float32, lowered (:mod:`._program`) and written as a
@@ -21,7 +21,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from .._generated import dop853
-from .._math import C_SI, MTSUN_SI, PI, g_si, lean as lean_mode, mass_unit, precision
+from .._math import C_SI, MTSUN_SI, PI, g_si, mass_unit, precision
 from ..spintaylor import dynamics, trajectory
 from ..spintaylor import lean as st_lean
 from ..spintaylor.angles import _du_per_step
@@ -59,7 +59,7 @@ def _c_meta():
     holder = {}
 
     def f(x):
-        with precision(np.float32), lean_mode(True):
+        with precision(np.float32):
             values, holder["meta"] = partition(_coefficients(x))
         return values
 
@@ -170,7 +170,7 @@ def _shapes():
 
 def _traced(function, avals, tangent):
     def flat(*args):
-        with precision(np.float32), lean_mode(True):
+        with precision(np.float32):
             out = function(*args)
         return list(out) if isinstance(out, tuple) else [out]
 

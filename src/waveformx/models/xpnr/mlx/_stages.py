@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
-"""The lean IMRPhenomXPNR (:mod:`..lean`) cut into stages, in JAX.
+"""IMRPhenomXPNR (:mod:`..model`) cut into stages, in JAX.
 
 The MLX port runs the model's own JAX code for everything that is a
 function of one binary's scalars, or of one binary's scalars and one point:
@@ -13,7 +13,7 @@ dense output (searches in tables), the splines of the PNR interpolants and
 the moving average of the antisymmetric mode. This module holds the stages
 as plain JAX functions of pytrees, and :func:`reference` composes them with
 the JAX versions of the hand-written parts: it reproduces
-:func:`waveformx.models.xpnr.lean.polarizations` (the tests check it to
+:func:`waveformx.models.xpnr.model.polarizations` (the tests check it to
 rounding), and its intermediate values are the reference of the MLX port.
 
 The stages, in order (``prec`` and ``wf`` are the model's precession and
@@ -48,7 +48,7 @@ import numpy as np
 from .. import hm, model, pnr
 from .. import pnr_angles as pa
 from .._math import (
-    MTSUN_SI, PI, Struct, fma, hz_to_mf, lean as lean_mode, mf_to_hz, powers, precision, real, safe_div, safe_sqrt,
+    MTSUN_SI, PI, Struct, fma, hz_to_mf, mf_to_hz, powers, precision, real, safe_div, safe_sqrt,
     tiny,
 )
 from ..amp22 import amp_ansatz
@@ -88,7 +88,7 @@ def _binary(leaves):
 
 
 def stage_a(leaves, f_min, f_max, modes, amp_scale, reference_mf=None):
-    """``model._decide`` of the lean model up to the integration: returns
+    """``model._decide`` of the model up to the integration: returns
     ``(base, wf0, ode, error)`` with ``ode`` the inputs of
     :func:`..spintaylor.lean.solution` (``m1``, ``m2`` in solar masses, the
     spins ``chi1``, ``chi2``, ``f_ref``, ``f_low``, ``f_cut``, whether the
@@ -104,10 +104,9 @@ def stage_a(leaves, f_min, f_max, modes, amp_scale, reference_mf=None):
     else:
         error = error | (binary.f_ref != 0.0)
     mode_range = pnr.mode_range(modes)
-    base, wf0 = pnr.common_setup(wf, m1, m2, chi1, chi2, mode_range, True, True, True, True, False, True, mode_range,
-                                 reference_mf is not None)
+    base, wf0 = pnr.common_setup(wf, m1, m2, chi1, chi2, mode_range, False, mode_range, reference_mf is not None)
     error = error | base.error_spin | (wf0.f_max_prime <= wf0.f_min)
-    needs_st = base.pnr_on & ~base.nnlo_from_start
+    needs_st = jnp.asarray(True)
     flow_safe = jnp.where(base.st_flow_ok, base.st_flow_lean, wf0.f_min)
     ode = Struct(m1=m1, m2=m2, chi1=jnp.stack(base.chi1), chi2=jnp.stack(base.chi2), f_ref=wf0.f_ref, f_low=flow_safe,
                  f_cut=base.st_fcut, active=needs_st, flow_ok=base.st_flow_ok)
@@ -160,7 +159,7 @@ def stage_c1(base, wf0, summary):
     context = Struct(lean=jnp.zeros((), real()), first_mf=first_mf, last_mf=last_mf)
     fmax_inspiral, euler = pnr._euler_points(prec, wf, context)
     ap = pnr.precompute_alpha_coefficients(prec, wf, 330)
-    bp = pa.beta_connection_frequencies(pnr.precompute_beta_coefficients(prec, wf, 330), pnr._soft(prec))
+    bp = pa.beta_connection_frequencies(pnr.precompute_beta_coefficients(prec, wf, 330))
     _, _, alpha = pnr._alpha_points(prec, wf, ap, 330)
     _, beta = pnr._st_beta_points(prec, bp, 0.98 * fmax_inspiral)
     _, antisymmetric = pnr.antisymmetric_points(wf)
@@ -183,7 +182,7 @@ def _with_bank(prec, points, values, st_range):
 
 
 def stage_c2(prec, wf, points, values, st_range, modes):
-    """The rest of ``model._lean_setup`` with the SpinTaylor angles at the
+    """The rest of ``model._spintaylor_setup`` with the SpinTaylor angles at the
     bank's points ``values`` (``(alpha, dalpha, cosbeta, dcosbeta,
     inside)``, each of shape ``(15,)``): returns ``(prec, wf, grid,
     error)`` with ``grid = (i_start, n, delta_f)`` of the PNR interpolants."""
@@ -210,10 +209,10 @@ def grid_frequencies(k, grid, m_tot):
 
 
 def grid_point(prec, wf, mf, st_values):
-    """``uniform_angles`` of the smooth angles at one point ``mf`` with
+    """``uniform_angles`` at one point ``mf`` with
     the SpinTaylor angles ``st_values`` there: ``(alpha, beta, error)``."""
     pnr.clear_cache()
-    return pnr.uniform_angles(prec, wf, mf, 330, tuple(st_values), True)
+    return pnr.uniform_angles(prec, wf, mf, 330, tuple(st_values))
 
 
 # ---------------------------------------------------------------------------
@@ -257,7 +256,6 @@ def stage_e(prec, wf, at_ref, inside_ref, modes):
         amp22, phase22, linb = xas.amp, xas.phase, xas.linb
     wf_out = Struct(**{name: getattr(wf, name) for name in model.WF_FIELDS})
     wf_out.hm_release = jnp.asarray(122019)
-    wf_out.exact_derivatives = jnp.zeros((), real())
     xas = Struct(amp=amp22, phase=phase22, linb=linb, lina=0.0, inveta=1.0 / wf_out.eta,
                  amp_prefactor=wf_out.amp0 * wf_out.amp_norm)
     higher = [mode for mode in modes if mode != (2, 2)]
@@ -534,7 +532,7 @@ def _is_dynamic(leaf):
 
 def partition(tree):
     """The array leaves of a pytree and a hashable description of the rest
-    (its structure and its Python leaves), as ``model._partition``."""
+    (its structure and its Python leaves)."""
     leaves, treedef = jax.tree_util.tree_flatten(tree)
     dynamic = tuple(_is_dynamic(leaf) for leaf in leaves)
     values = [leaf for leaf, d in zip(leaves, dynamic) if d]
@@ -588,7 +586,7 @@ class Staged:
             def flat(*values):
                 it = iter(values)
                 trees = [combine([next(it) for _ in vals], meta) for (vals, _), meta in zip(parts, metas)]
-                with precision(self.dtype), lean_mode(True):
+                with precision(self.dtype):
                     out, holder["meta"] = partition(self.function(*trees))
                 return out
 
@@ -731,7 +729,7 @@ N_PARAMETERS = 12
 
 
 def reference(binary, frequencies, mode_array=None, scaled_strain=True, keep=False, tangents=False, reference_mf=None):
-    """The lean polarizations from the stages composed in JAX (eagerly,
+    """The polarizations from the stages composed in JAX (eagerly,
     stage by stage, with the sizes of the binary), in the precision of the
     binary: ``(h_+, h_x)``, and with ``keep`` also a dict of the
     intermediate values of every stage (:class:`Dual`, with their

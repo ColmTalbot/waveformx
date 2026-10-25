@@ -4,7 +4,7 @@
 """The antisymmetric part of the co-precessing (2,|2|) modes of
 IMRPhenomXPNR (Ghosh et al. 2024, arXiv:2310.16980;
 ``LALSimIMRPhenomX_AntisymmetricWaveform.c``), after waveformrs's
-``imrphenomx/pnr.rs``, with and without the fix of lalsuite !2593.
+``imrphenomx/pnr.rs``, with the fix of lalsuite !2593.
 
 The amplitude is the symmetric (2,2) amplitude times a ratio ``kappa(f)``
 smoothed by LAL's moving average over 81 frequencies. LAL averages in
@@ -191,14 +191,10 @@ def antisymmetric_coefficients(prec, wf, version):
     dphi = dphi * inveta + linb
     phi = phi * inveta + (fma(linb, mf_t, lina) + phiref22)
     a0 = dphi / 2.0 - alpha_der_mf_t
-    if prec.parity_fix:
-        phi_a0 = -alphas[3] - FRAC_PI_2
-        error = jnp.any(errors) | error_ap
-    else:
-        phi_a0 = prec.alpha_offset
-        error = jnp.any(errors[:3]) | error_ap
+    phi_a0 = -alphas[3] - FRAC_PI_2
+    error = jnp.any(errors) | error_ap
     phi_b0 = fma(a0, mf_t, alpha_mf_t - phi / 2.0) + phi_a0
-    phase_offset = prec.phi_j_sf if prec.parity_fix else prec.zeta_polarization
+    phase_offset = prec.phi_j_sf
     return Struct(alpha_params=ap, phase22=phase22, amp22=amp22, mf_t=mf_t, lina=lina, linb=linb, inveta=inveta, phiref22=phiref22,
                   a0=a0, phi_a0=phi_a0, phi_b0=phi_b0, phase_offset=phase_offset,
                   amp_prefactor=wf.amp0 * wf.amp_norm, error=error)

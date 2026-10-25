@@ -16,15 +16,15 @@ Accuracy. Everything except the intermediate amplitude agrees with LAL to
 ~1e-12. The intermediate amplitude is the inverse of a polynomial fixed by
 the derivative of the inspiral (and, for the (3,2), of the rotated
 ringdown) amplitude, which LAL takes by fourth-order finite differences
-with a step of 1e-9: rounding differences of the ansatz are amplified to
-~1e-7 in the derivative and ~1e-8 in the amplitude (LAL's own Linux and
-macOS builds differ by up to 2e-8 here, waveformrs's cross-build
+with a step of 1e-9 and the model exactly: LAL's rounding errors are
+amplified to ~1e-7 in the derivative and ~1e-8 in the amplitude (LAL's own
+Linux and macOS builds differ by up to 2e-8 here, waveformrs's cross-build
 tolerances). The intermediate phase of the (3,2) is fixed by the second
-derivative of the rotated ringdown phase by finite differences with a step
-of 1e-7, which amplifies rounding (of a 22 phase of up to ~1e4 rad for
-extreme mass ratios) by ~1e14: the (3,2) agrees to ~1e-4 for comparable
-masses and to ~1e-2 (mismatch < 1e-4) at mass ratio 100, as different
-builds of LAL do.
+derivative of the rotated ringdown phase, which LAL takes by finite
+differences with a step of 1e-7, amplifying rounding (of a 22 phase of up
+to ~1e4 rad for extreme mass ratios) by ~1e14: the (3,2) agrees to ~1e-4
+for comparable masses and to ~1e-2 (mismatch < 1e-4) at mass ratio 100, as
+different builds of LAL do.
 """
 
 import ctypes
@@ -38,7 +38,7 @@ import pytest
 
 from conftest import compare
 from waveformx.models.xpnr import hm, phase22
-from waveformx.models.xpnr._math import MPC_SI, MSUN_SI
+from waveformx.models.xpnr._math import MPC_SI
 from waveformx.models.xpnr.hm import roots
 from waveformx.models.xpnr.internals import waveform_struct
 
@@ -73,8 +73,8 @@ NEGATIVE = [(2, -1), (3, -3), (3, -2), (4, -4)]
 TOLERANCE_32 = (3e-2, 1e-4)
 TOLERANCE = (5e-8, 1e-12)
 # where the intermediate amplitude takes another polynomial than LAL's:
-# CrossZeroP5 tests every root of the quintic (roots.cross_zero_p5), LAL's
-# misses some (shifted indices into GSL's roots)
+# CrossZeroP5 is the sign test of the quintic (roots.changes_sign), LAL's
+# misses some roots (shifted indices into GSL's roots)
 CROSS_ZERO_P5 = {(6, (3, 3)): (1e-3, 1e-6)}
 
 
@@ -127,7 +127,7 @@ def test_equal_masses_and_spins_odd_modes_vanish(lal):
 
 
 def _coefficients(m1, m2, c1, c2, f_ref=20.0, ell=2, emm=1):
-    wf = waveform_struct(m1 * MSUN_SI, m2 * MSUN_SI, c1, c2, 0.0, f_ref, 0.3, 10.0, 1000.0, 500 * MPC_SI, 0.0)
+    wf = waveform_struct(m1, m2, c1, c2, 0.0, f_ref, 0.3, 10.0, 1000.0, 500 * MPC_SI, 0.0)
     wf.hm_release = 122019
     return hm.mode_coefficients(wf, phase22.phase_coefficients(wf), ell, emm)
 
@@ -142,7 +142,6 @@ def test_branches_are_exercised():
             if bool(c.amp_zero):
                 seen.add("amp_zero")
                 continue
-            assert not bool(c.error_poly_roots)
             seen.add(f"inspiral {int(a.inspiral_amp_version)}")
             seen.add(f"{int(a.intermediate_amp_version)} -> {int(a.inter_amp_pol_order)}")
             for flag in ("amp_emr", "use_famp_pn", "use_insp_ansatz_ringdown"):
@@ -158,58 +157,18 @@ def test_branches_are_exercised():
     assert expected <= seen, expected - seen
 
 
-def _libgsl():
-    for name in ("libgsl.dylib", "libgsl.so"):
-        path = Path(sys.prefix) / "lib" / name
-        if path.exists():
-            return ctypes.CDLL(str(path))
-    pytest.skip("libgsl not found")
-
-
-def test_gsl_poly_complex_solve():
-    """The port of gsl_poly_complex_solve returns GSL's roots (in GSL's
-    order but where rounding changes the order in which the QR iteration
-    finds them: compared as sets)."""
-    gsl = _libgsl()
-    gsl.gsl_poly_complex_workspace_alloc.restype = ctypes.c_void_p
-    gsl.gsl_poly_complex_workspace_alloc.argtypes = [ctypes.c_size_t]
-    gsl.gsl_poly_complex_workspace_free.argtypes = [ctypes.c_void_p]
-    double_p = ctypes.POINTER(ctypes.c_double)
-    gsl.gsl_poly_complex_solve.argtypes = [double_p, ctypes.c_size_t, ctypes.c_void_p, double_p]
-    workspace = gsl.gsl_poly_complex_workspace_alloc(6)
-    rng = np.random.default_rng(1)
-    polynomials = [rng.normal(size=6) for _ in range(100)]
-    # scaled like the intermediate polynomials, delta_k ~ v / f^k
-    polynomials += [rng.normal(size=6) * 0.05 ** -np.arange(6.0) for _ in range(100)]
-    polynomials += [np.poly(rng.uniform(0.005, 0.2, size=5) * rng.choice([-1, 1], size=5))[::-1] * 1e5
-                    for _ in range(100)]
-    polynomials = np.array(polynomials)
-    test, ok = jax.jit(jax.vmap(roots.complex_solve_quintic))(jnp.asarray(polynomials))
-    for a, z, success in zip(polynomials, np.asarray(test), np.asarray(ok)):
-        a = np.ascontiguousarray(a)
-        expected = np.zeros(10)
-        status = gsl.gsl_poly_complex_solve(a.ctypes.data_as(double_p), 6, workspace, expected.ctypes.data_as(double_p))
-        assert status == 0 and success
-        ours = np.sort_complex(z[0::2] + 1j * z[1::2])
-        theirs = np.sort_complex(expected[0::2] + 1j * expected[1::2])
-        # (clustered roots, as the third set has, amplify rounding to ~1e-9)
-        np.testing.assert_allclose(ours, theirs, rtol=1e-8, atol=1e-12 * np.max(np.abs(theirs)))
-        # real roots stay real
-        assert np.sum(z[1::2] == 0) == np.sum(expected[1::2] == 0)
-    gsl.gsl_poly_complex_workspace_free(workspace)
-
-
 def test_cross_zero_tests():
     # (f - 0.05)(f - 0.2)(f + 1)
     cubic = jnp.array([0.01, -0.24, 0.75, 1.0])
     assert roots.cross_zero_p3(cubic, 0.04, 0.06)
     assert not roots.cross_zero_p3(cubic, 0.06, 0.15)
     # times (f^2 + 1): GSL returns the roots -1, 0.2, 0.05, i, -i; LAL's
-    # CrossZeroP5 misses the third root (shifted indices), this one does not
+    # CrossZeroP5 misses the third root (shifted indices), the sign test
+    # does not
     quintic = jnp.array([0.01, -0.24, 0.76, 0.76, 0.75, 1.0])
-    assert roots.cross_zero_p5(quintic, 0.15, 0.25)[0]
-    assert roots.cross_zero_p5(quintic, 0.04, 0.06)[0]
-    assert not roots.cross_zero_p5(quintic, 0.06, 0.15)[0]
+    assert roots.changes_sign(quintic, 0.15, 0.25)
+    assert roots.changes_sign(quintic, 0.04, 0.06)
+    assert not roots.changes_sign(quintic, 0.06, 0.15)
     # the cubic times (f - 0.3)
     quartic = jnp.array([-0.003, 0.082, -0.465, 0.45, 1.0])
     assert roots.cross_zero_p4(quartic, 0.28, 0.32)
@@ -242,7 +201,7 @@ def test_jit_vmap_grad():
     agree with finite differences."""
     def h_of(params, ell, emm, mf=jnp.geomspace(0.004, 0.2, 120)):
         m1, m2, c1, c2 = params
-        wf = waveform_struct(m1 * MSUN_SI, m2 * MSUN_SI, c1, c2, 0.0, 20.0, 0.3, 10.0, 1000.0, 500 * MPC_SI, 0.0)
+        wf = waveform_struct(m1, m2, c1, c2, 0.0, 20.0, 0.3, 10.0, 1000.0, 500 * MPC_SI, 0.0)
         wf.hm_release = 122019
         coefficients = hm.mode_coefficients(wf, phase22.phase_coefficients(wf), ell, emm)
         return hm.mode_h(coefficients, mf)

@@ -34,7 +34,7 @@ from ..xas import core as xas_core
 from ..xpnr import phase22 as phase22_module
 from ..xpnr._generated import hm_ringdown
 from ..xpnr._generated import ringdown as ringdown22
-from ..xpnr._math import FRAC_PI_4, PI, Struct, fma, lean, powers, real
+from ..xpnr._math import FRAC_PI_4, PI, Struct, fma, powers, real
 from ..xpnr.amp22 import amp_coefficients as amp22_coefficients
 from ..xpnr.hm.inspiral import phase_ansatz_int as inspiral_phase_ansatz_int
 from ..xpnr.hm.phase import ringdown_phase_ansatz, ringdown_phase_ansatz_int
@@ -353,7 +353,7 @@ def _mode_fields(wf, hm, amp, ph, mix, d):
 
 
 def _setup(params, f_min, amp_scale):
-    """The waveform variables and the table of the (2,2) (in lean mode)."""
+    """The waveform variables and the table of the (2,2)."""
     m1, m2, _, _, _, inclination, _, _ = params
     wf = xas_core.waveform_variables(params, f_min, amp_scale)
     wf.hm_release = 122022
@@ -391,26 +391,23 @@ def _mode_table(wf, c22, fields22, ell, emm):
 def table(params, f_min, amp_scale=1.0):
     """The table of a binary (a flat array of :data:`SIZE` values) from the
     parameters of :func:`..xas.core.table` and the first frequency."""
-    with lean(True):
-        wf, flat22, c22, fields22 = _setup(params, f_min, amp_scale)
-        parts = [_head(params, wf, flat22)]
-        parts += [_mode_table(wf, c22, fields22, ell, emm) for ell, emm in HIGHER_MODES]
-        return jnp.concatenate(parts)
+    wf, flat22, c22, fields22 = _setup(params, f_min, amp_scale)
+    parts = [_head(params, wf, flat22)]
+    parts += [_mode_table(wf, c22, fields22, ell, emm) for ell, emm in HIGHER_MODES]
+    return jnp.concatenate(parts)
 
 
 def head_table(params, f_min, amp_scale=1.0):
     """The head of :func:`table` alone (:data:`HEAD_LAYOUT`; for the MLX
     kernels, which set the modes up in parallel)."""
-    with lean(True):
-        wf, flat22, _, _ = _setup(params, f_min, amp_scale)
-        return _head(params, wf, flat22)
+    wf, flat22, _, _ = _setup(params, f_min, amp_scale)
+    return _head(params, wf, flat22)
 
 
 def mode_table(params, f_min, amp_scale, ell, emm):
     """The table of the higher mode ``(ell, emm)`` alone (:data:`MODE_LAYOUT`)."""
-    with lean(True):
-        wf, _, c22, fields22 = _setup(params, f_min, amp_scale)
-        return _mode_table(wf, c22, fields22, ell, emm)
+    wf, _, c22, fields22 = _setup(params, f_min, amp_scale)
+    return _mode_table(wf, c22, fields22, ell, emm)
 
 
 # ---------------------------------------------------------------------------

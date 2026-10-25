@@ -5,14 +5,10 @@
 
 The gradients are checked against central finite differences of the
 compiled polarizations for every parameter of the binary, at a generic
-binary and a nearly aligned one. The SpinTaylor angles are a spline through
-LAL's samples of an adaptive integration whose number of samples changes
-with the masses and spins: the waveform jumps (by about LAL's integration
-error) where it does, so the finite differences use small steps (``1e-6``,
-relative for the masses, the distance and ``f_ref``), which these jumps
-rarely straddle; they agree with the gradients to ``~1e-7`` (``~1e-5`` for
-the in-plane spins of the nearly aligned binary, where the waveform is far
-from linear in them).
+binary and a nearly aligned one, with steps of ``1e-6`` (relative for the
+masses, the distance and ``f_ref``): they agree with the gradients to
+``~1e-7`` (``~1e-5`` for the in-plane spins of the nearly aligned binary,
+where the waveform is far from linear in them).
 
 Compiling the gradient of the model takes minutes: the tests use the (2,2)
 mode with the PNR angles, its tuned deviations and the antisymmetric part;
@@ -29,7 +25,7 @@ import pytest
 from waveformx import Binary, WaveformOptions
 from waveformx.models.xpnr import MODEL
 
-OPTIONS = WaveformOptions(mode_array=((2, 2), (2, -2)), version_fallback=True, scaled_strain=False)
+OPTIONS = WaveformOptions(mode_array=((2, 2), (2, -2)), scaled_strain=False)
 FREQUENCIES = jnp.asarray(np.geomspace(20.0, 400.0, 96))
 NAMES = ["mass_1", "mass_2", "spin_1x", "spin_1y", "spin_1z", "spin_2x", "spin_2y", "spin_2z", "luminosity_distance",
          "inclination", "phi_ref", "f_ref"]

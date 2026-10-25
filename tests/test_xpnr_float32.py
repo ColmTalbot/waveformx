@@ -5,11 +5,10 @@
 
 A binary of float32 parameters is evaluated in float32: no float32 value is
 promoted to float64 (the weakly typed constants of LAL's expressions are
-float64 scalars that take the type of the values they meet). The extended
-model is close to its float64 evaluation, under ``jax.jit``, ``jax.jvp``
-and ``jax.grad``. The default model, which replays LAL's integration step by
-step, runs in float32 but is much less accurate there. Every output is the
-strain multiplied by ``1e21`` unless ``scaled_strain=False``.
+float64 scalars that take the type of the values they meet). The model is
+close to its float64 evaluation, under ``jax.jit``, ``jax.jvp`` and
+``jax.grad``. Every output is the strain multiplied by ``1e21`` unless
+``scaled_strain=False``.
 """
 
 import functools
@@ -26,7 +25,7 @@ from waveformx.models.xpnr import model
 BINARY = wf.Binary(36.0, 29.0, (0.4, 0.2, 0.3), (-0.2, 0.3, -0.1), 500.0, 0.7, 1.2, 20.0)
 FREQUENCIES = np.geomspace(20.0, 1024.0, 128)
 DOMINANT = ((2, 2), (2, -2))
-EXTENDED = WaveformOptions(extended_spintaylor=True, mode_array=DOMINANT)
+OPTIONS = WaveformOptions(mode_array=DOMINANT)
 NARROW = (np.dtype(np.float32), np.dtype(np.complex64))
 WIDE = (np.dtype(np.float64), np.dtype(np.complex128))
 
@@ -58,7 +57,7 @@ def evaluate(options):
     return jax.jit(lambda b, f: model._polarizations(b, f, options))
 
 
-@pytest.mark.parametrize("options", [WaveformOptions(), EXTENDED], ids=["default", "extended"])
+@pytest.mark.parametrize("options", [WaveformOptions(), OPTIONS], ids=["all modes", "dominant"])
 def test_float32_throughout(options):
     """No float32 value of the waveform, its forward derivative or its
     gradient is promoted to float64."""
@@ -67,7 +66,7 @@ def test_float32_throughout(options):
     tangent = jax.tree_util.tree_map(jnp.ones_like, binary)
     traces = [jax.make_jaxpr(lambda b: jax.jvp(lambda b: model._polarizations(b, frequencies, options), (b,),
                                                 (tangent,)))(binary)]
-    if options == EXTENDED:
+    if options == OPTIONS:
         def power(b):
             return sum(jnp.sum(jnp.abs(h) ** 2) for h in model.polarizations(b, frequencies, options))
 
@@ -78,9 +77,9 @@ def test_float32_throughout(options):
 
 
 def test_float32_close_to_float64():
-    """The extended model in float32 agrees with its float64 evaluation to a
-    mismatch far below 1e-6; the default model runs and is finite."""
-    function = evaluate(EXTENDED)
+    """The model in float32 agrees with its float64 evaluation to a
+    mismatch far below 1e-6, for the dominant mode and all modes."""
+    function = evaluate(OPTIONS)
     single = function(as_dtype(BINARY, jnp.float32), jnp.asarray(FREQUENCIES, jnp.float32))
     double = function(as_dtype(BINARY, jnp.float64), jnp.asarray(FREQUENCIES))
     for a, b in zip(single, double):
@@ -88,14 +87,17 @@ def test_float32_close_to_float64():
         a, b = np.asarray(a, dtype=np.complex128), np.asarray(b)
         assert np.all(np.isfinite(a))
         assert mismatch(a, b) < 1e-7
-    for h in evaluate(WaveformOptions())(as_dtype(BINARY, jnp.float32), jnp.asarray(FREQUENCIES, jnp.float32)):
-        assert h.dtype == jnp.complex64 and np.all(np.isfinite(np.asarray(h)))
+    single = evaluate(WaveformOptions())(as_dtype(BINARY, jnp.float32), jnp.asarray(FREQUENCIES, jnp.float32))
+    double = evaluate(WaveformOptions())(as_dtype(BINARY, jnp.float64), jnp.asarray(FREQUENCIES))
+    for a, b in zip(single, double):
+        assert a.dtype == jnp.complex64 and np.all(np.isfinite(np.asarray(a)))
+        assert mismatch(np.asarray(a, dtype=np.complex128), np.asarray(b)) < 1e-6
 
 
 def test_float32_gradient():
     """The float32 gradient of a noise-free log-likelihood (which depends on
     every parameter, the distance included) agrees with the float64 one."""
-    function = wf.polarizations_function("IMRPhenomXPNR", extended_spintaylor=True, mode_array=DOMINANT)
+    function = wf.polarizations_function("IMRPhenomXPNR", mode_array=DOMINANT)
     data = function(BINARY._replace(mass_1=BINARY.mass_1 * 1.01), FREQUENCIES)
 
     def log_likelihood(binary, frequencies):

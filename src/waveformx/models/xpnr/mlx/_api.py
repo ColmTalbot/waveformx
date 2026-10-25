@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
-"""The pure function of the lean IMRPhenomXPNR in MLX: binaries in, the
+"""The pure function of IMRPhenomXPNR in MLX: binaries in, the
 polarizations out, with derivatives for ``mx.grad`` and ``mx.vjp``.
 
 The derivatives are those of the forward-mode Jacobian with respect to the
@@ -96,13 +96,13 @@ def _core(modes, amp_scale, reference_mf):
 
 def _options(mode_array, scaled_strain, reference_mf):
     # (the checks of WaveformOptions)
-    reference_mf = WaveformOptions(lean=True, reference_mf=reference_mf).reference_mf
+    reference_mf = WaveformOptions(reference_mf=reference_mf).reference_mf
     modes = model.coprecessing_modes(mode_array)
     return tuple(modes), STRAIN_SCALE if scaled_strain else 1.0, reference_mf
 
 
 def polarizations(binary, frequencies, mode_array=None, scaled_strain=True, reference_mf=None):
-    """``(h_+, h_x)`` (complex64 MLX arrays) of the lean IMRPhenomXPNR at
+    """``(h_+, h_x)`` (complex64 MLX arrays) of IMRPhenomXPNR at
     ``frequencies`` (Hz, positive and increasing; ``(N,)`` or, for a batch,
     ``(B, N)``): ``(N,)`` each for one binary, ``(B, N)`` for a batch (a
     :class:`~waveformx.Binary` whose fields have a leading axis). The

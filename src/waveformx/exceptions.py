@@ -22,8 +22,6 @@ exception                              raised for
                                        package
 :class:`ModelError`                    failures of the model itself (SpinTaylor
                                        or PNR angles, NRSur7dq4 evaluation)
-:class:`PrecessionVersionUnavailableError`  the requested Euler angles cannot be
-                                       used and ``version_fallback=False``
 :class:`DataFileError`                 the NRSur7dq4 data file cannot be read
 :class:`DataFileNotFoundError`         the NRSur7dq4 data file was not found
 =====================================  ==========================================
@@ -35,7 +33,6 @@ __all__ = [
     "UnsupportedError",
     "UnknownApproximantError",
     "ModelError",
-    "PrecessionVersionUnavailableError",
     "DataFileError",
     "DataFileNotFoundError",
 ]
@@ -59,12 +56,6 @@ class UnknownApproximantError(WaveformError, ValueError):
 
 class ModelError(WaveformError, RuntimeError):
     """The model could not be evaluated for this binary."""
-
-
-class PrecessionVersionUnavailableError(ModelError):
-    """The requested precession version (``PhenomXPrecVersion``) cannot be
-    used for this binary and the automatic fallback that LALSimulation would
-    make is switched off (``version_fallback=False``)."""
 
 
 class DataFileError(WaveformError, OSError):

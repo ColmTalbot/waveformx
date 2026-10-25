@@ -26,23 +26,12 @@ in snake case).
 Every function works on traced (and batched) values. LAL's ``if``\\ s are
 ``jnp.where`` selections. The connection frequencies of ``beta`` involve
 many decisions on values that LAL may compute as NaN (complex roots of the
-inflection cubic, square roots of negative numbers, ...), which LAL's
-comparisons then treat as false. They are evaluated twice: once with LAL's
-arithmetic (NaNs included, under ``stop_gradient``) to take the decisions,
-and once with finite stand-ins for the NaNs, following the recorded
-decisions, to give the values and their gradients. The values are the same
-wherever LAL's are finite, and the gradients are finite.
-
-Arithmetic: :func:`~._math.fma` is ``a * b + c``, which XLA contracts into
-fused multiply-adds when it compiles (as clang does in LAL's arm64 build,
-though not always for the same pairs). This is rounding-level everywhere but
-in the inflection points of the MR ``beta``: they are roots of a cubic from
-the trigonometric formula, ``acos`` of a value within a few ulps of 1 in
-typical cases (an error ``eps`` there moves the roots by ``sqrt(eps)``) and a
-cancellation of terms ~1e3 times larger than the roots: they agree with LAL
-to ~1e-8 (relative), which moves the connection frequencies of ``beta`` by as
-much (a mismatch of ~1e-16). LAL's complex arithmetic, which has no fused
-multiply-adds, is kept from being contracted (``_rounded``).
+inflection cubic, square roots of negative numbers, ...): here they are
+computed with finite stand-ins for the NaNs, so that the gradients are
+finite, and LAL's choices between candidate frequencies are blended across
+narrow bands (:func:`beta_connection_frequencies`), so that they are
+continuous. The version that replays LAL's decisions, NaNs included, is
+the tag ``lal-faithful``.
 """
 
 from __future__ import annotations
@@ -53,7 +42,7 @@ import jax
 import jax.numpy as jnp
 from jax import lax
 
-from ._math import NAN, PI, Struct, fma, fnms, is_lean, safe_sqrt, tiny, real
+from ._math import NAN, PI, Struct, fma, fnms, safe_sqrt, tiny, real
 
 __all__ = [
     "PNR_Q_WINDOW_LOWER", "PNR_CHI_WINDOW_LOWER", "PNR_Q_WINDOW_UPPER", "PNR_CHI_WINDOW_UPPER",
@@ -65,13 +54,12 @@ __all__ = [
     "beta_rescaling_1", "beta_rescaling_2", "rescale_beta",
     "st_beta_coeffs_0", "st_beta_coeffs_1", "st_beta_coeffs_2", "st_beta_coeffs_3",
     "beta_connection", "arctan_window", "attach_mr_beta", "attach_weight",
-    "inflection_cubic", "two_inflection_points", "three_inflection_points",
-    "single_inflection_point", "beta_connection_frequencies",
+    "inflection_cubic", "beta_connection_frequencies",
     "chi_calc", "pn_waveform_beta",
     "angles_window", "coprec_window",
     "linear_frequency_slope", "linear_frequency_map",
     "linear_frequency_map_transition_frequencies",
-    "boole_step", "alphadot_cosbeta", "sqrt_one_minus_square",
+    "sqrt_one_minus_square",
 ]
 
 #: Calibration region of the PNR angles: ``q <= 8.5`` and ``chi <= 0.85``.
@@ -159,16 +147,6 @@ def _ratio(numerator, denominator):
     return jnp.where(ok, numerator / jnp.where(ok, denominator, 1.0), 0.0)
 
 
-def _rounded(*values):
-    """The values, rounded: an ``optimization_barrier`` keeps XLA (which
-    contracts ``a * b + c`` into fused multiply-adds when it compiles) from
-    fusing a product into the sum or difference that uses it (not in the
-    lean model)."""
-    if not is_lean():
-        values = lax.optimization_barrier(values)
-    return values[0] if len(values) == 1 else values
-
-
 def _atan2_tol(a, b, tol):
     """``XLALSimIMRPhenomXatan2tol``: ``atan2(a, b)``, 0 where both
     arguments are below ``tol`` in magnitude (zero gradient there)."""
@@ -176,83 +154,44 @@ def _atan2_tol(a, b, tol):
     return jnp.where(small, 0.0, jnp.arctan2(jnp.where(small, 1.0, a), jnp.where(small, 1.0, b)))
 
 
-class _Branches:
-    """The discrete decisions of an evaluation with LAL's arithmetic,
-    recorded in order, replayed by the differentiable evaluation (see the
-    module docstring)."""
-
-    def __init__(self, recorded=None):
-        self.replay = recorded is not None
-        self.recorded = [] if recorded is None else list(recorded)
-        self.index = 0
-
-    def __call__(self, condition):
-        if self.replay:
-            condition = self.recorded[self.index]
-            self.index += 1
-            return condition
-        self.recorded.append(condition)
-        return condition
-
-
-def _raw_and_safe(function, *args):
-    """``function(*args, safe, branch)`` with LAL's arithmetic (``safe =
-    False``, NaNs included, no gradient) for the decisions and with finite
-    stand-ins (``safe = True``) for the values: LAL's value where it is not
-    finite, the differentiable one elsewhere.
-
-    The arguments pass an ``optimization_barrier``: XLA would otherwise
-    duplicate their (expensive) computation, e.g. the fits of the
-    coefficients, into the many kernels of both evaluations and their
+def _finite(function, *args):
+    """``function(*args)``, its arguments behind an ``optimization_barrier``:
+    XLA would otherwise duplicate their (expensive) computation, e.g. the
+    fits of the coefficients, into the many kernels of the function and its
     derivatives, which multiplies the compilation time."""
-    args = lax.optimization_barrier(args)
-    if is_lean():
-        # (the lean model: the decisions of the finite evaluation)
-        return function(*args, safe=True, branch=_Branches())
-    branches = _Branches()
-    raw = function(*jax.tree_util.tree_map(lax.stop_gradient, args), safe=False, branch=branches)
-    safe = function(*args, safe=True, branch=_Branches(branches.recorded))
-    return jax.tree_util.tree_map(lambda r, s: jnp.where(jnp.isfinite(r), s, r), raw, safe)
+    return function(*lax.optimization_barrier(args))
 
 
-def _sqrt(x, safe):
-    """``sqrt``; with ``safe``, 0 (zero gradient) for negative arguments and
-    a zero gradient at 0."""
-    if not safe:
-        return jnp.sqrt(x)
+def _sqrt(x):
+    """``sqrt``, 0 (zero gradient) for negative arguments and a zero
+    gradient at 0."""
     positive = x > 0
     return jnp.where(positive, jnp.sqrt(jnp.where(positive, x, 1.0)), jnp.where(x == 0, x, 0.0))
 
 
-def _div(numerator, denominator, safe):
-    """``numerator / denominator``; with ``safe``, ``numerator`` where the
-    denominator vanishes."""
-    if not safe:
-        return numerator / denominator
+def _div(numerator, denominator):
+    """``numerator / denominator``, ``numerator`` where the denominator
+    vanishes."""
     return numerator / jnp.where(denominator != 0, denominator, 1.0)
 
 
-def _acos(x, safe):
-    """``acos``; with ``safe``, 0 or pi (zero gradient) outside ``(-1, 1)``."""
-    if not safe:
-        return jnp.arccos(x)
+def _acos(x):
+    """``acos``, 0 or pi (zero gradient) outside ``(-1, 1)``."""
     inside = jnp.abs(x) < 1
     return jnp.where(inside, jnp.arccos(jnp.where(inside, x, 0.0)), jnp.where(x > 0, 0.0, PI))
 
 
-# complex numbers as (re, im) pairs with C's double complex arithmetic as
-# compiled in LAL: no fused multiply-adds, signed zeros included (they
-# choose the branch of csqrt)
+# complex numbers as (re, im) pairs with C's double complex arithmetic,
+# signed zeros included (they choose the branch of csqrt)
 
 
 def _cmul(x, y):
-    rr, ii, ri, ir = _rounded(x[0] * y[0], x[1] * y[1], x[0] * y[1], x[1] * y[0])
-    return (rr - ii, ri + ir)
+    return (x[0] * y[0] - x[1] * y[1], x[0] * y[1] + x[1] * y[0])
 
 
 def _cscale(x, s):
     """``real * complex``, componentwise."""
-    return _rounded(s * x[0], s * x[1])
+    return (s * x[0], s * x[1])
 
 
 def _cadd(x, y):
@@ -263,31 +202,24 @@ def _csub(x, y):
     return (x[0] - y[0], x[1] - y[1])
 
 
-def _cdiv(x, y, safe):
-    """``complex / complex``: compiler-rt's ``__divdc3`` (its scaling by
-    ``logb`` of the denominator is exact and only matters for overflow; the
-    NaN recovery branches are not needed here)."""
+def _cdiv(x, y):
+    """``complex / complex`` (1 for the denominator where it vanishes)."""
     (a, b), (c, d) = x, y
     denom = fma(c, c, d * d)
-    if safe:
-        denom = jnp.where(denom != 0, denom, 1.0)
+    denom = jnp.where(denom != 0, denom, 1.0)
     return (fma(a, c, b * d) / denom, fma(b, c, -(a * d)) / denom)
 
 
-def _csqrt(x, safe):
+def _csqrt(x):
     """C99 ``csqrt`` for an argument with vanishing imaginary part (whose
     sign gives the sign of the imaginary part of the root of a negative
-    number)."""
+    number), with finite gradients."""
     re, im = x
     negative = re < 0
-    if safe:
-        positive = re > 0
-        root = jnp.where(positive, jnp.sqrt(jnp.where(positive, re, 1.0)), re)
-        root_neg = jnp.sqrt(jnp.where(negative, -re, 1.0))
-        return (jnp.where(negative, 0.0, root), jnp.where(negative, jnp.copysign(root_neg, im), im))
-    out_re = jnp.where(negative, 0.0, jnp.sqrt(re))
-    out_im = jnp.where(negative, jnp.copysign(jnp.sqrt(-re), im), im)
-    return (out_re, jnp.where(jnp.isnan(re), re, out_im))
+    positive = re > 0
+    root = jnp.where(positive, jnp.sqrt(jnp.where(positive, re, 1.0)), re)
+    root_neg = jnp.sqrt(jnp.where(negative, -re, 1.0))
+    return (jnp.where(negative, 0.0, root), jnp.where(negative, jnp.copysign(root_neg, im), im))
 
 
 # ---------------------------------------------------------------------------
@@ -517,18 +449,16 @@ BETA_SOFT_SIGN = 0.05
 
 def attach_weight(p, soft=None):
     """The weight of the ``beta`` with the MR ``beta`` attached against the
-    one without: :func:`attach_mr_beta` (0 or 1), or with ``soft`` (a
-    half-width in ``Mf``), its tests blended across bands of half-width
-    ``soft`` in ``Mf_beta_lower``, :data:`BETA_SOFT_ANGLE` in the upper
-    bound on ``beta_upper`` and :data:`BETA_SOFT_SIGN` in its sign relative
-    to ``|beta_upper| + |beta_lower|`` (0 where there is no connection)."""
-    attach = attach_mr_beta(p)
-    if soft is None:
-        return jnp.where(attach, 1.0, 0.0)
+    one without: the tests of :func:`attach_mr_beta` blended across bands of
+    half-width ``soft`` (default :data:`BETA_SOFT_WIDTH`) in
+    ``Mf_beta_lower``, :data:`BETA_SOFT_ANGLE` in the upper bound on
+    ``beta_upper`` and :data:`BETA_SOFT_SIGN` in its sign relative to
+    ``|beta_upper| + |beta_lower|`` (0 where there is no connection)."""
+    soft = BETA_SOFT_WIDTH if soft is None else soft
     # the sign of beta_upper relative to the size of beta at the connection
     # (which scales with the spin): a band that does not catch small spins
     size = jnp.abs(p.beta_upper) + jnp.abs(p.beta_lower)
-    w = _ramp(p.mf_beta_lower - 0.009, soft) * _ramp(_div(p.beta_upper, size, True), BETA_SOFT_SIGN)
+    w = _ramp(p.mf_beta_lower - 0.009, soft) * _ramp(_div(p.beta_upper, size), BETA_SOFT_SIGN)
     w = w * _ramp(5.0 * (p.b0 + 0.1) - p.beta_upper, BETA_SOFT_ANGLE)
     return jnp.where(p.mf_beta_lower == 100.0, 0.0, w)
 
@@ -546,14 +476,14 @@ def inflection_cubic(p):
     return a, b, c, d
 
 
-def _two_roots(b, c, d, safe):
+def _two_roots(b, c, d):
     """``IMRPhenomX_PNR_two_inflection_points`` as (re, im) pairs."""
-    w = _csqrt((fma(c, c, -(4.0 * b * d)), 0.0), safe)
-    k = _div(1.0, 2.0 * b, safe)
+    w = _csqrt((fma(c, c, -(4.0 * b * d)), 0.0))
+    k = _div(1.0, 2.0 * b)
     return [_cscale((-c + w[0], w[1]), k), _cscale((-c - w[0], -w[1]), k)]
 
 
-def _three_roots(a, b, c, d, safe):
+def _three_roots(a, b, c, d):
     """``IMRPhenomX_PNR_three_inflection_points`` as (re, im) pairs: the
     trigonometric formula for the roots of the depressed cubic ``t^3 + r t +
     s`` in LAL's complex arithmetic, with the implicit conversions of the
@@ -561,19 +491,19 @@ def _three_roots(a, b, c, d, safe):
     ca, cb, cc, cd = (a, 0.0), (b, 0.0), (c, 0.0), (d, 0.0)
     three_a = _cscale(ca, 3.0)
     # r = (3ac - b^2) / (3a^2), s = (2b^3 - 9abc + 27a^2 d) / (27a^3)
-    r = _cdiv(_csub(_cmul(three_a, cc), _cmul(cb, cb)), _cmul(three_a, ca), safe)
+    r = _cdiv(_csub(_cmul(three_a, cc), _cmul(cb, cb)), _cmul(three_a, ca))
     s_num = _cadd(
         _csub(_cmul(_cmul(_cscale(cb, 2.0), cb), cb), _cmul(_cmul(_cscale(ca, 9.0), cb), cc)),
         _cmul(_cmul(_cscale(ca, 27.0), ca), cd),
     )
-    s = _cdiv(s_num, _cmul(_cmul(_cscale(ca, 27.0), ca), ca), safe)
+    s = _cdiv(s_num, _cmul(_cmul(_cscale(ca, 27.0), ca), ca))
     # phi = acos(Re[(3 s / (2 r)) csqrt(-3 / r)])
-    q1 = _cdiv(_cscale(s, 3.0), _cscale(r, 2.0), safe)
-    w1 = _csqrt(_cdiv((-3.0, 0.0), r, safe), safe)
-    phi = _acos(_cmul(q1, w1)[0], safe)
+    q1 = _cdiv(_cscale(s, 3.0), _cscale(r, 2.0))
+    w1 = _csqrt(_cdiv((-3.0, 0.0), r))
+    phi = _acos(_cmul(q1, w1)[0])
     # 2 csqrt(-r / 3) cos((phi - 2 n pi) / 3) - b / (3a)
-    two_w2 = _cscale(_csqrt((-r[0] / 3.0, -r[1] / 3.0), safe), 2.0)
-    q = _cdiv(cb, three_a, safe)
+    two_w2 = _cscale(_csqrt((-r[0] / 3.0, -r[1] / 3.0)), 2.0)
+    q = _cdiv(cb, three_a)
     roots = []
     for n in range(3):
         cosv = jnp.cos((phi - 2.0 * n * PI) / 3.0)
@@ -589,15 +519,12 @@ def _ramp(s, soft):
     return t * t * t * fma(t, fma(6.0, t, -15.0), 10.0)
 
 
-def _select(branch, condition, s, a, b, soft=None):
-    """``a`` where LAL's ``condition`` (recorded by ``branch``) holds, else
-    ``b``; with ``soft``, blended across ``|s| < soft`` of the continuous
-    ``s`` whose sign is the condition, where both are finite (LAL's choice
-    where one is not: a candidate LAL does not compute there)."""
-    condition = branch(condition)
+def _select(condition, s, a, b, soft):
+    """``a`` where LAL's ``condition`` holds, else ``b``, blended across
+    ``|s| < soft`` of the continuous ``s`` whose sign is the condition,
+    where both are finite (LAL's choice where one is not: a candidate LAL
+    does not compute there)."""
     hard = jnp.where(condition, a, b)
-    if soft is None:
-        return hard
     w = _ramp(s, soft)
     blend = jnp.where(w >= 1.0, a, jnp.where(w <= 0.0, b, fma(w, a - b, b)))
     return jnp.where(jnp.isfinite(a) & jnp.isfinite(b), blend, hard)
@@ -650,156 +577,113 @@ def _bracketed_roots(a, b, c, d, iterations=110):
     return out
 
 
-def _single_inflection_point(p, safe, branch, soft=None):
-    a, b, c, d = inflection_cubic(p)
-    small_a = branch(jnp.abs(a) < 1e-10)
-    small_b = branch(jnp.abs(b) < 2e-10)
-    # the stand-ins keep the cases that are not selected finite
-    if safe:
-        c_one = jnp.where(small_a & small_b, c, 1.0)
-        b_two = jnp.where(small_b, 1.0, b)
-        a_three = jnp.where(small_a, 1.0, a)
-    else:
-        c_one, b_two, a_three = c, b, a
-    # a = b = 0: the single inflection point
-    f_one = _div(-d, c_one, safe)
-    # a = 0: the inflection point with negative gradient
-    roots = _two_roots(b_two, c, d, safe)
-    negative = [branch(mr_dbeta(root[0], p) < 0.0) for root in roots]
-    f_two = jnp.where(negative[1], roots[1][0], jnp.where(negative[0], roots[0][0], 0.0))
-    # three roots: the real one if only one is (a substantial imaginary part,
-    # sic: without fabs, marks a complex root), else Eq. 69
-    roots = _three_roots(a_three, b, c, d, safe)
-    if soft is not None:
-        # the trigonometric formula loses the roots where a is small next to
-        # the other coefficients (for b / a ~ 1e7 only ~1e-2 of them is
-        # left, and LAL's choice jumps between them): the real roots in its
-        # (descending) order, bracketed by the stationary points
-        stable = _bracketed_roots(a, b, c, d)
-        roots = [(jnp.where(jnp.isfinite(x), x, root[0]), root[1]) for x, root in zip(stable, roots)]
-    real = [branch(root[1] < 1e-10) for root in roots]
-    count = sum(jnp.where(x, 1, 0) for x in real)
-    f_temp = jnp.where(real[2], roots[2][0], jnp.where(real[1], roots[1][0], jnp.where(real[0], roots[0][0], 0.0)))
-    a_negative = branch(a < 0.0)
-    s69 = _div(b, 3.0 * a_three, safe) - (p.b5 / 2.0 - (2141.0 / 90988.0))
-    eq69 = _select(branch, s69 > 0.0, s69, roots[0][0], roots[2][0], soft)
-    f_three = jnp.where(count == 1, f_temp, jnp.where(a_negative, roots[1][0], eq69))
-    return jnp.where(small_a, jnp.where(small_b, f_one, f_two), f_three)
-
-
-def two_inflection_points(p):
-    """``IMRPhenomX_PNR_two_inflection_points``: the two roots (complex) of
-    the inflection cubic when its cubic term vanishes."""
-    _, b, c, d = inflection_cubic(p)
-    def parts(b, c, d, safe, branch):
-        return tuple(x for root in _two_roots(b, c, d, safe) for x in root)
-
-    values = _raw_and_safe(parts, b, c, d)
-    return tuple(lax.complex(values[2 * n], values[2 * n + 1]) for n in range(2))
-
-
-def three_inflection_points(p):
-    """``IMRPhenomX_PNR_three_inflection_points``: the three roots (complex)
-    of the inflection cubic (Eq. 68 of arXiv:2107.08876), from the
-    trigonometric formula in LAL's complex arithmetic: NaN where the
-    argument of ``acos`` leaves ``[-1, 1]`` (complex roots; for the MR
-    ``beta`` the three roots are real and this only happens by rounding at
-    double roots)."""
-    a, b, c, d = inflection_cubic(p)
-
-    def parts(a, b, c, d, safe, branch):
-        return tuple(x for root in _three_roots(a, b, c, d, safe) for x in root)
-
-    values = _raw_and_safe(parts, a, b, c, d)
-    return tuple(lax.complex(values[2 * n], values[2 * n + 1]) for n in range(3))
-
-
-def single_inflection_point(p):
+def _single_inflection_point(p, soft):
     """``IMRPhenomX_PNR_single_inflection_point``: the inflection frequency
     of the MR ``beta`` used for its connection (Eq. 69 of
     arXiv:2107.08876): ``-d / c`` when the cubic and quadratic terms of the
     inflection cubic vanish (``|a| < 1e-10``, ``|b| < 2e-10``), the root
     with negative gradient of ``beta`` when the cubic term vanishes, else
     the real root of three if only one is real, the central root for ``a <
-    0`` and the first or last root by Eq. 69. NaN where LAL's is (complex
-    roots of the trigonometric formula, see
-    :func:`three_inflection_points`, or ``-d / c = 0 / 0``)."""
-    return _raw_and_safe(_single_inflection_point, p)
+    0`` and the first or last root by Eq. 69 (blended across ``soft``)."""
+    a, b, c, d = inflection_cubic(p)
+    small_a = jnp.abs(a) < 1e-10
+    small_b = jnp.abs(b) < 2e-10
+    # the stand-ins keep the cases that are not selected finite
+    c_one = jnp.where(small_a & small_b, c, 1.0)
+    b_two = jnp.where(small_b, 1.0, b)
+    a_three = jnp.where(small_a, 1.0, a)
+    # a = b = 0: the single inflection point
+    f_one = _div(-d, c_one)
+    # a = 0: the inflection point with negative gradient
+    roots = _two_roots(b_two, c, d)
+    negative = [mr_dbeta(root[0], p) < 0.0 for root in roots]
+    f_two = jnp.where(negative[1], roots[1][0], jnp.where(negative[0], roots[0][0], 0.0))
+    # three roots: the real one if only one is (a substantial imaginary part,
+    # sic: without fabs, marks a complex root), else Eq. 69
+    roots = _three_roots(a_three, b, c, d)
+    # the trigonometric formula loses the roots where a is small next to the
+    # other coefficients (for b / a ~ 1e7 only ~1e-2 of them is left, and
+    # LAL's choice jumps between them): the real roots in its (descending)
+    # order, bracketed by the stationary points
+    stable = _bracketed_roots(a, b, c, d)
+    roots = [(jnp.where(jnp.isfinite(x), x, root[0]), root[1]) for x, root in zip(stable, roots)]
+    real = [root[1] < 1e-10 for root in roots]
+    count = sum(jnp.where(x, 1, 0) for x in real)
+    f_temp = jnp.where(real[2], roots[2][0], jnp.where(real[1], roots[1][0], jnp.where(real[0], roots[0][0], 0.0)))
+    a_negative = a < 0.0
+    s69 = _div(b, 3.0 * a_three) - (p.b5 / 2.0 - (2141.0 / 90988.0))
+    eq69 = _select(s69 > 0.0, s69, roots[0][0], roots[2][0], soft)
+    f_three = jnp.where(count == 1, f_temp, jnp.where(a_negative, roots[1][0], eq69))
+    return jnp.where(small_a, jnp.where(small_b, f_one, f_two), f_three)
 
 
-def _beta_connection_frequencies(p, safe, branch, soft=None):
+def _beta_connection_frequencies(p, soft):
     b1, b2, b3, b4, b5 = p.b1, p.b2, p.b3, p.b4, p.b5
-    mf_inflection = _single_inflection_point(p, safe, branch, soft)
+    mf_inflection = _single_inflection_point(p, soft)
     dbeta_inflection = mr_dbeta(mf_inflection, p)
 
     # the two extrema of beta
     k = fma(b3 * b4 * b5, b5, fma(-b1, b4, b3))
     root_term = fma(b4 * fma(-(2.0 * b3), b5, b2), fma(b2 * b4 * b5, b5, fma(-(2.0 * b1 * b4), b5, b2)), k * k)
     den = b4 * fma(-(2.0 * b3), b5, b2)
-    sqrt_root_term = _sqrt(root_term, safe)
-    mf_plus = _div(k + sqrt_root_term, den, safe)
-    mf_minus = _div(k - sqrt_root_term, den, safe)
+    sqrt_root_term = _sqrt(root_term)
+    mf_plus = _div(k + sqrt_root_term, den)
+    mf_minus = _div(k - sqrt_root_term, den)
     # classified by the sign of the second derivative
-    plus_is_minimum = branch(mr_ddbeta(mf_plus, p) > 0.0)
+    plus_is_minimum = mr_ddbeta(mf_plus, p) > 0.0
     mf_at_minimum = jnp.where(plus_is_minimum, mf_plus, mf_minus)
     mf_at_maximum = jnp.where(plus_is_minimum, mf_minus, mf_plus)
     ddbeta = mr_ddbeta(mf_at_maximum, p)
     dddbeta = mr_dddbeta(mf_at_maximum, p)
 
     # Eqs. 56 and 57: the step from the maximum
-    sign = jnp.where(branch(dbeta_inflection > 0.0), 1.0, -1.0)
+    sign = jnp.where(dbeta_inflection > 0.0, 1.0, -1.0)
     chosen_dbeta = sign * (dbeta_inflection / 100.0 * (dbeta_inflection / 100.0)) * 25.0
-    root = _sqrt(fma(ddbeta, ddbeta, 2.0 * dddbeta * chosen_dbeta), safe)
-    inverse = _div(1.0, dddbeta, safe)
+    root = _sqrt(fma(ddbeta, ddbeta, 2.0 * dddbeta * chosen_dbeta))
+    inverse = _div(1.0, dddbeta)
     d1 = inverse * (-ddbeta + root)
     d2 = inverse * (-ddbeta - root)
-    # (LAL's choice also for the smooth connection: the step from the
-    # maximum scales with the size of beta, which leaves no band of fixed
-    # width that separates its choices only where they change)
-    d1_positive = branch(d1 > 0.0)
-    d2_positive = branch(d2 > 0.0)
-    d1_smaller = branch(d1 < d2)
+    # (LAL's choice: the step from the maximum scales with the size of beta,
+    # which leaves no band of fixed width that separates its choices only
+    # where they change)
+    d1_positive = d1 > 0.0
+    d2_positive = d2 > 0.0
+    d1_smaller = d1 < d2
     delta = jnp.where(d1_positive, jnp.where(d2_positive, jnp.where(d1_smaller, d1, d2), d1), d2)
 
     # Eq. 58, and the three shapes of Fig. 10 of arXiv:2107.08876
-    mf_low = _select(branch, mf_inflection >= 0.06, mf_inflection - 0.06, mf_inflection - 0.03,
+    mf_low = _select(mf_inflection >= 0.06, mf_inflection - 0.06, mf_inflection - 0.03,
                      3.0 * mf_inflection / 5.0, soft)
     s_turnover = jnp.maximum(mf_at_minimum - mf_at_maximum, mf_inflection - mf_at_maximum)
     s_above_low = mf_at_maximum - mf_low
-    after_maximum = _select(branch, mf_at_maximum >= mf_low, s_above_low, mf_at_maximum + delta, mf_low, soft)
-    before_minimum = _select(branch, mf_at_minimum > 0.06, mf_at_minimum - 0.06, mf_at_minimum - 0.03,
+    after_maximum = _select(mf_at_maximum >= mf_low, s_above_low, mf_at_maximum + delta, mf_low, soft)
+    before_minimum = _select(mf_at_minimum > 0.06, mf_at_minimum - 0.06, mf_at_minimum - 0.03,
                              3.0 * mf_at_minimum / 5.0, soft)
     turnover = (mf_at_minimum > mf_at_maximum) | (mf_inflection > mf_at_maximum)
-    mf_im = _select(branch, turnover, s_turnover, after_maximum, before_minimum, soft)
-    if soft is not None:
-        # where the coefficient of the cubic of the inflection points changes
-        # sign, the maximum of beta leaves to -inf and comes back from +inf:
-        # the shape of beta does not change in any waveform's range, but
-        # LAL's turnover does. Beyond |Mf| = 1 / FAR_MAXIMUM the two are
-        # blended in 1 / Mf of the maximum (continuous through infinity)
-        inverse = _div(1.0, mf_at_maximum, True)
-        far = jnp.abs(inverse) < FAR_MAXIMUM
-        blended = fma(_ramp(-inverse, FAR_MAXIMUM), mf_low - before_minimum, before_minimum)
-        mf_im = jnp.where(far & jnp.isfinite(blended), blended, mf_im)
-    freeze = branch(mf_at_minimum > mf_inflection)
-    if soft is None:
-        mf_mr = jnp.where(freeze, mf_at_minimum, 100.0)
-        weight = jnp.ones_like(mf_mr)
-    else:
-        # beta held from its minimum with a weight, rather than not at all
-        # (mf_beta_upper = 100) below the inflection point
-        finite = jnp.isfinite(mf_at_minimum)
-        mf_mr = jnp.where(finite, mf_at_minimum, 100.0)
-        weight = jnp.where(finite, _ramp(mf_at_minimum - mf_inflection, soft), 0.0)
+    mf_im = _select(turnover, s_turnover, after_maximum, before_minimum, soft)
+    # where the coefficient of the cubic of the inflection points changes
+    # sign, the maximum of beta leaves to -inf and comes back from +inf: the
+    # shape of beta does not change in any waveform's range, but LAL's
+    # turnover does. Beyond |Mf| = 1 / FAR_MAXIMUM the two are blended in 1 /
+    # Mf of the maximum (continuous through infinity)
+    inverse = _div(1.0, mf_at_maximum)
+    far = jnp.abs(inverse) < FAR_MAXIMUM
+    blended = fma(_ramp(-inverse, FAR_MAXIMUM), mf_low - before_minimum, before_minimum)
+    mf_im = jnp.where(far & jnp.isfinite(blended), blended, mf_im)
+    # beta held from its minimum with a weight, rather than not at all
+    # (LAL's mf_beta_upper = 100) below the inflection point
+    finite = jnp.isfinite(mf_at_minimum)
+    mf_mr = jnp.where(finite, mf_at_minimum, 100.0)
+    weight = jnp.where(finite, _ramp(mf_at_minimum - mf_inflection, soft), 0.0)
     # failsafe: no MR beta
-    fail = branch((mf_im < 0.0) | jnp.isnan(mf_im))
+    fail = (mf_im < 0.0) | jnp.isnan(mf_im)
     return jnp.where(fail, 100.0, mf_im), jnp.where(fail, 100.0, mf_mr), weight
 
 
-#: The half-width (in ``Mf``) of the bands across which the smooth
-#: connection blends LAL's choices.
+#: The half-width (in ``Mf``) of the bands across which the connection of
+#: ``beta`` blends LAL's choices.
 BETA_SOFT_WIDTH = 0.002
-#: The smooth connection blends the turnover of ``beta`` where its maximum
+#: The connection blends the turnover of ``beta`` where its maximum
 #: lies beyond ``|Mf| = 1 / FAR_MAXIMUM`` (see :func:`_beta_connection_frequencies`).
 FAR_MAXIMUM = 0.1
 
@@ -809,17 +693,17 @@ def beta_connection_frequencies(p, soft=None):
     and upper connection frequencies of ``beta`` (``mf_beta_lower``,
     ``mf_beta_upper``; Sec. 8B of arXiv:2107.08876) from the inflection
     point and the extrema of the MR ``beta``. Both are 100 (no MR ``beta``)
-    where the lower one is negative or NaN; the upper one is 100 where the
-    minimum of ``beta`` is below the inflection point.
+    where the lower one is negative or NaN.
 
-    With ``soft`` (a half-width in ``Mf``, e.g. :data:`BETA_SOFT_WIDTH`),
     LAL's choices between candidate frequencies (the rules at ``Mf =
-    0.06``, the turnover of ``beta``, the root of Eq. 69) are blended across bands of that half-width of the quantities
-    they compare, so that the frequencies are continuous; and instead of
-    the upper frequency switching to 100 where the minimum of ``beta``
-    falls below its inflection point, the weight ``beta_freeze`` of
+    0.06``, the turnover of ``beta``, the root of Eq. 69) are blended across
+    bands of half-width ``soft`` (default :data:`BETA_SOFT_WIDTH`) of the
+    quantities they compare, so that the frequencies are continuous; and
+    instead of the upper frequency switching to 100 where the minimum of
+    ``beta`` falls below its inflection point, the weight ``beta_freeze`` of
     ``beta`` held from the minimum goes smoothly from 1 to 0."""
-    lower, upper, freeze = _raw_and_safe(functools.partial(_beta_connection_frequencies, soft=soft), p)
+    soft = BETA_SOFT_WIDTH if soft is None else soft
+    lower, upper, freeze = _finite(functools.partial(_beta_connection_frequencies, soft=soft), p)
     return p.replace(mf_beta_lower=lower, mf_beta_upper=upper, beta_freeze=freeze)
 
 
@@ -942,28 +826,6 @@ def linear_frequency_map_transition_frequencies(emmprime, mf_rd_22, mf_rd_lm, pn
     mf_high = 1.1 * (pnr_hm_mfhigh + (mf_rd_lm - mf_rd_22))
     fallback = (mf_high < 0.0) | ((mf_rd_lm - mf_rd_22 < 0.0) & (mf_high < pnr_hm_mfhigh / 2.0))
     return mf_low, jnp.where(fallback, pnr_hm_mfhigh, mf_high)
-
-
-def boole_step(gamma_prev, t1, t2, f):
-    """One step of the integral of ``gamma`` in
-    ``IMRPhenomX_PNR_GeneratePNRGamma(_FromInterpolants)``: ``gamma_prev``
-    plus the integral of ``f`` over ``[t1, t2]`` by Boole's rule. ``f`` is
-    vectorised: it is called once, on the five nodes stacked along a new
-    leading axis (``t1`` and ``t2`` may be arrays of intervals); in LAL it
-    is :func:`alphadot_cosbeta` of the splines of ``alpha`` and ``beta``."""
-    t1 = jnp.asarray(t1)
-    t2 = jnp.asarray(t2)
-    nodes = jnp.stack([t1, fma(3.0, t2, t1) / 4.0, (t1 + t2) / 2.0, fma(3.0, t1, t2) / 4.0, t2])
-    f1, fa, fm, fb, f2 = f(nodes)
-    total = fma(7.0, f2, fma(32.0, fb, fma(12.0, fm, fma(7.0, f1, 32.0 * fa))))
-    return fma(1.0 / 90.0 * (t2 - t1), total, gamma_prev)
-
-
-def alphadot_cosbeta(alphadot, beta):
-    """``IMRPhenomX_PNR_alphadot_cosbeta``: the integrand ``-alpha' cos(beta)``
-    of ``gamma`` (Eq. A7 of arXiv:2107.08876) from the derivative of
-    ``alpha`` and ``beta`` at a frequency."""
-    return -1.0 * alphadot * jnp.cos(beta)
 
 
 def sqrt_one_minus_square(x):

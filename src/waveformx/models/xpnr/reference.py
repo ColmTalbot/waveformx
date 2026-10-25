@@ -1,14 +1,14 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
-"""Converters between the reference conventions of the lean IMRPhenomXPNR.
+"""Converters between the reference conventions of IMRPhenomXPNR.
 
 LAL's convention gives the spins, the inclination and ``phi_ref`` of a
 binary at a reference frequency ``f_ref`` in Hz (``Binary.f_ref``); the
 mass-scaled one (``WaveformOptions.reference_mf``) at ``f_ref =
 reference_mf / M``. A binary is converted by evolving its spins and orbital
 angular momentum between the two frequencies with the precession equations
-of the lean model (the orbit-averaged SpinTaylorT4 equations of
+of the model (the orbit-averaged SpinTaylorT4 equations of
 :mod:`.spintaylor.dynamics`, integrated in ``u = 1 / (M omega)`` with a fixed
 number of DOP853 steps).
 
@@ -34,10 +34,10 @@ reference: IMRPhenomXPNR takes the aligned spins of the co-precessing
 modes, ``J`` and the parameters of its fits at the reference, so LAL
 itself at two references differs by up to ~1e-2 in mismatch for strongly
 precessing binaries. Given the converted binary at ``f_ref =
-reference_mf / M``, LAL agrees with the lean model with the mass-scaled
-reference as closely as with the lean model in its own convention.
+reference_mf / M``, LAL agrees with the model with the mass-scaled
+reference as closely as with the model in its own convention.
 
-The lean model with the mass-scaled reference is invariant: whatever its
+The model with the mass-scaled reference is invariant: whatever its
 ``reference_mf``, it carries the binary to the canonical reference
 ``REFERENCE_MF`` (:func:`to_canonical`) and takes everything that depends
 on the reference there, its polarization basis included. Conversions
@@ -57,7 +57,7 @@ import jax.numpy as jnp
 from ..._binary import Binary
 from ..._options import REFERENCE_MF
 from ._generated import dop853
-from ._math import MTSUN_SI, PI, lean, mass_unit, powers, precision, precision_of, real
+from ._math import MTSUN_SI, PI, mass_unit, powers, precision, precision_of, real
 from .internals import waveform_struct
 from .phase22 import phase_22
 from .spintaylor import dynamics
@@ -202,7 +202,7 @@ def _mass_scaled(binary, mf):
 
 def canonical_steps(reference_mf):
     """The DOP853 steps of :func:`to_canonical` from ``reference_mf``: the
-    steps in ``u = 1 / (M omega)`` of the lean SpinTaylor solution
+    steps in ``u = 1 / (M omega)`` of the SpinTaylor solution
     (:data:`.spintaylor.angles.STEP_ANGLE` of the precession of ``L`` per
     step, for equal masses, the fastest) between the two references, at
     least :data:`MIN_CANONICAL_STEPS`. Static: both references are numbers
@@ -219,7 +219,7 @@ MIN_CANONICAL_STEPS = 4
 def to_canonical(binary, reference_mf):
     """``binary`` given at the mass-scaled reference ``reference_mf / M`` as
     a binary given at the canonical reference ``REFERENCE_MF / M``, where
-    the lean model with the mass-scaled reference takes everything that
+    the model with the mass-scaled reference takes everything that
     depends on the reference (the aligned spins of the co-precessing
     modes, ``J``, the parameters of the PNR fits, the offsets of the
     angles, the alignment of the phase, the line of sight and the basis of
@@ -248,8 +248,7 @@ def to_mass_scaled_reference(binary, reference_mf=REFERENCE_MF, steps=STEPS, ret
     """``binary`` given at its reference frequency ``binary.f_ref`` (Hz,
     LAL's convention; it must be positive) as a binary given at the
     mass-scaled reference ``reference_mf / M`` (``f_ref`` zero), for the
-    lean model with ``WaveformOptions(lean=True,
-    reference_mf=reference_mf)``: the same spins, orbital angular momentum
+    model with ``WaveformOptions(reference_mf=reference_mf)``: the same spins, orbital angular momentum
     and line of sight (see the module). With ``return_angle``, also the
     angle ``psi`` by which the polarization basis turns: the polarizations
     of the two binaries are related, up to time and phase shifts, by
@@ -258,7 +257,7 @@ def to_mass_scaled_reference(binary, reference_mf=REFERENCE_MF, steps=STEPS, ret
     The conversion passes through the canonical reference ``REFERENCE_MF /
     M`` (:func:`to_canonical`), whose aligned spins give the orbital phase
     of both legs, so that conversions between mass-scaled references
-    compose: the lean model gives the same waveform for a binary at any
+    compose: the model gives the same waveform for a binary at any
     two of them.
 
     Pure: ``jax.jit``, ``jax.vmap`` and ``jax.grad`` work, in float32 for a
@@ -266,7 +265,7 @@ def to_mass_scaled_reference(binary, reference_mf=REFERENCE_MF, steps=STEPS, ret
     references (thousands of radians for light binaries) costs ~1e-4 in
     the spins and angles: convert in float64. NaN for a zero or negative ``f_ref``; ``steps`` (static)
     is the number of steps of each leg of the integration."""
-    with precision(precision_of(binary)), lean(True):
+    with precision(precision_of(binary)):
         f_from = jnp.asarray(binary.f_ref, real())
         f_from = jnp.where(f_from > 0.0, f_from, jnp.nan)
         out, psi = _convert(binary, f_from, _mass_scaled(binary, REFERENCE_MF), 0.0, steps, None)
@@ -283,7 +282,7 @@ def to_physical_reference(binary, f_ref, reference_mf=REFERENCE_MF, steps=STEPS,
     as a binary given at the reference frequency ``f_ref`` (Hz, LAL's
     convention), with ``return_angle`` the rotation of the polarizations
     as there."""
-    with precision(precision_of(binary)), lean(True):
+    with precision(precision_of(binary)):
         f_to = jnp.asarray(f_ref, real())
         canon, psi = _to_canonical_angle(binary, reference_mf, steps)
         out, psi2 = _convert(canon, _mass_scaled(binary, REFERENCE_MF), f_to, f_to, steps, canon)

@@ -1,12 +1,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
-"""The SpinTaylor solution of the lean IMRPhenomXPNR (:mod:`..lean`).
+"""The SpinTaylor solution of IMRPhenomXPNR (:mod:`..model`).
 
-The physics is that of :func:`.angles.pn_solution`, LAL's
-``IMRPhenomX_InspiralAngles_SpinTaylor``: the orbit-averaged SpinTaylorT4
-equations from the reference frequency backwards to ``f_min - 0.5 Hz`` and
-forwards to the end of the inspiral. What LAL's numerics add to it is left
+The physics is that of LAL's ``IMRPhenomX_InspiralAngles_SpinTaylor``: the
+orbit-averaged SpinTaylorT4 equations from the reference frequency
+backwards to ``f_min - 0.5 Hz`` and forwards to the end of the inspiral. What LAL's numerics add to it is left
 out:
 
 * both directions are one DOP853 integration with dense output
@@ -18,14 +17,13 @@ out:
   of the end of the inspiral);
 * the end of the inspiral is where the first stopping condition is met
   on the dense output, less half a step of LAL's fine sampling (where
-  LAL's last sample lies on average): the end of the extended angles
-  (:func:`.angles._stop_time`), continuous in the parameters. When the
-  conditions already fail at the reference frequency (beyond the validity
-  of the PN equations), the end is where they are first met on the
-  backward solution, as for the extended angles;
-* the angles are evaluated from the dense output directly (as the
-  extended angles' :func:`.angles.direct_spline`), so there are no knots:
-  the solution starts where the backward run ends.
+  LAL's last sample lies on average), continuous in the parameters. When
+  the conditions already fail at the reference frequency (beyond the
+  validity of the PN equations, where LAL gives up the SpinTaylor angles),
+  the end is where they are first met on the backward solution;
+* the angles are evaluated from the dense output directly, rather than
+  from LAL's splines through its samples, so there are no knots: the
+  solution starts where the backward run ends.
 
 The steps are rows of one record, the backward ones first; the functions
 below read them in the order of time (``order``).

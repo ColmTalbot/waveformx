@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
-"""The lean IMRPhenomXPNR for a batch of binaries in MLX: the stages of
+"""IMRPhenomXPNR for a batch of binaries in MLX: the stages of
 :mod:`._stages` (generated kernels, :mod:`._build`) and the parts by hand
 (:mod:`._spintaylor`, :mod:`._arrays`, :mod:`._smooth`) composed, with the
 derivatives along ``P`` directions of the twelve parameters of the binaries

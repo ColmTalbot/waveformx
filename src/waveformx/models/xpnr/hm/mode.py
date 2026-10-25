@@ -83,8 +83,7 @@ def mode_coefficients(wf, phase22, ell, emm, defer=False):
     Python ints. Returns a :class:`ModeCoefficients` for :func:`mode_h`.
 
     The returned fields include ``amp_zero`` (the odd modes of equal masses
-    and spins vanish), ``error_poly_roots`` (``gsl_poly_complex_solve``
-    fails, where LAL aborts) and the region boundaries ``amp.f_amp_match_in``,
+    and spins vanish) and the region boundaries ``amp.f_amp_match_in``,
     ``amp.f_amp_match_im``, ``phase.f_phase_match_in``,
     ``phase.f_phase_match_im``.
     """
@@ -174,8 +173,6 @@ def _finish(wf, hm, amp, ph, mix, defer):
         amp0=sign * wf.amp0,
         amp_zero=hm.amp_zero,
     )
-    if not defer:
-        coefficients.error_poly_roots = amp.error_poly_roots & ~hm.amp_zero
     return lax.optimization_barrier(coefficients)
 
 
@@ -268,9 +265,7 @@ def modes_coefficients(wf, phase22, modes):
     out = []
     for k, c in enumerate(partial):
         amp = finish_amplitude(c.amp, jax.tree_util.tree_map(lambda x: x[k], chosen))
-        c = c.replace(amp=amp)
-        c.error_poly_roots = amp.error_poly_roots & ~c.amp_zero
-        out.append(c)
+        out.append(c.replace(amp=amp))
     return out
 
 

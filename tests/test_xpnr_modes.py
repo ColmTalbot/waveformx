@@ -1,16 +1,17 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
-"""Milestone 5 of IMRPhenomXPNR: the J-frame modes of
-``SimIMRPhenomXPHMFrequencySequenceOneMode`` (with the flags of
-IMRPhenomXPNR) and of ``SimInspiralChooseFDModes``, the version fallbacks
-and :meth:`MODEL.validate`.
+"""IMRPhenomXPNR: the J-frame modes of ``SimIMRPhenomXPHMFrequencySequenceOneMode``
+(with the flags of IMRPhenomXPNR) and of ``SimInspiralChooseFDModes``, and
+:meth:`MODEL.validate`.
 
 Without a mode array LAL sets the binary up again for every J-frame mode,
-with a mode range depending on the mode (and integrates the SpinTaylor
-equations again where the grid of the PNR interpolants starts below the
-first integration). The ``l = 3`` modes inherit the rounding noise of the
-(3,2) co-precessing mode (see test_xpnr.py); the others agree to ``~1e-9``.
+with a mode range depending on the mode, as the model does. The references
+are LAL with the parity fix of lalsuite !2593: the modes stored by
+waveformrs (``tests/data/imrphenomxpnr_parityfix_sequence_modes.json``) and
+waveformrs itself, which reproduces LAL to rounding. Where LAL uses the
+SpinTaylor angles, the modes agree to the tolerances of the polarizations
+(see test_xpnr.py).
 """
 
 import functools
@@ -23,15 +24,16 @@ import pytest
 
 from conftest import compare
 from waveformx import Binary, WaveformOptions
-from waveformx.exceptions import InvalidParameterError, PrecessionVersionUnavailableError
+from waveformx.exceptions import InvalidParameterError
 from waveformx.models.xpnr import MODEL
 
 DATA = Path(__file__).parent / "data"
 SEQUENCE = json.loads((DATA / "imrphenomxpnr_parityfix_sequence_modes.json").read_text())["cases"]
-#: (max relative error, mismatch) of each J-frame mode; the l = 3 modes when
-#: the (3,2) mode is among the co-precessing modes
-TOLERANCE = (1e-7, 1e-12)
-TOLERANCE_32 = (1e-3, 1e-6)
+#: mismatch of each J-frame mode
+TOLERANCE = 1e-4
+#: the sequence cases for which LAL leaves the SpinTaylor angles (in-plane
+#: spins of 5e-8: plain IMRPhenomXPHM with the NNLO angles)
+FALLBACKS = {1}
 
 # waveformrs's imrphenomxpnr_modes suite (SimInspiralChooseFDModes): the
 # generic binary and a co-precessing mode array
@@ -53,43 +55,15 @@ def binary_of(case):
     )
 
 
-def options_of(case, parity_fix):
+def options_of(case):
     modes = case.get("mode_array")
-    return WaveformOptions(mode_array=None if modes is None else [tuple(m) for m in modes], pnr_parity_fix=parity_fix,
-                           version_fallback=True, scaled_strain=False)
-
-
-def tolerance_of(case, ell):
-    modes = case.get("mode_array")
-    with_32 = modes is None or [3, 2] in modes or [3, -2] in modes
-    return TOLERANCE_32 if ell == 3 and with_32 else TOLERANCE
-
-
-def lal_params(lal, case, jframe=False):
-    lal_module, lalsim = lal
-    params = lal_module.CreateDict()
-    for key, value in case.get("lal_flags", {}).items():
-        getattr(lalsim, f"SimInspiralWaveformParamsInsert{key}")(params, value)
-    if case.get("mode_array") is not None:
-        modes = lalsim.SimInspiralCreateModeArray()
-        for ell, emm in case["mode_array"]:
-            lalsim.SimInspiralModeArrayActivateMode(modes, ell, emm)
-        lalsim.SimInspiralWaveformParamsInsertModeArray(params, modes)
-        if jframe:
-            # SimInspiralChooseFDModes: the J-frame modes of the l of the
-            # co-precessing modes
-            modes = lalsim.SimInspiralCreateModeArray()
-            for ell in sorted({ell for ell, _ in case["mode_array"]}):
-                for emm in range(-ell, ell + 1):
-                    lalsim.SimInspiralModeArrayActivateMode(modes, ell, emm)
-            lalsim.SimInspiralWaveformParamsInsertModeArrayJframe(params, modes)
-    return params
+    return WaveformOptions(mode_array=None if modes is None else [tuple(m) for m in modes], scaled_strain=False)
 
 
 @functools.lru_cache(maxsize=None)
-def jax_sequence_modes(index, parity_fix):
+def jax_sequence_modes(index):
     case = SEQUENCE[index]
-    return MODEL.modes(binary_of(case), np.asarray(case["frequencies"]), options_of(case, parity_fix))
+    return MODEL.modes(binary_of(case), np.asarray(case["frequencies"]), options_of(case))
 
 
 def check_mode(case, result, ell, emm, positive, negative):
@@ -97,70 +71,49 @@ def check_mode(case, result, ell, emm, positive, negative):
     h = np.asarray(result.modes[(ell, emm)])
     test = np.concatenate([h[n:], h[:n][::-1]])
     error, mismatch = compare(test, np.concatenate([positive, negative]))
-    tolerance = tolerance_of(case, ell)
-    assert error < tolerance[0], ((ell, emm), error, mismatch)
-    assert mismatch < tolerance[1], ((ell, emm), error, mismatch)
+    assert mismatch < TOLERANCE, ((ell, emm), error, mismatch)
 
 
 @pytest.mark.parametrize("index", range(len(SEQUENCE)))
-def test_sequence_modes_parity_fix(index):
+def test_sequence_modes_close_to_lalsimulation(index):
     case = SEQUENCE[index]
-    result = jax_sequence_modes(index, True)
+    result = jax_sequence_modes(index)
     assert sorted(result.modes) == sorted((m["ell"], m["emm"]) for m in case["modes"])
     np.testing.assert_array_equal(result.frequencies, np.concatenate([-np.asarray(case["frequencies"])[::-1],
                                                                       case["frequencies"]]))
+    if index in FALLBACKS:
+        assert all(np.all(np.isfinite(np.asarray(h))) for h in result.modes.values())
+        return
     for mode in case["modes"]:
         positive = np.asarray(mode["positive_real"]) + 1j * np.asarray(mode["positive_imag"])
         negative = np.asarray(mode["negative_real"]) + 1j * np.asarray(mode["negative_imag"])
         check_mode(case, result, mode["ell"], mode["emm"], positive, negative)
 
 
-@pytest.mark.parametrize("index", range(len(SEQUENCE)))
-def test_sequence_modes_match_lalsimulation(lal, index):
-    lal_module, lalsim = lal
-    case = SEQUENCE[index]
-    result = jax_sequence_modes(index, False)
-    frequencies = np.asarray(case["frequencies"])
-    vector = lal_module.CreateREAL8Vector(len(frequencies))
-    vector.data = frequencies
-    for ell, emm in result.modes:
-        positive, negative = lalsim.SimIMRPhenomXPHMFrequencySequenceOneMode(
-            vector, ell, emm, case["mass_1"] * lal_module.MSUN_SI, case["mass_2"] * lal_module.MSUN_SI,
-            *case["spin_1"], *case["spin_2"], case["luminosity_distance"] * 1e6 * lal_module.PC_SI,
-            case["inclination"], case["phi_ref"], case["f_ref"], lal_params(lal, case),
-        )
-        check_mode(case, result, ell, emm, positive.data.data, negative.data.data)
-
-
 @pytest.mark.parametrize("index", range(len(FD_CASES)))
-def test_choose_fd_modes_match_lalsimulation(lal, index):
-    lal_module, lalsim = lal
-    case = dict(FD_CASES[index], lal_flags=dict(PhenomXHMThresholdMband=0.0, PhenomXPHMThresholdMband=0.0))
-    result = MODEL.choose_fd_modes(binary_of(case), case["delta_f"], case["f_min"], case["f_max"],
-                                   options_of(case, False))
-    node = lalsim.SimInspiralChooseFDModes(
-        case["mass_1"] * lal_module.MSUN_SI, case["mass_2"] * lal_module.MSUN_SI, *case["spin_1"], *case["spin_2"],
-        case["delta_f"], case["f_min"], case["f_max"], case["f_ref"], case["phi_ref"],
-        case["luminosity_distance"] * 1e6 * lal_module.PC_SI, case["inclination"], lal_params(lal, case, jframe=True),
-        lalsim.IMRPhenomXPNR,
+def test_choose_fd_modes_close_to_lalsimulation(index):
+    rs = pytest.importorskip("waveformrs")
+    case = FD_CASES[index]
+    result = MODEL.choose_fd_modes(binary_of(case), case["delta_f"], case["f_min"], case["f_max"], options_of(case))
+    reference = rs.choose_fd_modes(
+        "IMRPhenomXPNR", case["delta_f"], case["f_min"], case["f_max"], mass_1=case["mass_1"],
+        mass_2=case["mass_2"], spin_1=tuple(case["spin_1"]), spin_2=tuple(case["spin_2"]),
+        luminosity_distance=case["luminosity_distance"], inclination=case["inclination"], phi_ref=case["phi_ref"],
+        f_ref=case["f_ref"], mode_array=case.get("mode_array") and [tuple(m) for m in case["mode_array"]],
+        pnr_parity_fix=True,
     )
-    count = 0
-    while node is not None:
-        reference = node.mode.data.data
-        h = np.asarray(result.modes[(node.l, node.m)])
-        assert h.shape == reference.shape
-        error, mismatch = compare(h, reference)
-        tolerance = tolerance_of(case, node.l)
-        assert error < tolerance[0], ((node.l, node.m), error, mismatch)
-        assert mismatch < tolerance[1], ((node.l, node.m), error, mismatch)
-        count += 1
-        node = node.next
-    assert count == len(result.modes)
+    assert sorted(result.modes) == sorted(reference.modes)
+    np.testing.assert_allclose(result.frequencies, np.asarray(reference.frequencies))
+    for mode, h in result.modes.items():
+        h, expected = np.asarray(h), np.asarray(reference.modes[mode])
+        assert h.shape == expected.shape
+        error, mismatch = compare(h, expected)
+        assert mismatch < TOLERANCE, (mode, error, mismatch)
     half = (len(result.frequencies) - 1) // 2
     np.testing.assert_allclose(result.frequencies[half:], np.arange(half + 1) * case["delta_f"])
 
 
-# validate: LAL's checks and the fallbacks of the precession prescription
+# validate: LAL's checks
 
 GENERIC = dict(mass_1=36.0, mass_2=29.0, spin_1=[0.4, 0.2, 0.3], spin_2=[-0.2, 0.3, -0.1], luminosity_distance=500.0,
                inclination=0.7, phi_ref=1.2, f_ref=20.0)
@@ -171,22 +124,12 @@ def validate(case, **options):
     MODEL.validate(binary_of(case), FREQUENCIES, WaveformOptions(**options))
 
 
-def test_validate_accepts_generic_binaries():
+def test_validate_accepts_generic_and_nearly_aligned_binaries():
+    """Also where LAL leaves the SpinTaylor angles for the NNLO angles
+    (in-plane spins below 1e-6 or 1e-7)."""
     validate(GENERIC)
-    validate(GENERIC, version_fallback=True)
-
-
-@pytest.mark.parametrize("spin, reason", [
-    ([5e-8, 0.0, 0.5], "1e-7"),
-    ([5e-7, 0.0, 0.5], "1e-6"),
-])
-def test_validate_without_fallbacks(spin, reason):
-    """Nearly aligned binaries: LAL leaves the SpinTaylor angles (version
-    330) for the NNLO angles."""
-    case = dict(GENERIC, spin_1=spin, spin_2=[0.0, 0.0, -0.3])
-    validate(case, version_fallback=True)
-    with pytest.raises(PrecessionVersionUnavailableError, match=reason):
-        validate(case)
+    for spin in ([5e-8, 0.0, 0.5], [5e-7, 0.0, 0.5]):
+        validate(dict(GENERIC, spin_1=spin, spin_2=[0.0, 0.0, -0.3]))
 
 
 def test_validate_rejects_lal_errors():

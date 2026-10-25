@@ -38,7 +38,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from ..xpnr._generated import qnm as _qnm
-from ..xpnr._math import MTSUN_SI, PI, Struct, lean, powers, real
+from ..xpnr._math import MTSUN_SI, PI, Struct, powers, real
 from ..xpnr.amp22 import amp_coefficients
 from ..xpnr.internals import errors, waveform_struct
 from ..xpnr.phase22 import phase_coefficients, time_shift_22
@@ -264,13 +264,12 @@ def table(params, f_min, amp_scale=1.0):
     The same arithmetic in float32 and float64: the masses stay in solar
     masses (rather than LAL's round trip through kg) and the QNM fits are
     those of :func:`qnm_22`."""
-    with lean(True):
-        return _table(params, f_min, amp_scale)
+    return _table(params, f_min, amp_scale)
 
 
 def waveform_variables(params, f_min, amp_scale):
-    """``IMRPhenomXSetWaveformVariables`` as :func:`table` makes it (in
-    :func:`..xpnr._math.lean` mode: masses in solar masses)."""
+    """``IMRPhenomXSetWaveformVariables`` as :func:`table` makes it (masses
+    in solar masses)."""
     m1, m2, chi1, chi2, distance, inclination, phi_ref, f_ref = params
     wf = waveform_struct(m1, m2, chi1, chi2, 0.0, f_ref, phi_ref, f_min, 0.0, distance, inclination, amp_scale)
     f_ring, f_damp = qnm_22(wf.a_final)

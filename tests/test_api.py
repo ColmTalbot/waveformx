@@ -36,21 +36,23 @@ def test_approximants():
 
 def test_options():
     options = wf.WaveformOptions()
-    assert options.pnr_parity_fix and not options.version_fallback and options.mode_array is None
-    assert not wf.WaveformOptions.lalsimulation_defaults().pnr_parity_fix
+    assert options.mode_array is None and not options.extended_phase_grid and options.reference_mf is None
     assert wf.WaveformOptions(precession_version="MSA").precession_version == 223
     assert wf.WaveformOptions(mode_array=[[2, 2], (3, -3)]).mode_array == ((2, 2), (3, -3))
     assert hash(options) == hash(wf.WaveformOptions())
     assert pickle.loads(pickle.dumps(options)) == options
     assert options.scaled_strain and not wf.WaveformOptions.lalsimulation_defaults().scaled_strain
-    assert options.replace(pnr_parity_fix=False, scaled_strain=False) == (
+    assert options.replace(scaled_strain=False) == (
         wf.WaveformOptions.lalsimulation_defaults().replace(precession_version=320)
     )
     assert wf.WaveformOptions(**options.as_dict()) == options
     with pytest.raises(TypeError):
-        wf.WaveformOptions(pnr_parity_fix="yes")
+        wf.WaveformOptions(scaled_strain="yes")
     with pytest.raises(TypeError):
         options.replace(unknown=1)
+    with pytest.raises(TypeError):
+        # the options of the LAL-faithful version are gone
+        options.replace(version_fallback=True)
     with pytest.raises(wf.InvalidParameterError):
         wf.WaveformOptions(precession_version=101)
 

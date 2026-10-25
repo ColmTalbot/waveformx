@@ -32,7 +32,7 @@ from .._generated import hm_amp_122019, hm_inspiral, hm_intermediate, hm_ringdow
 from .._generated import ringdown as ringdown22
 from .._math import FRAC_PI_4, PI, Struct, fma, powers, real
 from . import inspiral
-from .finite_differences import phase_derivatives
+from .derivatives import phase_derivatives
 from .variables import both, is_mode, where_mode
 
 __all__ = [
@@ -375,13 +375,12 @@ def phase_coefficients(wf, hm, phase22, mix=None):
         dphi0_rd = ringdown_phase_ansatz(fcut_rd, p_rd, plain, ph)
         x = _solve([row(ff)[:5] for ff, _ in chosen], [v for _, v in chosen]) + [0.0]
     if is32 is not False:
-        # derivatives of the rotated spheroidal ringdown phase at fcut_rd by
-        # finite differences
+        # derivatives of the rotated spheroidal ringdown phase at fcut_rd
         def rotated_phase(ff):
             re, im = spheroidal_to_spherical(ff, powers(ff), mix, mix.rd)
             return jnp.arctan2(im, re)
 
-        phi0_mix, dphi0_mix, d2phi0_rd = phase_derivatives(fcut_rd, rotated_phase, "exact_derivatives" in wf)
+        phi0_mix, dphi0_mix, d2phi0_rd = phase_derivatives(fcut_rd, rotated_phase)
         comparable = eta > hm.eta_emr
         freqs = list(freqs)
         values = list(values)

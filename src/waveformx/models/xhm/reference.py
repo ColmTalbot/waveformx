@@ -35,7 +35,7 @@ from ..xpnr import phase22 as phase22_module
 from ..xpnr._generated import hm_amp_fits_inspiral, hm_amp_fits_intermediate, hm_amp_fits_ringdown
 from ..xpnr._generated import hm_qnm
 from ..xpnr._generated import ringdown as ringdown22
-from ..xpnr._math import FRAC_PI_4, PI, Struct, fma, lean, powers, real
+from ..xpnr._math import FRAC_PI_4, PI, Struct, fma, powers, real
 from ..xpnr.amp22 import amp_coefficients as amp22_coefficients
 from ..xpnr.hm.inspiral import phase_ansatz as inspiral_phase_ansatz
 from ..xpnr.hm.inspiral import phase_ansatz_int as inspiral_phase_ansatz_int
@@ -589,14 +589,13 @@ def mode_setup(wf, phase22, ell, emm):
 def setup(params, f_min, amp_scale=1.0):
     """The waveform variables, the (2,2) coefficients (``xas``, ``phif_ref``)
     and the coefficients of the higher modes."""
-    with lean(True):
-        wf = waveform_variables(params, f_min, amp_scale)
-        phase22 = phase22_coefficients(wf)
-        from ..xpnr import xas
+    wf = waveform_variables(params, f_min, amp_scale)
+    phase22 = phase22_coefficients(wf)
+    from ..xpnr import xas
 
-        x = xas.xas_setup(wf)
-        modes = {mode: mode_setup(wf, phase22, *mode) for mode in HIGHER_MODES}
-        return Struct(wf=wf, xas=x, phif_ref=xas.phif_ref(wf, x), modes=modes)
+    x = xas.xas_setup(wf)
+    modes = {mode: mode_setup(wf, phase22, *mode) for mode in HIGHER_MODES}
+    return Struct(wf=wf, xas=x, phif_ref=xas.phif_ref(wf, x), modes=modes)
 
 
 def mode_amplitude_phase(mf, c, h22=None):

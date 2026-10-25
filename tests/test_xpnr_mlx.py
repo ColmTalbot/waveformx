@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
-"""The lean IMRPhenomXPNR in MLX (``waveformx.models.xpnr.mlx``) against
-the JAX lean model, stage by stage (the stages of
+"""IMRPhenomXPNR in MLX (``waveformx.models.xpnr.mlx``) against
+the JAX model, stage by stage (the stages of
 ``waveformx.models.xpnr.mlx._stages``) and end to end. Skipped without
 MLX.
 
-* The stages composed in JAX reproduce the lean model to rounding (the
+* The stages composed in JAX reproduce the JAX model to rounding (the
   reference of everything else).
 * The lowering of jaxprs to scalar programs (``_program``) and the
   generated Metal kernels (``_kernels``) reproduce JAX, values and JVPs.
@@ -33,7 +33,8 @@ import pytest
 mx = pytest.importorskip("mlx.core")
 
 import waveformx as wf  # noqa: E402
-from waveformx.models.xpnr import lean, model  # noqa: E402
+from waveformx import WaveformOptions  # noqa: E402
+from waveformx.models.xpnr import model  # noqa: E402
 from waveformx.models.xpnr.mlx import _stages  # noqa: E402
 
 MTSUN_SI = 4.925490947641267e-06
@@ -82,12 +83,12 @@ def jax_reference(name, dtype_name):
 
 
 @pytest.mark.parametrize("name", ["generic", "aligned", "unequal", "beyond"])
-def test_stages_reproduce_lean(name):
-    """The stages composed in JAX are the lean model (float64, to
+def test_stages_reproduce_the_model(name):
+    """The stages composed in JAX are the model (float64, to
     rounding)."""
     binary = as_dtype(BINARIES[name], jnp.float64)
     f = jnp.asarray(frequencies_for(binary, 512))
-    expected = jax.jit(lambda b, f: lean.polarizations(b, f))(binary, f)
+    expected = jax.jit(lambda b, f: model.polarizations(b, f, WaveformOptions()))(binary, f)
     got = _stages.reference(binary, f)
     for a, b in zip(got, expected):
         a, b = np.asarray(a), np.asarray(b)
@@ -96,7 +97,7 @@ def test_stages_reproduce_lean(name):
 
 
 def test_reference_tangents():
-    """The derivatives of the stages composed in JAX are the lean model's
+    """The derivatives of the stages composed in JAX are the model's
     (``jax.jacfwd``)."""
     name = "generic"
     values = jax_reference(name, "float64")
@@ -106,7 +107,7 @@ def test_reference_tangents():
         return wf.Binary(x[0], x[1], x[2:5], x[5:8], x[8], x[9], x[10], x[11])
 
     x = jnp.asarray(np.concatenate([np.ravel(np.asarray(v, float)) for v in BINARIES[name]]))
-    jp, _ = jax.jit(jax.jacfwd(lambda x: lean.polarizations(of(x), f)))(x)
+    jp, _ = jax.jit(jax.jacfwd(lambda x: model.polarizations(of(x), f, WaveformOptions())))(x)
     got = values["hp"].tangents[0]
     assert np.max(np.abs(got.T - jp)) < 1e-12 * np.max(np.abs(jp))
 
@@ -490,11 +491,11 @@ def test_gradient(mlx_model, modes):
     also with all modes) within its bounds of the float64 one."""
     binary = BINARIES["generic"]
     f = np.geomspace(20.0, 1024.0, 128)
-    data = lean.polarizations(as_dtype(binary._replace(mass_1=binary.mass_1 * 1.01), jnp.float64), jnp.asarray(f),
-                              mode_array=modes)
+    data = model.polarizations(as_dtype(binary._replace(mass_1=binary.mass_1 * 1.01), jnp.float64), jnp.asarray(f),
+                               WaveformOptions(mode_array=modes))
 
     def log_likelihood(b, f):
-        hp, hc = lean.polarizations(b, f, mode_array=modes)
+        hp, hc = model.polarizations(b, f, WaveformOptions(mode_array=modes))
         overlap = jnp.vdot(data[0], hp) + jnp.vdot(data[1], hc)
         return jnp.real(overlap) - 0.5 * jnp.sum(jnp.abs(hp) ** 2 + jnp.abs(hc) ** 2)
 
@@ -533,13 +534,13 @@ def test_batch(mlx_model):
 
 
 def test_nan_where_jax_fails(mlx_model):
-    """NaN where the JAX lean model gives NaN: the reference frequency
+    """NaN where the JAX model gives NaN: the reference frequency
     outside the frequencies, a spin above 1."""
     f = np.linspace(20.0, 512.0, 64)
     for binary in (BINARIES["generic"]._replace(f_ref=10.0),
                    BINARIES["generic"]._replace(spin_1=(0.9, 0.5, 0.3))):
         hp, _ = mlx_model.polarizations(binary, f)
-        expected, _ = lean.polarizations(as_dtype(binary, jnp.float64), jnp.asarray(f))
+        expected, _ = model.polarizations(as_dtype(binary, jnp.float64), jnp.asarray(f), WaveformOptions())
         assert np.all(np.isnan(np.asarray(expected)))
         assert np.all(np.isnan(np.asarray(hp)))
 
@@ -559,9 +560,9 @@ def test_mass_scaled_reference(mlx_model, modes):
     for name in ("generic", "unequal", "beyond", "light"):
         binary = BINARIES[name]._replace(f_ref=0.0)
         hp, _ = mlx_model.polarizations(binary, f, mode_array=modes, reference_mf=ref)
-        want = lean.polarizations(as_dtype(binary, jnp.float64), jnp.asarray(f), mode_array=modes, reference_mf=ref)[0]
-        single = lean.polarizations(as_dtype(binary, jnp.float32), jnp.asarray(f, jnp.float32), mode_array=modes,
-                                    reference_mf=ref)[0]
+        options = WaveformOptions(mode_array=modes, reference_mf=ref)
+        want = model.polarizations(as_dtype(binary, jnp.float64), jnp.asarray(f), options)[0]
+        single = model.polarizations(as_dtype(binary, jnp.float32), jnp.asarray(f, jnp.float32), options)[0]
         got = np.asarray(hp)
         assert np.all(np.isfinite(got)), name
         assert mismatch(got, want) <= max(3 * mismatch(single, want), 1e-8), (name, mismatch(got, want),
@@ -591,7 +592,7 @@ def test_reference_invariance(mlx_model):
     there = there._replace(f_ref=jnp.zeros((), jnp.float64))
     h1 = np.asarray(mlx_model.polarizations(binary, f, reference_mf=0.006)[0])
     h2 = np.asarray(mlx_model.polarizations(there, f, reference_mf=0.012)[0])
-    want = np.asarray(lean.polarizations(binary, jnp.asarray(f), reference_mf=0.006)[0])
+    want = np.asarray(model.polarizations(binary, jnp.asarray(f), WaveformOptions(reference_mf=0.006))[0])
     assert np.all(np.isfinite(h1)) and np.all(np.isfinite(h2))
     assert mismatch(h1, want) < 1e-5
     assert mismatch(h1, h2) < 1e-5

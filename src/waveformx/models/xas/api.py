@@ -21,7 +21,6 @@ import jax.numpy as jnp
 import numpy as np
 
 from ...exceptions import InvalidParameterError, UnsupportedError
-from ..xpnr._math import lean
 from ..xpnr.internals import waveform_struct
 from . import model
 
@@ -31,11 +30,10 @@ __all__ = ["MODEL", "XASModel", "check"]
 @jax.jit
 def _flags(binary, f_min):
     """LAL's errors of the waveform variables."""
-    with lean(True):
-        params = model.aligned_parameters(binary)
-        wf = waveform_struct(*params[:4], 0.0, params[7], params[6], f_min, 0.0, params[4], params[5])
-        return dict(mass_ratio=wf.error_mass_ratio, final_mass=wf.error_final_mass,
-                    final_spin=wf.error_final_spin, meco=wf.error_meco)
+    params = model.aligned_parameters(binary)
+    wf = waveform_struct(*params[:4], 0.0, params[7], params[6], f_min, 0.0, params[4], params[5])
+    return dict(mass_ratio=wf.error_mass_ratio, final_mass=wf.error_final_mass,
+                final_spin=wf.error_final_spin, meco=wf.error_meco)
 
 
 def check(binary, frequencies, approximant):

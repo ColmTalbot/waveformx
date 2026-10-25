@@ -80,53 +80,16 @@ class WaveformOptions:
 
     * ``precession_version``: LAL's ``PhenomXPrecVersion`` (102 ``"NNLO"``,
       223 ``"MSA"`` or 320 ``"SpinTaylor"``). Kept for compatibility with
-      waveformrs; IMRPhenomXPNR always uses its own prescription (330).
+      waveformrs; IMRPhenomXPNR always uses the SpinTaylor angles.
     * ``mode_array``: LAL's ``ModeArray`` (``(l, m)`` pairs) or ``None`` for
       all modes. For IMRPhenomXPNR, the co-precessing modes.
-    * ``version_fallback``: whether IMRPhenomXPNR may change its precession
-      prescription as LALSimulation does (default ``False``). Without, only
-      the SpinTaylor angles are computed (which compiles much faster): the
-      public functions raise an error, and the pure functions give NaN,
-      where LAL would leave them (in-plane spins below ``1e-6``, a failed
-      SpinTaylor integration).
-    * ``pnr_parity_fix``: whether IMRPhenomXPNR applies the fix of lalsuite
-      merge request !2593, which restores the mirror symmetry of the
-      waveform (default ``True``, as LALSimulation master); ``False``
-      reproduces LALSimulation 6.2.0 and 6.2.1.
-    * ``extended_spintaylor``: IMRPhenomXPNR with the SpinTaylor angles for
-      every binary (default ``False``): also where LALSimulation cannot use
-      them (a reference frequency beyond the PN energy test, small in-plane
-      spins), with LAL's discrete switches replaced by continuous versions
-      (the end of the inspiral, the two-spin construction for every
-      binary, the connection of the PNR ``beta``, the edge of the PNR
-      transition region at ``q = 12``) and exact derivatives in the higher
-      modes where LAL takes finite differences, so that the waveform and
-      its derivatives are continuous. This is not LAL's waveform: where LAL
-      uses the SpinTaylor angles the two agree closely except near LAL's
-      own switches (``report/extended``). ``version_fallback`` is then
-      ignored.
-    * ``extended_direct_angles``: with ``extended_spintaylor``, evaluate the
-      SpinTaylor angles directly from the solution of the precession
-      equations (default ``True``) rather than from LAL's splines through
-      its samples of it. Much faster for light binaries, whose samples
-      number millions; it differs from LAL by the interpolation error of
-      LAL's splines, largest for heavy binaries, whose samples are sparse.
-    * ``extended_phase_grid``: with ``extended_spintaylor``, interpolate the
-      PNR angles on a grid whose spacing grows like ``f^2`` (constant steps
-      of the precession phase) from LAL's spacing, up to ``1e-4`` in ``M f``
-      (default ``False``), rather than on LAL's uniform grid: far fewer
-      points for light binaries, at the cost of a larger difference from
-      LAL.
-    * ``lean``: the lean IMRPhenomXPNR (default ``False``): the extended
-      model with the direct angles and the parity fix, without the layers
-      that reproduce LAL's numerics: the precession equations integrated
-      once with a high-order method rather than step by step as LAL does
-      (and without LAL's finer re-run of the end of the inspiral), masses
-      in solar masses, no rounding to single precision of stored values.
-      LAL's physics (fits, ansatzes, the discrete choices of the higher
-      modes) is kept. It agrees with the extended model to its
-      integration error; the other precession options are ignored.
-    * ``reference_mf``: with ``lean``, the reference frequency of the
+    * ``extended_phase_grid``: interpolate the PNR angles of
+      IMRPhenomXPNR on a grid whose spacing grows like ``f^2`` (constant
+      steps of the precession phase) from LAL's spacing, up to ``1e-4`` in
+      ``M f`` (default ``False``), rather than on LAL's uniform grid: far
+      fewer points for light binaries, at the cost of a larger difference
+      from LAL.
+    * ``reference_mf``: for IMRPhenomXPNR, the reference frequency of the
       binary in units of the total mass, ``M f_ref`` (default ``None``:
       LAL's convention, ``Binary.f_ref`` in Hz). The spins, the
       inclination and ``phi_ref`` are then given at ``f_ref =
@@ -153,35 +116,22 @@ class WaveformOptions:
 
     precession_version: int = 320
     mode_array: Optional[Tuple[Tuple[int, int], ...]] = None
-    version_fallback: bool = False
-    pnr_parity_fix: bool = True
-    extended_spintaylor: bool = False
-    extended_direct_angles: bool = True
     extended_phase_grid: bool = False
-    lean: bool = False
     scaled_strain: bool = True
     reference_mf: Optional[float] = None
 
     def __post_init__(self):
         object.__setattr__(self, "precession_version", _precession_version(self.precession_version))
         object.__setattr__(self, "mode_array", _mode_array(self.mode_array))
-        _bool(self.version_fallback, "version_fallback")
-        _bool(self.pnr_parity_fix, "pnr_parity_fix")
-        _bool(self.extended_spintaylor, "extended_spintaylor")
-        _bool(self.extended_direct_angles, "extended_direct_angles")
         _bool(self.extended_phase_grid, "extended_phase_grid")
-        _bool(self.lean, "lean")
         _bool(self.scaled_strain, "scaled_strain")
         object.__setattr__(self, "reference_mf", _reference_mf(self.reference_mf))
-        if self.reference_mf is not None and not self.lean:
-            raise InvalidParameterError("reference_mf needs the lean IMRPhenomXPNR (lean=True)")
 
     @staticmethod
     def lalsimulation_defaults() -> "WaveformOptions":
         """LALSimulation 6.2.0's defaults for an empty ``LALDict``: the MSA
-        angles (223), all modes, IMRPhenomXPNR without the parity fix and
-        the strain itself (not scaled)."""
-        return WaveformOptions(precession_version=223, pnr_parity_fix=False, scaled_strain=False)
+        angles (223), all modes and the strain itself (not scaled)."""
+        return WaveformOptions(precession_version=223, scaled_strain=False)
 
     def replace(self, **options: Any) -> "WaveformOptions":
         """A copy with the given options changed."""

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
-"""The generated kernels of the stages of the lean model
+"""The generated kernels of the stages of the model
 (:mod:`._stages`) for a set of co-precessing modes: traced in float32 from
 shapes alone (no JAX compilation), each stage at the structure of the
 previous one's outputs. Built once per set of modes, strain scale and

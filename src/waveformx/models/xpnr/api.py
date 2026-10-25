@@ -5,12 +5,9 @@
 
 * :meth:`XPNRModel.polarizations` is pure (``jax.jit`` with ``options``
   static, ``jax.vmap``, ``jax.grad``);
-* :meth:`XPNRModel.validate` applies LALSimulation's checks to concrete
-  values, and with ``version_fallback=False`` raises
-  :class:`~waveformx.exceptions.PrecessionVersionUnavailableError` where
-  LAL would leave the SpinTaylor/PNR angles (version 330) (with
-  ``extended_spintaylor``, :class:`~waveformx.exceptions.ModelError` where
-  even the extended angles fail);
+* :meth:`XPNRModel.validate` applies the model's checks to concrete
+  values (LALSimulation's, and :class:`~waveformx.exceptions.ModelError`
+  where the SpinTaylor angles cannot be computed);
 * :meth:`XPNRModel.modes` and :meth:`XPNRModel.choose_fd_modes` return the
   J-frame modes of ``SimIMRPhenomXPHMFrequencySequenceOneMode`` and
   ``SimInspiralChooseFDModes`` with the flags of IMRPhenomXPNR.
@@ -24,64 +21,34 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from ...exceptions import InvalidParameterError, ModelError, PrecessionVersionUnavailableError
+from ...exceptions import InvalidParameterError, ModelError
 from ..._results import FrequencyModes
 from . import model, pnr
 from ._math import MSUN_SI, MTSUN_SI
-from ._math import lean as lean_mode
 
 __all__ = ["MODEL", "XPNRModel"]
 
 
-@functools.partial(jax.jit, static_argnums=(3, 4, 5, 6, 7))
-def _prescription(binary, f_min, f_max, modes, parity_fix, extended=False, lean=False, reference_mf=None):
-    """The flags deciding LAL's prescription and LAL's errors, for
-    :meth:`XPNRModel.validate` (``f_min``, ``f_max`` the first and last
-    frequencies; ``extended``: those of the extended SpinTaylor angles,
-    ``lean``: of the lean model, ``reference_mf``: its mass-scaled
-    reference frequency)."""
-    with lean_mode(lean):
-        return _prescription_in(binary, f_min, f_max, modes, parity_fix or lean, extended or lean, lean, reference_mf)
-
-
-def _prescription_in(binary, f_min, f_max, modes, parity_fix, extended, lean, reference_mf):
+@functools.partial(jax.jit, static_argnums=(3, 4))
+def _checks(binary, f_min, f_max, modes, reference_mf=None):
+    """The flags of the model's errors, for :meth:`XPNRModel.validate`
+    (``f_min``, ``f_max`` the first and last frequencies, ``reference_mf``
+    the mass-scaled reference frequency)."""
     pnr.clear_cache()
-    wf, m1_si, m2_si, chi1, chi2 = model.setup_waveform(binary, 0.0, f_min, f_max, reference_mf=reference_mf)
+    wf, m1, m2, chi1, chi2 = model.setup_waveform(binary, 0.0, f_min, f_max, reference_mf=reference_mf)
     wf.hm_release = 122019
-    base, wf0 = pnr.common_setup(wf, m1_si, m2_si, chi1, chi2, pnr.mode_range(modes), parity_fix, extended, lean,
-                                 True, False, lean, reference=reference_mf is not None)
-
-    def st_flags(_):
-        st = pnr.spintaylor_solution(base, wf0, m1_si, m2_si)
-        return st.failed, st.incomplete
-
-    failed, incomplete = jax.lax.cond(
-        base.pnr_on & ~base.nnlo_from_start, st_flags, lambda _: (jnp.asarray(False), jnp.asarray(False)), None
-    )
+    base, wf0 = pnr.common_setup(wf, m1, m2, chi1, chi2, pnr.mode_range(modes), reference=reference_mf is not None)
+    st = pnr.spintaylor_solution(base, wf0, m1, m2)
     return dict(
         mass_ratio=wf.error_mass_ratio,
         final_mass=wf.error_final_mass,
         final_spin=wf.error_final_spin,
         meco=wf.error_meco,
         f_ref=wf.f_ref,
-        pnr_on=base.pnr_on,
-        nnlo=base.nnlo_from_start,
-        st_failed=failed,
-        st_incomplete=incomplete,
+        st_failed=st.failed,
+        st_incomplete=st.incomplete,
         cutoff=wf0.f_max_prime <= wf0.f_min,
     )
-
-
-@functools.partial(jax.jit, static_argnums=(3, 4))
-def _msa_fails(binary, f_min, f_max, modes, parity_fix):
-    """Whether the MSA system cannot be initialised (which prescription
-    LAL falls back to when the SpinTaylor angles fail), compiled apart from
-    :func:`_prescription` because it is rarely needed."""
-    pnr.clear_cache()
-    wf, m1_si, m2_si, chi1, chi2 = model.setup_waveform(binary, 0.0, f_min, f_max)
-    wf.hm_release = 122019
-    base, wf0 = pnr.common_setup(wf, m1_si, m2_si, chi1, chi2, pnr.mode_range(modes), parity_fix)
-    return pnr._msa.msa_error(pnr._msa.system(pnr.msa_inputs(base, wf0, base.chi1, base.chi2)))
 
 
 class XPNRModel:
@@ -92,7 +59,7 @@ class XPNRModel:
     precessing = True
 
     def validate(self, binary, frequencies, options):
-        """LALSimulation's checks of IMRPhenomXPNR for concrete values."""
+        """The checks of IMRPhenomXPNR (LALSimulation's) for concrete values."""
         frequencies = np.asarray(frequencies, dtype=float)
         if frequencies.size == 0:
             return
@@ -100,10 +67,8 @@ class XPNRModel:
         for ell, emm in options.mode_array or ():
             if (int(ell), abs(int(emm))) not in model.DEFAULT_MODES:
                 raise InvalidParameterError(f"mode array contains unavailable mode ({ell}, {emm})")
-        flags = {k: np.asarray(v) for k, v in _prescription(binary, frequencies[0], frequencies[-1], modes,
-                                                             options.pnr_parity_fix,
-                                                             options.extended_spintaylor, options.lean,
-                                                             options.reference_mf).items()}
+        flags = {k: np.asarray(v) for k, v in _checks(binary, frequencies[0], frequencies[-1], modes,
+                                                       options.reference_mf).items()}
         if flags["mass_ratio"]:
             raise InvalidParameterError("IMRPhenomXPNR is not valid at mass ratios beyond 1000")
         if flags["final_mass"]:
@@ -123,27 +88,10 @@ class XPNRModel:
             raise InvalidParameterError("f_min <= f_ref <= f_max is required when using tuned angles")
         if flags["cutoff"]:
             raise InvalidParameterError("the cutoff frequency lies below f_min")
-        if flags["st_incomplete"] and not flags["st_failed"]:
+        if flags["st_failed"]:
+            raise ModelError("the SpinTaylor angles cannot be computed")
+        if flags["st_incomplete"]:
             raise ModelError("the SpinTaylor integration exceeds the capacities of waveformx")
-        if options.extended_spintaylor or options.lean:
-            if flags["st_failed"]:
-                raise ModelError("the extended SpinTaylor angles cannot be computed")
-        elif not options.version_fallback:
-            reason = None
-            if not flags["pnr_on"]:
-                reason, fallback = "the in-plane spins are below 1e-7, which switches the PNR angles off", 102
-            elif flags["nnlo"]:
-                reason, fallback = "the in-plane spins are below 1e-6", 102
-            elif flags["st_failed"]:
-                if np.asarray(_msa_fails(binary, frequencies[0], frequencies[-1], modes, options.pnr_parity_fix)):
-                    reason, fallback = "the SpinTaylor angles cannot be computed and the MSA system fails", 102
-                else:
-                    reason, fallback = "the SpinTaylor angles cannot be computed", 223
-            if reason is not None:
-                raise PrecessionVersionUnavailableError(
-                    f"PhenomXPrecVersion 330 cannot be used ({reason}); LALSimulation would switch to "
-                    f"{fallback}, but version fallbacks are disabled"
-                )
 
     def polarizations(self, binary, frequencies, options):
         """``SimInspiralChooseFDWaveformSequence`` (see :func:`.model.polarizations`)."""

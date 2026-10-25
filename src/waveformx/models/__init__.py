@@ -12,11 +12,10 @@ is static: a hashable :class:`~waveformx.WaveformOptions`).
 Frequency-domain models (``MODEL.domain == "frequency"``):
 
 ``validate(binary, frequencies, options) -> None``
-    LALSimulation's checks for concrete values (numpy floats in a
+    The model's checks for concrete values (numpy floats in a
     :class:`~waveformx.Binary`, numpy frequencies). Raises the errors of
-    :mod:`waveformx.exceptions`, e.g. ``PrecessionVersionUnavailableError``
-    where LAL would change the precession prescription and
-    ``options.version_fallback`` is ``False``.
+    :mod:`waveformx.exceptions`, e.g. ``ModelError`` where the SpinTaylor
+    angles of IMRPhenomXPNR cannot be computed.
 
 ``polarizations(binary, frequencies, options) -> (hplus, hcross)``
     ``SimInspiralChooseFDWaveformSequence`` at ``frequencies`` (Hz, a 1-d
