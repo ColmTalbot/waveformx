@@ -193,8 +193,8 @@ def failure_text(data, how):
 
 def cost_values(values):
     """The cost of compiling and running IMRPhenomXPNR (``report/xpnr_cost.py``)."""
-    names = [f"cost_compile_{g}_{k}" for g in ("uniform", "phase") for k in ("eval", "vmap", "grad")]
-    names += [f"cost_runtime_{c}_{g}" for c in ("benchmark", "light") for g in ("uniform", "phase")]
+    names = [f"cost_compile_{g}_{k}" for g in ("default", "phase") for k in ("eval", "vmap", "grad")]
+    names += [f"cost_runtime_{c}_{g}" for c in ("benchmark", "light") for g in ("default", "phase")]
     if not (DATA / "xpnr_cost.json").exists():
         values.update({name: "–" for name in names})
         return
@@ -203,6 +203,23 @@ def cost_values(values):
         values[f"cost_compile_{key}"] = duration(seconds)
     for key, seconds in cost["runtime"].items():
         values[f"cost_runtime_{key}"] = duration(seconds)
+
+
+#: The columns of ``xpnr_long.json`` and the names of their values.
+LONG_COLUMNS = (("jax", "jax"), ("jax_public", "public"), ("mlx", "mlx"), ("waveformrs", "rs"),
+                ("waveformrs_grid", "rsgrid"), ("lal", "lal"), ("lal_multibanding", "lalmb"))
+
+
+def long_values(values):
+    """The time of one long IMRPhenomXPNR waveform (``report/xpnr_long.py``):
+    ``long_<column>_<f_min>_<1/df>`` and ``long_n_<f_min>_<1/df>``."""
+    keys = ("10_64", "10_128", "20_32")
+    data = load("xpnr_long.json")["results"] if (DATA / "xpnr_long.json").exists() else {}
+    for key in keys:
+        row = data.get(key, {})
+        values[f"long_n_{key}"] = f"{row['n_frequencies']:,}" if row else "–"
+        for column, name in LONG_COLUMNS:
+            values[f"long_{name}_{key}"] = duration(row.get(column))
 
 
 def memory(mb):
@@ -924,6 +941,7 @@ def build(args):
     values["nrsur_rs_max_rel"] = sci(rs_nrsur["max_relative_error"]) if rs_nrsur else "–"
     float32_values(values)
     cost_values(values)
+    long_values(values)
     memory_values(values)
     reference_values(values)
     mlx_values(values)

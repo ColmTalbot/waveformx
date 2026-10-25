@@ -8,12 +8,12 @@
 * tracing + lowering + compiling (one process per case, so that nothing is
   cached) of the public function on 64 frequencies, all modes: the
   waveform, ``jax.vmap`` over 4 binaries and ``jax.grad`` of a sum of
-  squares, on LAL's uniform grid of the PNR interpolants and on the phase
-  grid (``extended_phase_grid``);
+  squares, with the default interpolants of the PNR angles and with those
+  of ``extended_phase_grid``;
 * the run time of the jitted pure function (median of 21 calls), with
   either grid, at the benchmark binary and grid and for a light binary
-  (8 + 5 solar masses from 10 Hz, ``df = 1/16`` Hz), whose uniform grid of
-  the PNR interpolants is largest.
+  (8 + 5 solar masses from 10 Hz, ``df = 1/16`` Hz), whose grid of the PNR
+  interpolants is large.
 
 Usage::
 
@@ -73,7 +73,7 @@ CASES = {
 }
 out = {}
 for case, (b, F) in CASES.items():
-    for grid in ("uniform", "phase"):
+    for grid in ("default", "phase"):
         options = WaveformOptions(extended_phase_grid=grid == "phase")
         f = jax.jit(lambda b, F=F, o=options: model.polarizations(b, F, o))
         jax.block_until_ready(f(b))
@@ -93,7 +93,7 @@ def main():
     from common import environment, write
 
     compile_seconds = {}
-    for grid in ("uniform", "phase"):
+    for grid in ("default", "phase"):
         for kind in ("eval", "vmap", "grad"):
             out = subprocess.run([sys.executable, "-c", CASE, grid, kind], capture_output=True, text=True, check=True)
             compile_seconds[f"{grid}_{kind}"] = json.loads(out.stdout.strip().splitlines()[-1])["seconds"]

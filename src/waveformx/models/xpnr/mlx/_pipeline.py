@@ -228,13 +228,15 @@ def finish(st, index, size, frequencies, S, modes, n_directions):
     error_grid = mx.any(err_grid & valid, axis=1)
     splines = interpolants(alpha, beta, dalpha, dbeta, grid, grid_t, n_grid, P)
     # E: offsets, remapped J frame, coefficients
-    at_ref, inside_ref, dat_ref = spline_values(splines, wf2_tree.f_ref[:, None],
-                                                wf2_t.f_ref[:, None, :] if P else None, P)
+    x_ref, x_ref_t = _call(_build.parts().node_x, (grid, wf2_tree.f_ref[:, None]),
+                           (grid_t, wf2_t.f_ref[:, None] if P else None), batch, P, n_points=1)
+    at_ref, inside_ref, dat_ref = spline_values(splines, x_ref, x_ref_t, P)
     prec_e, wf_e, extra, error_e = _run(S.e, (prec2, wf2, at_ref[:, 0], inside_ref[:, 0]),
                                         (None, None, None if dat_ref is None else dat_ref[:, 0], None), batch, P)
-    # F1: the frequencies of the angles of each mode, the amplitude ratio
-    (mapped, map_errors, mf_as, kappa), f1_t = _call(S.f1, (prec_e, wf_e, frequencies), (None, None, None), batch,
-                                                     P, n_points=n_freq)
+    # F1: where each mode reads the angles (the index among the nodes), the
+    # amplitude ratio
+    (mapped, map_errors, _, kappa), f1_t = _call(S.f1, (prec_e, wf_e, grid, frequencies), (None, None, grid_t, None),
+                                                 batch, P, n_points=n_freq)
     n_modes = len(modes)
     k_modes, k_index = intervals(splines, mapped)
     shared = frequencies.shape[0] == 1
@@ -247,22 +249,16 @@ def finish(st, index, size, frequencies, S, modes, n_directions):
             dkappa_s = mx.moveaxis(dkappa_s.reshape(batch, P, n_freq), 1, 2)
     else:
         kappa_s, dkappa_s = kappa, (f1_t[3] if P else None)
-    if st.spintaylor:
-        st_f, st_f_t = st_angles(solution, tab, st_range, st_range_t, rotation, rotation_t, mf_as,
-                                 f1_t[2] if P else None, P)
-    else:
-        st_f, st_f_t = _no_angles(batch, n_freq), None
     # F2: the interpolants at the frequencies of the modes (read from their
     # table in the kernel), the angles, the modes and the twist
     gather = dict(table=splines.table, table_t=splines.dtable, index=k_index, args={})
     for m in range(n_modes):
-        gather["args"].update(ends_gather(11 + 4 * m, slot=m))
-    args = (prec_e, wf_e, extra, splines.grid, frequencies, mapped, k_modes, map_errors, kappa_s, st_f[0], st_f[4])
+        gather["args"].update(ends_gather(9 + 4 * m, slot=m))
+    args = (prec_e, wf_e, extra, splines.grid, frequencies, mapped, k_modes, map_errors, kappa_s)
     args = args + (None,) * (4 * n_modes)
     targs = None
     if P:
-        targs = (None, None, None, splines.dgrid, None, f1_t[0], None, None, dkappa_s,
-                 st_f_t[0] if st_f_t is not None else None, None)
+        targs = (None, None, None, splines.dgrid, None, f1_t[0], None, None, dkappa_s)
         targs = targs + (None,) * (4 * n_modes)
     h_out, err_out = S.f2p.run(args, targs, batch=batch, n_directions=P, n_points=n_freq, gather=gather)
     h, err_f = h_out.tree(), err_out.tree()
@@ -270,7 +266,7 @@ def finish(st, index, size, frequencies, S, modes, n_directions):
     error = error_grid | error_e.tree() | mx.any(err_f, axis=1)
     intermediate = dict(mf_grid=mf_grid, st_grid=st_grid, alpha=alpha, beta=beta, error_grid=error_grid,
                         splines=splines, at_ref=at_ref, prec_e=prec_e, extra=extra, error_e=error_e, mapped=mapped,
-                        kappa=kappa, kappa_s=kappa_s, st_f=st_f, err_f=err_f)
+                        kappa=kappa, kappa_s=kappa_s, err_f=err_f)
     return h, error, (f2_t[0] if P else None), intermediate
 
 

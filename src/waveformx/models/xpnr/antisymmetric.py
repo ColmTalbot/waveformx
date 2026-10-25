@@ -175,6 +175,12 @@ def antisymmetric_coefficients(prec, wf, version):
         pts = prec.st_bank.antisymmetric.mf
         mf_t = pts[2]
     alphas, errors = pnr.region_alpha_at(prec, wf, pts, ap, version)
+    # the alpha of the interpolants differs from this one by a constant
+    # (the offset of alpha, changed by the interpolants): the same
+    # alpha with the parameters and the offset of the grid
+    grid_prec = pnr._copy(prec)
+    grid_prec.alpha_offset = prec.alpha_offset_grid
+    alphas_grid, _ = pnr.region_alpha_at(grid_prec, wf, pts, prec.alpha_params, version)
     alpha_der_mf_t = (alphas[0] - alphas[1]) / 2.0 / delta_mf
     alpha_mf_t = alphas[2]
     p = powers(mf_t)
@@ -195,7 +201,8 @@ def antisymmetric_coefficients(prec, wf, version):
     error = jnp.any(errors) | error_ap
     phi_b0 = fma(a0, mf_t, alpha_mf_t - phi / 2.0) + phi_a0
     phase_offset = prec.phi_j_sf
-    return Struct(alpha_params=ap, phase22=phase22, amp22=amp22, mf_t=mf_t, lina=lina, linb=linb, inveta=inveta, phiref22=phiref22,
+    return Struct(alpha_params=ap, phase22=phase22, amp22=amp22, mf_t=mf_t, alpha_shift=alphas[2] - alphas_grid[2],
+                  lina=lina, linb=linb, inveta=inveta, phiref22=phiref22,
                   a0=a0, phi_a0=phi_a0, phi_b0=phi_b0, phase_offset=phase_offset,
                   amp_prefactor=wf.amp0 * wf.amp_norm, error=error)
 
@@ -212,27 +219,37 @@ def antisymmetric_kappa(prec, wf, frequencies):
     return smooth_amp_ratio(kappa, frequencies)
 
 
-def antisymmetric_waveform(prec, wf, frequencies, version, st_alpha=None, kappa=None):
+def antisymmetric_waveform(prec, wf, frequencies, version, alpha=None, kappa=None, co=None):
     """``IMRPhenomX_PNR_GenerateAntisymmetricWaveform``: amplitude and phase
     of the antisymmetric (2,2) co-precessing mode at ``frequencies`` (Hz),
     ``h = amp exp(i phase)``, the error flag and the coefficients of the
     symmetric (2,2) mode it is built on (``amp22``, ``phase22``, ``linb``).
-    ``st_alpha`` is the SpinTaylor ``alpha`` at the frequencies if computed
-    already (:func:`.pnr.region_alpha_many`), ``kappa`` the amplitude ratio
+    ``alpha`` is the PNR ``alpha`` of the interpolants at the frequencies,
+    without the offset (:func:`.pnr.region_alpha_many` if ``None``),
+    ``co`` its coefficients (:func:`antisymmetric_coefficients`) if computed
+    already, ``kappa`` the amplitude ratio
     (:func:`antisymmetric_kappa`, of all the frequencies when these are a
     part of them)."""
     prec, wf = barrier((prec, wf))
     if kappa is None:
         kappa = antisymmetric_kappa(prec, wf, frequencies)
     mf = hz_to_mf(frequencies, wf.m_tot)
-    co = antisymmetric_coefficients(prec, wf, version)
+    if co is None:
+        co = antisymmetric_coefficients(prec, wf, version)
     # the PNR alpha enters below mf_t only: computed up to the last
     # frequency there
-    used = mf < co.mf_t
-    n_used = jnp.max(jnp.where(used, jnp.arange(mf.shape[0]), -1)) + 1
-    alpha_pnr, errors = pnr.region_alpha_many(prec, wf, mf, co.alpha_params, version, n_used, st_alpha)
-    mf_cut = wf.f_max_prime * wf.m_sec
-    error = co.error | jnp.any(errors & used & (mf <= mf_cut))
+    error = co.error
+    if alpha is None:
+        used = mf < co.mf_t
+        n_used = jnp.max(jnp.where(used, jnp.arange(mf.shape[0]), -1)) + 1
+        alpha, errors = pnr.region_alpha_many(prec, wf, mf, co.alpha_params, version, n_used)
+        mf_cut = wf.f_max_prime * wf.m_sec
+        error = error | jnp.any(errors & used & (mf <= mf_cut))
+        alpha_pnr = alpha
+    else:
+        # (LAL evaluates alpha again, with its parameters after the offsets
+        # of the interpolants: theirs up to a constant)
+        alpha_pnr = alpha + co.alpha_shift
     mf = wf.m_sec * frequencies
     p = powers(mf)
     phi = phase_xas(mf, p, co.phase22) * co.inveta

@@ -26,6 +26,13 @@ makes continuous (``DELIBERATE``):
   for ``|chi2| >= 1e-3``) and the ``beta`` of a constant spin magnitude
   where the roots of its cubic are not resolved (equal masses).
 
+And one numerical difference: the model's grid of the PNR interpolants
+(nodes from a quarter of LAL's spacing, :func:`waveformx.models.xpnr.pnr.angle_interpolants`)
+resolves the NNLO angles of heavy binaries (19, 21, 31), where LAL's
+uniform spacing for the NNLO angles does not: LAL's own grid made 4 or 16
+times finer moves its waveform by the same mismatch (up to ``3.5e-5``), to
+within ``5e-8`` of the model's.
+
 Where LAL's MSA system fails (binary 21) LAL takes the NNLO angles; the
 MSA prescription is NaN there, and the public functions raise
 ``ModelError``.
@@ -53,7 +60,7 @@ TOLERANCE = 1e-6
 #: the binaries where the model departs from LAL deliberately (see the
 #: module's docstring): their bounds, with ~2x margin over the measured
 DELIBERATE = {
-    102: {15: 3e-3, 24: 1e-3},
+    102: {15: 3e-3, 19: 7e-5, 21: 5e-6, 24: 1e-3, 31: 8e-6},
     223: {7: 2e-3, 8: 0.2, 9: 5e-3, 15: 1.5e-3, 24: 1.2e-5},
 }
 #: the MSA system fails: LAL takes the NNLO angles

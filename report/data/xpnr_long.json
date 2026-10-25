@@ -1,0 +1,68 @@
+{
+ "environment": {
+  "machine": "arm64 Darwin 25.6.0",
+  "cpu": "Apple M2 Ultra",
+  "cpus": 24,
+  "python": "3.12.15",
+  "jax": "0.11.2",
+  "jaxlib": "0.11.2",
+  "backend": "cpu",
+  "xla_flags": "",
+  "waveformx_commit": "6f4c58d",
+  "lalsimulation": "6.2.0",
+  "lal": "7.7.0",
+  "waveformrs": "0.1.0"
+ },
+ "binary": {
+  "mass_1": 10.0,
+  "mass_2": 1.4,
+  "spin_1": [
+   0.5,
+   0.2,
+   0.4
+  ],
+  "spin_2": [
+   0.02,
+   -0.01,
+   0.03
+  ],
+  "luminosity_distance": 200.0,
+  "inclination": 0.7,
+  "phi_ref": 1.2
+ },
+ "results": {
+  "10_64": {
+   "n_frequencies": 130433,
+   "jax": 0.030950082931667566,
+   "jax_public": 0.03158879233524203,
+   "waveformrs": 0.22414816683158278,
+   "waveformrs_grid": 0.1734754997305572,
+   "lal": 0.547496291808784,
+   "lal_multibanding": 0.5064632915891707,
+   "max_relative_error_lal": 0.003939867127082961,
+   "mlx": 0.07003920897841454
+  },
+  "10_128": {
+   "n_frequencies": 260865,
+   "jax": 0.04396608378738165,
+   "jax_public": 0.046799332834780216,
+   "waveformrs": 0.31702879117801785,
+   "waveformrs_grid": 0.22138995816931129,
+   "lal": 0.7314806669019163,
+   "lal_multibanding": 0.6377990832552314,
+   "max_relative_error_lal": 0.003939733394158533,
+   "mlx": 0.07186250016093254
+  },
+  "20_32": {
+   "n_frequencies": 64897,
+   "jax": 0.017603292129933834,
+   "jax_public": 0.0184190827421844,
+   "waveformrs": 0.08174295770004392,
+   "waveformrs_grid": 0.05899529065936804,
+   "lal": 0.1872192919254303,
+   "lal_multibanding": 0.16907762503251433,
+   "max_relative_error_lal": 0.006226820887186812,
+   "mlx": 0.04037995915859938
+  }
+ }
+}

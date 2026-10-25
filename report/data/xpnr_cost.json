@@ -8,23 +8,23 @@
   "jaxlib": "0.11.2",
   "backend": "cpu",
   "xla_flags": "",
-  "waveformx_commit": "30fcf3b",
+  "waveformx_commit": "6f4c58d",
   "lalsimulation": "6.2.0",
   "lal": "7.7.0",
   "waveformrs": "0.1.0"
  },
  "compile_seconds": {
-  "uniform_eval": 12.259754416998476,
-  "uniform_vmap": 18.348512125201523,
-  "uniform_grad": 47.40329866716638,
-  "phase_eval": 12.799800916109234,
-  "phase_vmap": 18.4152944162488,
-  "phase_grad": 48.00732499966398
+  "default_eval": 11.892569709103554,
+  "default_vmap": 17.854556708130985,
+  "default_grad": 47.43765004072338,
+  "phase_eval": 12.237000667024404,
+  "phase_vmap": 18.60607595788315,
+  "phase_grad": 47.931943625211716
  },
  "runtime": {
-  "benchmark_uniform": 0.006937999743968248,
-  "benchmark_phase": 0.009287249762564898,
-  "light_uniform": 0.07409683289006352,
-  "light_phase": 0.025154749862849712
+  "benchmark_default": 0.0062415418215096,
+  "benchmark_phase": 0.008554833009839058,
+  "light_default": 0.019782083109021187,
+  "light_phase": 0.02209070837125182
  }
 }

@@ -44,6 +44,11 @@ fi
 "$PY" report/gradients.py
 "$PY" report/benchmark.py
 "$PY" report/xpnr_cost.py
+if "$MLX_PY" -c "import mlx.core" 2>/dev/null; then
+    "$PY" report/xpnr_long.py --mlx-python "$MLX_PY"
+else
+    "$PY" report/xpnr_long.py
+fi
 # (the memory now; the "before" column of report/data/xpnr_memory.json is
 # kept: see the script's docstring)
 if "$MLX_PY" -c "import mlx.core" 2>/dev/null; then

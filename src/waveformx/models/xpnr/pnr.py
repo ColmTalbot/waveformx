@@ -37,7 +37,7 @@ from ._generated import pnr_fits as _pnr_fits
 from ._generated import qnm as _qnm
 from ._generated import utilities as _utilities
 from ._math import (
-    FRAC_PI_2, MTSUN_SI, PI, FencedModule, Struct, barrier, blocked_map, blocked_map_extra, blocked_scan,
+    FRAC_PI_2, MTSUN_SI, PI, FencedModule, Struct, barrier, blocked_map, blocked_scan,
     chunked_map, dbl_epsilon, fenced, fma, fnms, hz_to_mf, integer, mf_to_hz, real, rotate_y, rotate_z, safe_div,
     safe_sqrt, tiny,
 )
@@ -1409,31 +1409,18 @@ def region_alpha_at(prec, wf, mf, ap, version):
     return value, error
 
 
-def region_alpha_many(prec, wf, mf, ap, version, n, st_alpha=None):
+def region_alpha_many(prec, wf, mf, ap, version, n):
     """:func:`region_alpha_at` at the first ``n`` (traced) of many points
     ``mf`` (a 1-d array), by chunks (:func:`~._math.chunked_map`; zeros
-    beyond the chunks needed). ``st_alpha`` is the SpinTaylor ``alpha`` of
-    the splines at ``mf`` and whether it lies within the knots, if computed
-    already (``st_extra`` of :func:`angle_interpolants`)."""
-
-    def put(mf, st_alpha):
-        if st_alpha is not None:
-            # (only alpha is read: the other values are NaN)
-            a, inside = st_alpha
-            nan = jnp.full_like(a, jnp.nan)
-            _st_spline_put(prec, wf, mf, (a, nan, nan, nan, inside))
-
+    beyond the chunks needed)."""
     if mf.shape[0] <= PNR_GRID_CHUNK:
-        put(mf, st_alpha)
         return region_alpha_at(prec, wf, mf, ap, version)
 
     def evaluate(x, args):
         prec, wf, ap = args
-        x, st_alpha = x
-        put(x, st_alpha)
         return region_alpha_at(prec, wf, x, ap, version)
 
-    return chunked_map(evaluate, (mf, st_alpha), n, PNR_GRID_CHUNK, (prec, wf, ap))
+    return chunked_map(evaluate, mf, n, PNR_GRID_CHUNK, (prec, wf, ap))
 
 
 def _held(bp, held, free):
@@ -1577,11 +1564,10 @@ def uniform_angles(prec, wf, mf, version, st_values=None):
 # the interpolants of the PNR angles
 # ---------------------------------------------------------------------------
 
-#: The capacity of the uniform grid of the PNR angle interpolants (LAL's
-#: grid has ``(f_max - f_min) / deltaF`` points with ``deltaF >= 0.01 Hz``;
-#: the cost is that of the points used).
+#: The capacity of the grid of the PNR angle interpolants: the cost is that
+#: of the points used.
 PNR_GRID_CAPACITY = 524288
-#: The points of the grid evaluated together (chunks beyond LAL's grid are
+#: The points of the grid evaluated together (chunks beyond the grid are
 #: skipped under ``jax.jit``).
 PNR_GRID_CHUNK = 1024
 
@@ -1641,7 +1627,8 @@ def interpolation_grid(prec, wf, modes, version):
     i_start = jnp.floor(f_min / delta_f_int)
     i_stop = jnp.floor(f_max / delta_f_int) + 1.0
     n = i_stop - i_start
-    error = error | (n < 3) | (n > PNR_GRID_CAPACITY)
+    # (the nodes of the interpolants span this band: angle_interpolants)
+    error = error | (n < 3)
     return i_start, n, delta_f_int, error
 
 
@@ -1716,9 +1703,20 @@ def _uniform_natural_splines(ys, n, h, n_eval):
     return [m.reshape(cap) for m in out]
 
 
-def _spline_at(y, m, n, x0, h, x):
-    """Value and derivative of the uniform spline at ``x``."""
-    k = jnp.clip(jnp.floor((x - x0) / h), 0, n - 2).astype(integer())
+def _interval(n, x0, h, x):
+    """The interval of the uniform grid ``x0 + k h``, ``k < n``, holding
+    ``x`` (clipped to the grid)."""
+    # (behind a barrier: the gathers and ``xk`` must use the same interval,
+    # which XLA, computing the index once for each, may round differently
+    # where ``x`` falls on a node, as under ``jax.vmap``)
+    return jax.lax.optimization_barrier(jnp.clip(jnp.floor((x - x0) / h), 0, n - 2).astype(integer()))
+
+
+def _spline_at(y, m, n, x0, h, x, k=None):
+    """Value and derivative of the uniform spline at ``x`` (in the interval
+    ``k`` of :func:`_interval`, if computed already)."""
+    if k is None:
+        k = _interval(n, x0, h, x)
     xk = x0 + k * h
     y0, y1 = y[k], y[k + 1]
     m0, m1 = m[k], m[k + 1]
@@ -1729,11 +1727,15 @@ def _spline_at(y, m, n, x0, h, x):
     return y0 + dx * (b + dx * (c + dx * d)), b + dx * (2.0 * c + 3.0 * dx * d)
 
 
-#: The largest spacing (in ``Mf``) of the phase grid of the PNR
-#: interpolants (``WaveformOptions.extended_phase_grid``): its spacing
-#: grows like ``f^2`` (constant steps of the precession and nutation phases
-#: at leading order) from LAL's spacing at its start up to this.
+#: The largest spacing (in ``Mf``) of the grid of the PNR interpolants:
+#: its spacing grows like ``f^2`` (constant steps of the precession and
+#: nutation phases at leading order) from its spacing at its start up to
+#: this.
 PHASE_GRID_MF = 1e-4
+#: The spacing at the start of the grid of LAL's splines, as a fraction of
+#: LAL's uniform spacing (:func:`interpolation_delta_f`): finer than LAL's
+#: where L passes close to J above the start of the grid.
+NODE_REFINE = 0.25
 #: The largest step (rad) of the NNLO ``alpha`` between the first nodes of
 #: the phase grid (the interpolants follow ``alpha`` through a unit vector,
 #: which needs steps well below ``pi``; LAL's uniform spacing for the NNLO
@@ -1743,7 +1745,7 @@ PHASE_GRID_NNLO_STEP = 0.25
 
 
 def _phase_grid(f0, f_end, h, m_tot):
-    """The nodes ``f_k = F(s0 + k ds)`` of the phase grid from ``f0`` to
+    """The nodes ``f_k = F(s0 + k ds)`` of the grid from ``f0`` to
     (at least) ``f_end``, with ``s(f) = -1/f + f/fc^2``: spacing ``h`` at
     ``f0``, ``~h (f / f0)^2`` above it and ``mf_to_hz(PHASE_GRID_MF)`` (or
     ``h``, if larger) at high frequencies."""
@@ -1782,54 +1784,40 @@ def _phase_f(grid, s):
     return jnp.where(s <= 0.0, low, high)
 
 
-def angle_interpolants(prec, wf, grid, version, active=True, extra_mf=None, n_extra=None):
+def angle_interpolants(prec, wf, grid, version, active=True):
     """``IMRPhenomX_PNR_GeneratePNRAngleInterpolants``: the PNR ``alpha`` and
-    ``beta`` on the uniform grid, their splines and ``gamma`` integrated
-    from them with Boole's rule (on the phase grid, with
-    ``prec.phase_grid``, the interpolants of :func:`_geometric_interpolants`).
-    Returns a :class:`~._math.Struct` of the interpolants and the error
-    flag. Where ``active`` (traced) is false, nothing is evaluated.
+    ``beta`` at the nodes of the grid, their splines and ``gamma``
+    integrated from them with Boole's rule (with ``prec.phase_grid``, the
+    interpolants of :func:`_geometric_interpolants`). Returns a
+    :class:`~._math.Struct` of the interpolants and the error flag. Where
+    ``active`` (traced) is false, nothing is evaluated.
 
-    The grid has room for :data:`PNR_GRID_CAPACITY` points; everything is
-    computed in chunks of :data:`PNR_GRID_CHUNK` points, for the chunks
-    holding LAL's ``n`` points only.
-
-    With ``extra_mf`` (a 1-d array of ``Mf``, version 330), the SpinTaylor
-    ``alpha`` of the splines at the first ``n_extra`` (traced, default all)
-    of those points too, in the same loop (one evaluation of the splines to
-    compile): ``st_extra``, the values and whether they lie within the
-    knots, as :func:`_st_spline` gives them (the antisymmetric mode's
-    points, see :func:`region_alpha_many`; zeros beyond the chunks
-    needed)."""
-    i_start, n, delta_f_int, error = grid
+    LAL's grid is uniform, with the spacing that its lower end needs
+    (``grid``, :func:`interpolation_grid`); here the nodes span the same
+    band with a spacing that grows like ``f^2`` (:func:`_phase_grid`) from
+    :data:`NODE_REFINE` times LAL's (LAL's for the geometric interpolants),
+    and the splines are taken in the index of the nodes: LAL's splines (the
+    waveform follows that of LAL's grid to mismatches of ~1e-10 at most)
+    from a few thousand nodes rather than up to hundreds of thousands. The grid
+    has room for :data:`PNR_GRID_CAPACITY` nodes; everything is computed in
+    chunks of :data:`PNR_GRID_CHUNK` nodes, for the chunks holding the
+    nodes only."""
     prec, wf = barrier((prec, wf))
-    n_eval = jnp.where(active, n, 0.0)
     chunk = PNR_GRID_CHUNK
     n_chunks = PNR_GRID_CAPACITY // chunk
-    x0 = i_start * delta_f_int
-    h = delta_f_int
-    node_map = None
-    if prec.phase_grid:
-        h_phase = _nnlo_phase_spacing(prec, wf, x0, h) if version == 102 else h
-        node_map = _phase_grid(x0, (i_start + n - 1.0) * h, h_phase, wf.m_tot)
-        # (starting at LAL's spacing, no more nodes than the uniform grid;
-        # with the finer start of the NNLO angles, possibly more)
-        error = error | (node_map.n > PNR_GRID_CAPACITY)
-        n = jnp.minimum(node_map.n, PNR_GRID_CAPACITY)
-        n_eval = jnp.where(active, n, 0.0)
+    h_start = None
+    if prec.phase_grid and version == 102:
+        i_start, _, delta_f_int, _ = grid
+        h_start = _nnlo_phase_spacing(prec, wf, i_start * delta_f_int, delta_f_int)
+    node_map, error = node_grid(grid, wf.m_tot, prec.phase_grid, h_start)
+    n = jnp.minimum(node_map.n, PNR_GRID_CAPACITY)
+    n_eval = jnp.where(active, n, 0.0)
 
-    def frequencies(k, i_start, n, h):
-        return (i_start + jnp.minimum(k, n - 1.0)) * h
-
-    # the angles on the grid
     def angles(index, args):
-        prec, wf, i_start, n, h, node_map = args
+        prec, wf, n, node_map = args
         k = index * chunk + jnp.arange(chunk, dtype=real())
         valid = k < n
-        if node_map is None:
-            mf = hz_to_mf(frequencies(k, i_start, n, h), wf.m_tot)
-        else:
-            mf = hz_to_mf(_phase_f(node_map, node_map.s0 + jnp.minimum(k, n - 1.0) * node_map.ds), wf.m_tot)
+        mf = hz_to_mf(node_frequencies(node_map, k), wf.m_tot)
         st_values = None
         if version == 330:
             # the SpinTaylor splines at the chunk's points, shared by the
@@ -1839,56 +1827,42 @@ def angle_interpolants(prec, wf, grid, version, active=True, extra_mf=None, n_ex
         alpha, beta, err = uniform_angles(prec, wf, mf, version, st_values)
         return jnp.where(valid, alpha, 0.0), jnp.where(valid, beta, 0.0), jnp.any(err & valid)
 
-    args = (prec, wf, i_start, n, h, node_map)
-    st_extra = None
-    if extra_mf is None or version != 330:
-        alpha, beta, errors = blocked_map(angles, jnp.arange(n_chunks), jnp.ceil(n_eval / chunk), args)
-    else:
-        n_extra_chunks = -(-extra_mf.shape[0] // chunk)
-        padded = jnp.concatenate([extra_mf, jnp.broadcast_to(extra_mf[-1:], (n_extra_chunks * chunk - extra_mf.shape[0],))])
-
-        def angles_or_extra(index, mf_extra, is_extra, args):
-            prec, wf, i_start, n, h, node_map = args
-            k = index * chunk + jnp.arange(chunk, dtype=real())
-            valid = k < n
-            if node_map is None:
-                mf = hz_to_mf(frequencies(k, i_start, n, h), wf.m_tot)
-            else:
-                mf = hz_to_mf(_phase_f(node_map, node_map.s0 + jnp.minimum(k, n - 1.0) * node_map.ds), wf.m_tot)
-            mf = jnp.where(is_extra, mf_extra, mf)
-            st, rotation, mf_scale, _, context = _st_context(prec, wf)
-            st_values = st_lean.angles(st, rotation, mf, mf_scale, context)
-
-            def on_grid(operands):
-                prec, wf, mf, st_values, valid = operands
-                alpha, beta, err = uniform_angles(prec, wf, mf, version, st_values)
-                return jnp.where(valid, alpha, 0.0), jnp.where(valid, beta, 0.0), jnp.any(err & valid)
-
-            def skip(operands):
-                mf = operands[2]
-                return jnp.zeros(mf.shape, real()), jnp.zeros(mf.shape, real()), jnp.asarray(False)
-
-            values = cond(is_extra, skip, on_grid, (prec, wf, mf, st_values, valid))
-            return values, (st_values[0], st_values[4])
-
-        needed = n_extra_chunks if n_extra is None else jnp.ceil(jnp.minimum(n_extra, extra_mf.shape[0]) / chunk)
-        (alpha, beta, errors), st_extra = blocked_map_extra(
-            angles_or_extra, jnp.arange(n_chunks), jnp.ceil(n_eval / chunk), padded.reshape(n_extra_chunks, chunk),
-            args, jnp.where(active, needed, 0))
-        st_extra = tuple(x.reshape(-1)[:extra_mf.shape[0]] for x in st_extra)
+    alpha, beta, errors = blocked_map(angles, jnp.arange(n_chunks), jnp.ceil(n_eval / chunk),
+                                      (prec, wf, n, node_map))
     error = error | jnp.any(errors)
     alpha, beta = alpha.reshape(-1), beta.reshape(-1)
-    if node_map is not None:
-        # splines in the index of the nodes
-        splines = _geometric_interpolants(alpha, beta, jnp.zeros((), real()), n, jnp.ones((), real()), n_eval, error)
-        splines.node_map = node_map
-        splines.st_extra = st_extra
-        return splines
-    # LAL's natural splines of alpha and beta, and gamma from them (on the
-    # phase grid the interpolants above, in the index of the nodes)
-    splines = _lal_interpolants(alpha, beta, i_start, n, h, n_eval, error)
-    splines.st_extra = st_extra
+    zero, one = jnp.zeros((), real()), jnp.ones((), real())
+    if prec.phase_grid:
+        splines = _geometric_interpolants(alpha, beta, zero, n, one, n_eval, error)
+    else:
+        splines = _lal_interpolants(alpha, beta, zero, n, one, n_eval, error)
+    splines.node_map = node_map
     return splines
+
+
+def node_grid(grid, m_tot, geometric=False, h_start=None):
+    """The nodes of the interpolants on the band of LAL's grid ``grid``
+    (:func:`interpolation_grid`): the node map of :func:`_phase_grid` from
+    :data:`NODE_REFINE` times LAL's spacing (LAL's, or ``h_start``, for the
+    geometric interpolants) and the error flag (LAL's grid's, and more
+    nodes than :data:`PNR_GRID_CAPACITY`)."""
+    i_start, n_lal, delta_f_int, error = grid
+    if h_start is None:
+        h_start = delta_f_int * (1.0 if geometric else NODE_REFINE)
+    node_map = _phase_grid(i_start * delta_f_int, (i_start + n_lal - 1.0) * delta_f_int, h_start, m_tot)
+    return node_map, error | (node_map.n > PNR_GRID_CAPACITY)
+
+
+def node_frequencies(node_map, k):
+    """The frequencies (Hz) of the nodes ``k`` (real) of the grid of
+    :func:`_phase_grid` (the last node repeated beyond it)."""
+    return _phase_f(node_map, node_map.s0 + jnp.minimum(k, node_map.n - 1.0) * node_map.ds)
+
+
+def node_coordinate(node_map, f):
+    """The real index of the frequency ``f`` (Hz) among the nodes of
+    :func:`_phase_grid`."""
+    return (_phase_s(node_map, f) - node_map.s0) / node_map.ds
 
 
 def _lal_interpolants(alpha, beta, i_start, n, h, n_eval, error):
@@ -2043,23 +2017,24 @@ def spline_angles(splines, f):
     """The PNR ``alpha``, ``beta`` and ``gamma`` at ``f`` (Hz) and whether
     ``f`` lies on the grid (GSL fails outside): LAL's splines, or the
     interpolants of :func:`_geometric_interpolants` (the phase grid), for
-    which ``alpha`` and ``gamma`` are known modulo ``2 pi``."""
-    inside = (f >= splines.x0) & (f <= splines.x0 + (splines.n - 1.0) * splines.h)
-    if "u" not in splines:
-        a, _ = _spline_at(splines.alpha, splines.m_alpha, splines.n, splines.x0, splines.h, f)
-        b, _ = _spline_at(splines.beta, splines.m_beta, splines.n, splines.x0, splines.h, f)
-        g, _ = _spline_at(splines.gamma, splines.m_gamma, splines.n, splines.x0, splines.h, f)
-        return a, b, g, inside
-    x = f
+    which ``alpha`` and ``gamma`` are known modulo ``2 pi``; both in the
+    index of the nodes (:func:`node_coordinate`; on a uniform grid in Hz
+    for interpolants without nodes)."""
     if "node_map" in splines:
         m = splines.node_map
         inside = (f >= m.f_first) & (f <= m.f_last)
-        x = (_phase_s(m, f) - m.s0) / m.ds
+        x = node_coordinate(m, f)
+    else:
+        inside = (f >= splines.x0) & (f <= splines.x0 + (splines.n - 1.0) * splines.h)
+        x = f
+    k = _interval(splines.n, splines.x0, splines.h, x)
 
     def at(name):
         return _spline_at(getattr(splines, name), getattr(splines, "m_" + name), splines.n, splines.x0, splines.h,
-                          x)[0]
+                          x, k)[0]
 
+    if "u" not in splines:
+        return at("alpha"), at("beta"), at("gamma"), inside
     u, v, w = at("u"), at("v"), at("w")
     a = st_angles.small_atan2(v, u)
     b = st_angles._atan2(safe_sqrt(u * u + v * v, tiny()), w)

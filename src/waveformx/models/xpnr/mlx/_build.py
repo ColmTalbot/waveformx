@@ -21,6 +21,9 @@ from ._kernels import StageKernel
 __all__ = ["stages", "parts"]
 
 F32 = np.float32
+#: The length of the vector of the nodes of the PNR interpolants
+#: (:func:`._stages.node_vector`).
+GRID = 8
 
 
 def _s(shape=(), dtype=F32):
@@ -93,16 +96,16 @@ class Built:
     def f1(self):
         prec, wf, _, _ = self.e.out_example()
         modes = self.modes
-        return StageKernel(lambda p, w, f: _stages.stage_f1(p, w, f, modes), (prec, wf, _s()), 2, "xpnr_f1")
+        return StageKernel(lambda p, w, g, f: _stages.stage_f1(p, w, g, f, modes), (prec, wf, _s((GRID,)), _s()), 3,
+                           "xpnr_f1")
 
     @functools.cached_property
     def f2(self):
         prec, wf, extra, _ = self.e.out_example()
         modes, n, version = self.modes, self.n_modes, self.version
         examples = (prec, wf, extra, _s(), _s((n, len(_stages.SPLINES))), _s((n,), np.bool_), _s((n,), np.bool_),
-                    _s(), _s(), _s((), np.bool_))
-        return StageKernel(lambda p, w, e, f, v, i, me, k, sa, si: _stages.stage_f2(p, w, e, f, v, i, me, k, sa, si,
-                                                                                     modes, version),
+                    _s())
+        return StageKernel(lambda p, w, e, f, v, i, me, k: _stages.stage_f2(p, w, e, f, v, i, me, k, modes, version),
                            examples, 3, "xpnr_f2")
 
 
@@ -110,11 +113,10 @@ def _f2_pieces(built):
     prec, wf, extra, _ = built.e.out_example()
     modes, n, version = built.modes, built.n_modes, built.version
     six = _s((len(_stages.SPLINES),))
-    examples = (prec, wf, extra, _s((3,)), _s(), _s((n,)), _s((n,)), _s((n,), np.bool_), _s(), _s(),
-                _s((), np.bool_)) + (six,) * (4 * n)
+    examples = (prec, wf, extra, _s((GRID,)), _s(), _s((n,)), _s((n,)), _s((n,), np.bool_), _s()) + (six,) * (4 * n)
 
-    def function(p, w, e, g, f, x, k, me, kappa, sa, si, *pieces):
-        return _stages.stage_f2_pieces(p, w, e, g, f, x, k, me, kappa, sa, si, *pieces, modes=modes, version=version)
+    def function(p, w, e, g, f, x, k, me, kappa, *pieces):
+        return _stages.stage_f2_pieces(p, w, e, g, f, x, k, me, kappa, *pieces, modes=modes, version=version)
 
     return StageKernel(function, examples, 4, "xpnr_f2p")
 
@@ -144,17 +146,21 @@ class Parts:
 
     @functools.cached_property
     def grid_mf(self):
-        return StageKernel(lambda grid, m_tot, k: _stages.grid_frequencies(k, grid, m_tot), (_s((3,)), _s(), _s()),
-                           2, "xpnr_grid_mf")
+        return StageKernel(lambda grid, m_tot, k: _stages.grid_frequencies(k, grid, m_tot),
+                           (_s((GRID,)), _s(), _s()), 2, "xpnr_grid_mf")
+
+    @functools.cached_property
+    def node_x(self):
+        return StageKernel(_stages.node_x, (_s((GRID,)), _s()), 1, "xpnr_node_x")
 
     @functools.cached_property
     def boole(self):
-        return StageKernel(_stages.boole_interval, (_s((3,)), _s(), _s((4,)), _s((4,))), 1, "xpnr_boole")
+        return StageKernel(_stages.boole_interval, (_s((GRID,)), _s(), _s((4,)), _s((4,))), 1, "xpnr_boole")
 
     @functools.cached_property
     def spline_point6(self):
         six = _s((len(_stages.SPLINES),))
-        return StageKernel(_stages.spline_point6, (_s((3,)), _s(), _s(), six, six, six, six), 1, "xpnr_spline")
+        return StageKernel(_stages.spline_point6, (_s((GRID,)), _s(), _s(), six, six, six, six), 1, "xpnr_spline")
 
 
 @functools.lru_cache(maxsize=None)

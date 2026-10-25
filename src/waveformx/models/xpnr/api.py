@@ -9,7 +9,9 @@ prescriptions (``IMRPhenomXPNR_NNLO``, ``IMRPhenomXPNR_MSA``).
   static, ``jax.vmap``, ``jax.grad``);
 * :meth:`XPNRModel.validate` applies the model's checks to concrete
   values (LALSimulation's, and :class:`~waveformx.exceptions.ModelError`
-  where the SpinTaylor angles, or the MSA system, cannot be computed);
+  where the SpinTaylor angles, or the MSA system, cannot be computed), the
+  latter after the waveform (:meth:`XPNRModel.validate_result`) for the
+  polarizations;
 * :meth:`XPNRModel.modes` and :meth:`XPNRModel.choose_fd_modes` return the
   J-frame modes of ``SimIMRPhenomXPHMFrequencySequenceOneMode`` and
   ``SimInspiralChooseFDModes`` with the flags of IMRPhenomXPNR.
@@ -31,11 +33,12 @@ from ._math import MTSUN_SI
 __all__ = ["MODEL", "MODEL_MSA", "MODEL_NNLO", "XPNRModel"]
 
 
-@functools.partial(jax.jit, static_argnums=(3, 4, 5))
-def _checks(binary, f_min, f_max, modes, reference_mf=None, version=330):
+@functools.partial(jax.jit, static_argnums=(3, 4, 5, 6))
+def _checks(binary, f_min, f_max, modes, reference_mf=None, version=330, integrate=True):
     """The flags of the model's errors, for :meth:`XPNRModel.validate`
     (``f_min``, ``f_max`` the first and last frequencies, ``reference_mf``
-    the mass-scaled reference frequency, ``version`` the prescription)."""
+    the mass-scaled reference frequency, ``version`` the prescription);
+    those of the SpinTaylor integration with ``integrate`` only."""
     pnr.clear_cache()
     wf, m1, m2, chi1, chi2 = model.setup_waveform(binary, 0.0, f_min, f_max, reference_mf=reference_mf)
     wf.hm_release = 122019
@@ -48,7 +51,7 @@ def _checks(binary, f_min, f_max, modes, reference_mf=None, version=330):
         f_ref=wf.f_ref,
         cutoff=wf0.f_max_prime <= wf0.f_min,
     )
-    if version == 330:
+    if version == 330 and integrate:
         st = pnr.spintaylor_solution(base, wf0, m1, m2)
         flags.update(st_failed=st.failed, st_incomplete=st.incomplete)
     elif version == 223:
@@ -74,8 +77,10 @@ class XPNRModel:
     def __repr__(self):
         return f"XPNRModel({self.version}, {self.name!r})"
 
-    def validate(self, binary, frequencies, options):
-        """The checks of IMRPhenomXPNR (LALSimulation's) for concrete values."""
+    def validate(self, binary, frequencies, options, integrate=True):
+        """The checks of IMRPhenomXPNR (LALSimulation's) for concrete values
+        (those of the SpinTaylor integration with ``integrate`` only: see
+        :meth:`validate_result`)."""
         frequencies = np.asarray(frequencies, dtype=float)
         if frequencies.size == 0:
             return
@@ -84,7 +89,7 @@ class XPNRModel:
             if (int(ell), abs(int(emm))) not in model.DEFAULT_MODES:
                 raise InvalidParameterError(f"mode array contains unavailable mode ({ell}, {emm})")
         flags = {k: np.asarray(v) for k, v in _checks(binary, frequencies[0], frequencies[-1], modes,
-                                                       options.reference_mf, self.version).items()}
+                                                       options.reference_mf, self.version, integrate).items()}
         if flags["mass_ratio"]:
             raise InvalidParameterError(f"{self.name} is not valid at mass ratios beyond 1000")
         if flags["final_mass"]:
@@ -104,6 +109,8 @@ class XPNRModel:
             raise InvalidParameterError("f_min <= f_ref <= f_max is required when using tuned angles")
         if flags["cutoff"]:
             raise InvalidParameterError("the cutoff frequency lies below f_min")
+        if not integrate:
+            return
         if flags.get("st_failed", False):
             raise ModelError("the SpinTaylor angles cannot be computed")
         if flags.get("st_incomplete", False):
@@ -111,6 +118,14 @@ class XPNRModel:
         if flags.get("msa_failed", False):
             raise ModelError("the MSA system cannot be set up for this binary (LAL takes the NNLO angles: "
                              "IMRPhenomXPNR_NNLO)")
+
+    def validate_result(self, binary, frequencies, options, result):
+        """The checks of the SpinTaylor integration (:meth:`validate`) after
+        the polarizations ``result`` were computed without them: where the
+        model fails, every frequency is NaN, so they are needed only then
+        (the integration is not repeated for a waveform that succeeded)."""
+        if np.asarray(result[0]).size and not np.isfinite(np.asarray(result[0][0])):
+            self.validate(binary, frequencies, options)
 
     def polarizations(self, binary, frequencies, options):
         """``SimInspiralChooseFDWaveformSequence`` (see :func:`.model.polarizations`)."""

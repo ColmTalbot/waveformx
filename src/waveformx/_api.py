@@ -159,8 +159,15 @@ def polarizations(approximant: str, frequencies: Any, *, options: Optional[Wavef
     model = _model(approximant, "frequency")
     binary, options = _request(options, keywords)
     frequencies = check_frequencies(frequencies)
-    model.validate(binary, np.asarray(frequencies), options)
-    return _compiled(approximant, options, "polarizations", False)(binary, frequencies)
+    validate_result = getattr(model, "validate_result", None)
+    if validate_result is None:
+        model.validate(binary, np.asarray(frequencies), options)
+        return _compiled(approximant, options, "polarizations", False)(binary, frequencies)
+    # (the model's costly checks once the waveform is known to need them)
+    model.validate(binary, np.asarray(frequencies), options, integrate=False)
+    result = _compiled(approximant, options, "polarizations", False)(binary, frequencies)
+    validate_result(binary, np.asarray(frequencies), options, result)
+    return result
 
 
 def polarizations_on_grid(approximant: str, grid: Any, *, options: Optional[WaveformOptions] = None, **keywords):
