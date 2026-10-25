@@ -54,7 +54,7 @@ from ._math import (
     safe_sqrt, tiny,
 )
 from ._transforms import differentiable
-from .antisymmetric import antisymmetric_waveform
+from .antisymmetric import antisymmetric_kappa, antisymmetric_waveform
 from .internals import errors as wf_errors
 from .internals import waveform_struct
 from .xas import h22, phif_ref, xas_setup
@@ -71,6 +71,11 @@ DEFAULT_MODES = ((2, 1), (2, 2), (3, 2), (3, 3), (4, 4))
 #: frequencies. Blocks of these sizes run about as fast as the whole batch.
 BATCH_BLOCK = 16
 JACOBIAN_BLOCK = 4
+#: Above this many frequencies, the polarizations are computed in a
+#: ``jax.lax.map`` over chunks of this many (:func:`_polarizations_of`),
+#: so that the arrays at the frequencies (each with a copy per tangent of a
+#: Jacobian) are those of a chunk.
+FREQUENCY_CHUNK = 16384
 
 
 def lal_order(modes):
@@ -302,12 +307,14 @@ WF_FIELDS = (
 )
 
 
-def _angle_data(prec, wf, splines, modes, frequencies):
+def _angle_data(prec, wf, splines, modes, frequencies, kappa=None):
     """What the precession contributes to the waveform: for each
     co-precessing mode the Euler angles ``(alpha, cos(beta), epsilon)`` at
     ``frequencies``, the antisymmetric part of the (2,2) mode, the line of
     sight in the J frame, the polarization angle, the waveform struct as the
-    set-up left it, and the error flag."""
+    set-up left it, and the error flag. ``kappa``: the amplitude ratio of the
+    antisymmetric mode, if computed already (of all the frequencies, when
+    ``frequencies`` are a chunk of them)."""
     mf = wf.m_sec * frequencies
     mf_cut = wf.f_max_prime * wf.m_sec
     keep = mf <= mf_cut
@@ -324,7 +331,7 @@ def _angle_data(prec, wf, splines, modes, frequencies):
         cos_betas.append(cos_beta)
         epsilons.append(epsilon)
     if (2, 2) in modes:
-        amp, phase, err, xas22 = antisymmetric_waveform(prec, wf, frequencies, 330, splines.st_extra)
+        amp, phase, err, xas22 = antisymmetric_waveform(prec, wf, frequencies, 330, splines.st_extra, kappa)
         error = error | err
         h_as = amp * jnp.exp(1j * phase)
     else:
@@ -432,8 +439,10 @@ def _twist_jframe(data, modes, jmodes, frequencies, hs):
     return jnp.stack(positive), jnp.stack(negative)
 
 
-def _pipeline_330(setup, modes, frequencies, active=True):
-    """The angle data (:func:`_angle_data`) from :func:`_spintaylor_setup`."""
+def _pipeline_330(setup, modes, frequencies, active=True, angles=True):
+    """The angle data (:func:`_angle_data`) from :func:`_spintaylor_setup`
+    (without ``angles``: what it is computed from, ``(prec, wf, splines,
+    error)``)."""
     prec, wf, grid, flags = setup
     prec, wf = barrier((pnr._copy(prec), wf))
     # (the antisymmetric mode reads the SpinTaylor alpha at the frequencies
@@ -443,14 +452,17 @@ def _pipeline_330(setup, modes, frequencies, active=True):
         extra_mf = hz_to_mf(frequencies, wf.m_tot)
         n_extra = jnp.sum(extra_mf < pnr.antisymmetric_points(wf)[0])
     prec, splines, error = barrier(_prepare_pnr(prec, wf, grid, 330, flags.error, active, extra_mf, n_extra))
+    if not angles:
+        return prec, wf, splines, error | flags.incomplete
     data = _angle_data(prec, wf, splines, modes, frequencies)
     data.error = data.error | error | flags.incomplete
     return data
 
 
 def _decide(binary, frequencies, delta_f, f_min, f_max, modes, mode_range_=None, check_reference=True,
-            phase_grid=False, amp_scale=1.0, reference_mf=None):
-    """Set up the binary and compute the angle data. ``phase_grid``
+            phase_grid=False, amp_scale=1.0, reference_mf=None, angles=True):
+    """Set up the binary and compute the angle data (without ``angles``,
+    what it is computed from: see :func:`_pipeline_330`). ``phase_grid``
     (static) selects the phase grid of the PNR interpolants
     (:func:`.pnr.angle_interpolants`), ``reference_mf`` (static) the
     mass-scaled reference frequency (``WaveformOptions.reference_mf``):
@@ -473,9 +485,48 @@ def _decide(binary, frequencies, delta_f, f_min, f_max, modes, mode_range_=None,
     error = error | base.error_spin | (wf0.f_max_prime <= wf0.f_min)
     setup = _spintaylor_setup(base, wf0, m1, m2, modes)
     st_failed = setup[3].failed
+    if not angles:
+        prec, wf, splines, pipeline_error = _pipeline_330(setup, modes, frequencies, ~st_failed, angles=False)
+        return prec, wf, splines, pipeline_error | error | st_failed
     data = _pipeline_330(setup, modes, frequencies, ~st_failed)
     data.error = data.error | error | st_failed
     return data
+
+
+def _polarizations_of(binary, frequencies, delta_f, f_min, f_max, modes, **options):
+    """``(h_+, h_x, error)`` of :func:`_decide` (with ``options``) and
+    :func:`_twist_polarizations`; above :data:`FREQUENCY_CHUNK` frequencies
+    the set-up once and the rest in a ``jax.lax.map`` over chunks of the
+    frequencies (the moving average of the antisymmetric amplitude, which
+    reads all of them, before)."""
+    n = frequencies.shape[0]
+    if n <= FREQUENCY_CHUNK:
+        data = _decide(binary, frequencies, delta_f, f_min, f_max, modes, **options)
+        hp, hc = _twist_polarizations(data, modes, frequencies)
+        return hp, hc, data.error
+    prec, wf, splines, error = _decide(binary, frequencies, delta_f, f_min, f_max, modes, angles=False, **options)
+    per_frequency = [frequencies]
+    if (2, 2) in modes:
+        per_frequency += [antisymmetric_kappa(prec, wf, frequencies), *splines.st_extra]
+    n_chunks = -(-n // FREQUENCY_CHUNK)
+
+    def chunked(x):
+        # (padded with the last frequency, whose results are dropped)
+        x = jnp.concatenate([x, jnp.broadcast_to(x[-1:], (n_chunks * FREQUENCY_CHUNK - n,))])
+        return x.reshape(n_chunks, FREQUENCY_CHUNK)
+
+    def chunk(xs):
+        f, kappa = xs[0], None
+        chunk_splines = pnr._copy(splines)
+        if (2, 2) in modes:
+            kappa = xs[1]
+            chunk_splines.st_extra = (xs[2], xs[3])
+        data = _angle_data(prec, wf, chunk_splines, modes, f, kappa)
+        hp, hc = _twist_polarizations(data, modes, f)
+        return hp, hc, data.error
+
+    hp, hc, errors = jax.lax.map(chunk, [chunked(x) for x in per_frequency])
+    return hp.reshape(-1)[:n], hc.reshape(-1)[:n], error | jnp.any(errors)
 
 
 def _polarizations(binary, frequencies, options):
@@ -487,12 +538,11 @@ def _polarizations_in(binary, frequencies, options):
     pnr.clear_cache()
     frequencies = jnp.asarray(frequencies, dtype=real())
     modes = coprecessing_modes(options.mode_array)
-    data = _decide(binary, frequencies, 0.0, frequencies[0], frequencies[-1], modes,
-                   phase_grid=options.extended_phase_grid, amp_scale=strain_scale(options),
-                   reference_mf=options.reference_mf)
-    hp, hc = _twist_polarizations(data, modes, frequencies)
+    hp, hc, error = _polarizations_of(binary, frequencies, 0.0, frequencies[0], frequencies[-1], modes,
+                                      phase_grid=options.extended_phase_grid, amp_scale=strain_scale(options),
+                                      reference_mf=options.reference_mf)
     nan = jnp.asarray(jnp.nan + 1j * jnp.nan, complex_())
-    return jnp.where(data.error, nan, hp), jnp.where(data.error, nan, hc)
+    return jnp.where(error, nan, hp), jnp.where(error, nan, hc)
 
 
 _POLARIZATIONS = {}
