@@ -104,6 +104,19 @@ The package has the same interface as the Python bindings of
     binary's parameters. The waveform also tends smoothly to that of
     aligned spins as the in-plane spins vanish, and is continuous at equal
     masses.
+  - Two other precession prescriptions are available as models of their
+    own: **IMRPhenomXPNR_NNLO** builds the precession angles on the NNLO
+    angles and **IMRPhenomXPNR_MSA** on the MSA angles, as LALSimulation
+    does when asked for them, instead of on the SpinTaylor angles. Neither
+    integrates the precession equations, so they compile and run faster.
+    Each is used for every binary, without LALSimulation's switches
+    between them; where the MSA angles cannot be computed the MSA model
+    reports an error rather than falling back to the NNLO angles. Both are
+    continuous in the binary's parameters, also as the in-plane spins
+    vanish, which for the MSA angles departs from LALSimulation at small
+    in-plane spins. They work everywhere the SpinTaylor model does: the
+    public functions, the time-domain conversions, the converters between
+    reference conventions and MLX.
   - It solves the precession equations once with an accurate integrator
     and takes the angles from that solution, rather than repeating
     LALSimulation's integration step by step and interpolating its

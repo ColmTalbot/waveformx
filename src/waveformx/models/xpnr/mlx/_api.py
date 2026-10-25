@@ -69,20 +69,20 @@ def _frequencies(frequencies, batch):
 
 
 @functools.lru_cache(maxsize=None)
-def _core(modes, amp_scale, reference_mf):
+def _core(modes, amp_scale, reference_mf, version):
     """``f(params (B, 12), frequencies) -> (B, N, 4)`` with its custom VJP."""
 
     @mx.custom_function
     def core(params, frequencies):
         h, _, _ = _pipeline.evaluate_chunked(_leaves(params), frequencies, modes, amp_scale,
-                                             reference_mf=reference_mf)
+                                             reference_mf=reference_mf, version=version)
         return h
 
     @core.vjp
     def core_vjp(primals, cotangent, output):
         params, frequencies = primals
         _, _, jacobian = _pipeline.evaluate_chunked(_leaves(mx.stop_gradient(params)), frequencies, modes,
-                                                    amp_scale, _pipeline.N_PARAMETERS, reference_mf)
+                                                    amp_scale, _pipeline.N_PARAMETERS, reference_mf, version)
         if isinstance(cotangent, (list, tuple)):
             cotangent = cotangent[0]
         terms = jacobian * cotangent[..., None]
@@ -94,14 +94,24 @@ def _core(modes, amp_scale, reference_mf):
     return core
 
 
-def _options(mode_array, scaled_strain, reference_mf):
+#: The approximants of IMRPhenomXPNR and their precession prescriptions.
+VERSIONS = {"IMRPhenomXPNR": 330, "IMRPhenomXPNR_NNLO": 102, "IMRPhenomXPNR_MSA": 223}
+
+
+def _options(mode_array, scaled_strain, reference_mf, approximant="IMRPhenomXPNR"):
     # (the checks of WaveformOptions)
     reference_mf = WaveformOptions(reference_mf=reference_mf).reference_mf
     modes = model.coprecessing_modes(mode_array)
-    return tuple(modes), STRAIN_SCALE if scaled_strain else 1.0, reference_mf
+    try:
+        version = VERSIONS[approximant]
+    except (KeyError, TypeError):
+        raise ValueError(f"unknown approximant {approximant!r}: the MLX port implements {', '.join(VERSIONS)}") \
+            from None
+    return tuple(modes), STRAIN_SCALE if scaled_strain else 1.0, reference_mf, version
 
 
-def polarizations(binary, frequencies, mode_array=None, scaled_strain=True, reference_mf=None):
+def polarizations(binary, frequencies, mode_array=None, scaled_strain=True, reference_mf=None,
+                  approximant="IMRPhenomXPNR"):
     """``(h_+, h_x)`` (complex64 MLX arrays) of IMRPhenomXPNR at
     ``frequencies`` (Hz, positive and increasing; ``(N,)`` or, for a batch,
     ``(B, N)``): ``(N,)`` each for one binary, ``(B, N)`` for a batch (a
@@ -110,17 +120,21 @@ def polarizations(binary, frequencies, mode_array=None, scaled_strain=True, refe
     NaN where the model fails. Differentiable with ``mx.grad`` with
     respect to the fields of the binary. With ``reference_mf``
     (``WaveformOptions.reference_mf``), the binary is given at the
-    mass-scaled reference frequency ``reference_mf / M`` (``f_ref`` zero)."""
+    mass-scaled reference frequency ``reference_mf / M`` (``f_ref`` zero).
+    ``approximant`` selects the precession prescription:
+    ``"IMRPhenomXPNR"`` (the SpinTaylor angles), ``"IMRPhenomXPNR_NNLO"``
+    or ``"IMRPhenomXPNR_MSA"``."""
     binary, has_batch = batched(binary)
     params = _parameters(binary)
     f = _frequencies(frequencies, params.shape[0])
-    h = _core(*_options(mode_array, scaled_strain, reference_mf))(params, f)
+    h = _core(*_options(mode_array, scaled_strain, reference_mf, approximant))(params, f)
     hp = h[..., 0] + 1j * h[..., 1]
     hc = h[..., 2] + 1j * h[..., 3]
     return (hp, hc) if has_batch else (hp[0], hc[0])
 
 
-def polarizations_and_jacobian(binary, frequencies, mode_array=None, scaled_strain=True, reference_mf=None):
+def polarizations_and_jacobian(binary, frequencies, mode_array=None, scaled_strain=True, reference_mf=None,
+                               approximant="IMRPhenomXPNR"):
     """``(h_+, h_x)`` and their forward-mode Jacobian with respect to the
     twelve parameters of the binary (``mass_1``, ``mass_2``, ``spin_1``,
     ``spin_2``, ``luminosity_distance``, ``inclination``, ``phi_ref``,
@@ -128,9 +142,9 @@ def polarizations_and_jacobian(binary, frequencies, mode_array=None, scaled_stra
     binary, has_batch = batched(binary)
     params = mx.stop_gradient(_parameters(binary))
     f = _frequencies(frequencies, params.shape[0])
-    modes, amp_scale, reference_mf = _options(mode_array, scaled_strain, reference_mf)
+    modes, amp_scale, reference_mf, version = _options(mode_array, scaled_strain, reference_mf, approximant)
     h, _, jacobian = _pipeline.evaluate_chunked(_leaves(params), f, modes, amp_scale, _pipeline.N_PARAMETERS,
-                                                reference_mf)
+                                                reference_mf, version)
     hp = h[..., 0] + 1j * h[..., 1]
     hc = h[..., 2] + 1j * h[..., 3]
     jp = jacobian[..., 0, :] + 1j * jacobian[..., 1, :]

@@ -19,6 +19,9 @@ function               approximant      LAL
                                         power of two and Fourier transformed
 =====================  ===============  ==========================================
 
+IMRPhenomXPNR_NNLO and IMRPhenomXPNR_MSA, IMRPhenomXPNR's other precession
+prescriptions, convert as IMRPhenomXPNR does.
+
 The lengths, epochs, frequency bounds, shifts and taper widths depend on the
 binary; they are computed on the host as LAL computes them (lengths and
 epochs exactly). The waveform itself is computed by compiled JAX functions

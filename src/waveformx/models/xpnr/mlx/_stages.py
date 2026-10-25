@@ -35,6 +35,12 @@ waveform structs):
 ``F2`` per frequency: the angles, the modes, the twist and the
        polarizations
 =====  ====================================================================
+
+The NNLO and MSA prescriptions (``version`` 102 and 223, the approximants
+``IMRPhenomXPNR_NNLO`` and ``IMRPhenomXPNR_MSA``) have no integration:
+``B``, ``C1``, ``B2`` and ``C2`` are one stage ``C`` (:func:`stage_c_pn`),
+and the stages after it take zeros for the SpinTaylor angles, which they
+do not read.
 """
 
 from __future__ import annotations
@@ -58,7 +64,8 @@ from ..spintaylor import angles as st_angles
 from ..spintaylor import lean as st_lean
 from ..xas import h22, phif_ref
 
-__all__ = ["BANK_GROUPS", "stage_a", "stage_c1", "stage_c2", "grid_point", "stage_e", "stage_f1", "stage_f2",
+__all__ = ["BANK_GROUPS", "stage_a", "stage_c1", "stage_c2", "stage_c_pn", "grid_point", "stage_e", "stage_f1",
+           "stage_f2",
            "spline_tail", "grid_frequencies", "reference", "binary_leaves", "BINARY_FIELDS"]
 
 #: The fields of a :class:`~waveformx.Binary`, in order.
@@ -195,6 +202,20 @@ def stage_c2(prec, wf, points, values, st_range, modes):
     return prec, wf, jnp.stack([grid[0], grid[1], grid[2]]), error
 
 
+def stage_c_pn(base, wf0, version, modes):
+    """``model._pipeline_pn`` up to the grid of the PNR interpolants, for
+    version 102 or 223 (static): returns ``(prec, wf, grid, error)`` as
+    :func:`stage_c2`."""
+    pnr.clear_cache()
+    prec, wf = pnr.finish_setup(base, wf0, version)
+    prec = pnr.populate_structs(prec, wf, version)
+    grid = pnr.interpolation_grid(prec, wf, modes, version)
+    error = prec.error_structs | grid[3]
+    if version == 223:
+        error = error | pnr._msa.msa_error(prec.msa)
+    return prec, wf, jnp.stack([grid[0], grid[1], grid[2]]), error
+
+
 # ---------------------------------------------------------------------------
 # D: the PNR angles on the grid, per point
 # ---------------------------------------------------------------------------
@@ -207,11 +228,12 @@ def grid_frequencies(k, grid, m_tot):
     return hz_to_mf((i_start + jnp.minimum(k, n - 1.0)) * h, m_tot)
 
 
-def grid_point(prec, wf, mf, st_values):
+def grid_point(prec, wf, mf, st_values, version=330):
     """``uniform_angles`` at one point ``mf`` with
-    the SpinTaylor angles ``st_values`` there: ``(alpha, beta, error)``."""
+    the SpinTaylor angles ``st_values`` there (read by version 330 only):
+    ``(alpha, beta, error)``."""
     pnr.clear_cache()
-    return pnr.uniform_angles(prec, wf, mf, 330, tuple(st_values))
+    return pnr.uniform_angles(prec, wf, mf, version, tuple(st_values) if version == 330 else None)
 
 
 # ---------------------------------------------------------------------------
@@ -226,7 +248,7 @@ def spline_tail(values):
     return alpha, beta, gamma
 
 
-def stage_e(prec, wf, at_ref, inside_ref, modes):
+def stage_e(prec, wf, at_ref, inside_ref, modes, version=330):
     """``_prepare_pnr`` after the interpolants (``at_ref``: the values of
     :data:`SPLINES` at ``f_ref``; ``inside_ref``: whether ``f_ref`` lies on
     the grid) and the frequency-independent parts of ``_angle_data`` and
@@ -239,7 +261,7 @@ def stage_e(prec, wf, at_ref, inside_ref, modes):
     prec = pnr.remap_theta_jsf(prec, wf, beta_ref)
     extra = Struct()
     if (2, 2) in modes:
-        co = antisymmetric_coefficients(prec, wf, 330)
+        co = antisymmetric_coefficients(prec, wf, version)
         error = error | co.error
         extra.co = co
         amp22, phase22, linb = co.amp22, co.phase22, co.linb
@@ -293,13 +315,13 @@ def stage_f1(prec, wf, f, modes):
     return jnp.stack(mapped), jnp.stack(errors), mf_as, kappa
 
 
-def stage_f2(prec, wf, extra, f, spline_values, inside, map_errors, kappa, st_alpha, st_inside, modes):
+def stage_f2(prec, wf, extra, f, spline_values, inside, map_errors, kappa, st_alpha, st_inside, modes, version=330):
     """At one frequency ``f`` (Hz): ``(h_+, h_x)`` as ``(re, im)`` pairs
     and whether the point makes the waveform fail. ``spline_values``
     (``(n_modes, 6)``) and ``inside`` are the interpolants at the mapped
     frequencies of the modes, ``kappa`` the smoothed amplitude ratio and
     ``st_alpha``, ``st_inside`` the SpinTaylor ``alpha`` at ``Mf`` of the
-    antisymmetric mode."""
+    antisymmetric mode (read by version 330 only)."""
     pnr.clear_cache()
     wf_out = extra.wf_out
     mf = wf.m_sec * f
@@ -318,9 +340,10 @@ def stage_f2(prec, wf, extra, f, spline_values, inside, map_errors, kappa, st_al
     if (2, 2) in modes:
         co = extra.co
         mf_as = hz_to_mf(f, wf.m_tot)
-        nan = jnp.full_like(st_alpha, jnp.nan)
-        pnr._st_spline_put(prec, wf, mf_as, (st_alpha, nan, nan, nan, st_inside))
-        alpha_pnr, err_alpha = pnr.region_alpha_at(prec, wf, mf_as, co.alpha_params, 330)
+        if version == 330:
+            nan = jnp.full_like(st_alpha, jnp.nan)
+            pnr._st_spline_put(prec, wf, mf_as, (st_alpha, nan, nan, nan, st_inside))
+        alpha_pnr, err_alpha = pnr.region_alpha_at(prec, wf, mf_as, co.alpha_params, version)
         used = mf_as < co.mf_t
         error = error | (err_alpha & used & (mf_as <= wf.f_max_prime * wf.m_sec))
         p = powers(mf)
@@ -481,7 +504,8 @@ def spline_point6(grid, x, k, y0, y1, m0, m1):
     return values, inside
 
 
-def stage_f2_pieces(prec, wf, extra, grid, f, x, k, map_errors, kappa, st_alpha, st_inside, *pieces, modes):
+def stage_f2_pieces(prec, wf, extra, grid, f, x, k, map_errors, kappa, st_alpha, st_inside, *pieces, modes,
+                    version=330):
     """:func:`stage_f2` with the interpolants evaluated at the frequencies
     ``x`` of the modes (Hz, in the intervals ``k``) from ``pieces``: for
     each mode, the values and second derivatives of the interpolants
@@ -493,7 +517,7 @@ def stage_f2_pieces(prec, wf, extra, grid, f, x, k, map_errors, kappa, st_alpha,
         values.append(v)
         inside.append(i)
     return stage_f2(prec, wf, extra, f, jnp.stack(values), jnp.stack(inside), map_errors, kappa, st_alpha, st_inside,
-                    modes)
+                    modes, version)
 
 
 # ---------------------------------------------------------------------------
@@ -629,9 +653,9 @@ def _const(tree):
 
 
 @functools.lru_cache(maxsize=None)
-def _compiled(dtype_name, modes, amp_scale, reference_mf=None):
+def _compiled(dtype_name, modes, amp_scale, reference_mf=None, version=330):
     """The stages and the parts by hand as jitted JAX functions (in the
-    precision ``dtype_name``)."""
+    precision ``dtype_name``) of the prescription ``version``."""
     dtype = np.dtype(dtype_name)
 
     def under(function):
@@ -653,11 +677,14 @@ def _compiled(dtype_name, modes, amp_scale, reference_mf=None):
     def c2(prec, wf, points, values, st_range):
         return stage_c2(prec, wf, points, values, st_range, modes)
 
+    def c(base, wf0):
+        return stage_c_pn(base, wf0, version, modes)
+
     def grid_mf(k, grid, wf):
         return grid_frequencies(k, grid, wf.m_tot)
 
     def d(prec, wf, mf, st_values):
-        return jax.vmap(grid_point, in_axes=(None, None, 0, 0))(prec, wf, mf, st_values)
+        return jax.vmap(grid_point, in_axes=(None, None, 0, 0, None))(prec, wf, mf, st_values, version)
 
     def s(alpha, beta, grid):
         i_start, n, h = grid[0], grid[1], grid[2]
@@ -675,7 +702,7 @@ def _compiled(dtype_name, modes, amp_scale, reference_mf=None):
         return spline_values(splines, wf.f_ref)
 
     def e(prec, wf, values):
-        return stage_e(prec, wf, values[0], values[1], modes)
+        return stage_e(prec, wf, values[0], values[1], modes, version)
 
     def f1(prec, wf, f):
         return jax.vmap(stage_f1, in_axes=(None, None, 0, None))(prec, wf, f, modes)
@@ -683,8 +710,8 @@ def _compiled(dtype_name, modes, amp_scale, reference_mf=None):
     def f2(prec, wf, extra, f, values, mapped, kappa_s, st_f):
         values, inside = values
         _, map_errors, _, _ = mapped
-        return jax.vmap(stage_f2, in_axes=(None, None, None, 0, 0, 0, 0, 0, 0, 0, None))(
-            prec, wf, extra, f, values, inside, map_errors, kappa_s, st_f[0], st_f[4], modes)
+        return jax.vmap(stage_f2, in_axes=(None, None, None, 0, 0, 0, 0, 0, 0, 0, None, None))(
+            prec, wf, extra, f, values, inside, map_errors, kappa_s, st_f[0], st_f[4], modes, version)
 
     def smooth(mapped, f):
         return smooth_amp_ratio(mapped[3], f) if (2, 2) in modes else mapped[3]
@@ -695,7 +722,8 @@ def _compiled(dtype_name, modes, amp_scale, reference_mf=None):
         hc = jnp.where(error, jnp.nan, h[0][:, 2] + 1j * h[0][:, 3])
         return hp, hc, error
 
-    return Struct(a=under(a), b=under(b), c1=under(stage_c1), b2=under(b2), c2=under(c2), grid_mf=under(grid_mf),
+    return Struct(a=under(a), b=under(b), c1=under(stage_c1), b2=under(b2), c2=under(c2), c=under(c),
+                  grid_mf=under(grid_mf),
                   d=under(d), s=under(s), spline_values=under(spline_values), at_ref=under(at_ref), e=under(e),
                   f1=under(f1), f2=under(f2), smooth=under(smooth), assemble=under(assemble))
 
@@ -705,19 +733,21 @@ def _compiled(dtype_name, modes, amp_scale, reference_mf=None):
 N_PARAMETERS = 12
 
 
-def reference(binary, frequencies, mode_array=None, scaled_strain=True, keep=False, tangents=False, reference_mf=None):
+def reference(binary, frequencies, mode_array=None, scaled_strain=True, keep=False, tangents=False, reference_mf=None,
+              version=330):
     """The polarizations from the stages composed in JAX (eagerly,
     stage by stage, with the sizes of the binary), in the precision of the
     binary: ``(h_+, h_x)``, and with ``keep`` also a dict of the
     intermediate values of every stage (:class:`Dual`, with their
     derivatives along the twelve parameters of the binary if
-    ``tangents``; ``reference_mf`` the mass-scaled reference frequency)."""
+    ``tangents``; ``reference_mf`` the mass-scaled reference frequency,
+    ``version`` the prescription)."""
     from ...._options import STRAIN_SCALE
     from .._math import precision_of
 
     dtype = precision_of(binary)
     modes = model.coprecessing_modes(mode_array)
-    st = _compiled(dtype.name, modes, STRAIN_SCALE if scaled_strain else 1.0, reference_mf)
+    st = _compiled(dtype.name, modes, STRAIN_SCALE if scaled_strain else 1.0, reference_mf, version)
     leaves = {name: jnp.asarray(value, dtype) for name, value in binary_leaves(binary).items()}
     if tangents:
         eye = np.eye(N_PARAMETERS)
@@ -731,14 +761,24 @@ def reference(binary, frequencies, mode_array=None, scaled_strain=True, keep=Fal
     f = _const(jnp.asarray(frequencies, dtype))
     out = {}
     base, wf0, ode, error_a = _call(st.a, x, f).split()
-    sol, summary = _call(st.b, ode).split()
-    prec1, wf1, points, rotation, st_range = _call(st.c1, base, wf0, summary).split()
-    bank = _call(st.b2, sol, rotation, st_range, points)
-    prec, wf, grid, error_c = _call(st.c2, prec1, wf1, points, bank, st_range).split()
+    spintaylor = version == 330
+    if spintaylor:
+        sol, summary = _call(st.b, ode).split()
+        prec1, wf1, points, rotation, st_range = _call(st.c1, base, wf0, summary).split()
+        bank = _call(st.b2, sol, rotation, st_range, points)
+        prec, wf, grid, error_c = _call(st.c2, prec1, wf1, points, bank, st_range).split()
+    else:
+        prec, wf, grid, error_c = _call(st.c, base, wf0).split()
+
+    def no_angles(n):
+        # (the SpinTaylor angles, unread by versions 102 and 223)
+        zero = jnp.zeros(n, dtype)
+        return _const((zero, zero, zero, zero, jnp.zeros(n, bool)))
+
     n = int(grid.tree[1])
     k = _const(jnp.arange(n, dtype=dtype))
     mf_grid = _call(st.grid_mf, k, grid, wf)
-    st_grid = _call(st.b2, sol, rotation, st_range, mf_grid)
+    st_grid = _call(st.b2, sol, rotation, st_range, mf_grid) if spintaylor else no_angles(n)
     alpha, beta, err_grid = _call(st.d, prec, wf, mf_grid, st_grid).split()
     splines = _call(st.s, alpha, beta, grid)
     at_ref = _call(st.at_ref, splines, wf)
@@ -746,11 +786,21 @@ def reference(binary, frequencies, mode_array=None, scaled_strain=True, keep=Fal
     mapped = _call(st.f1, prec_e, wf_e, f)
     values = _call(st.spline_values, splines, Dual(mapped.tree[0], mapped.tangents[:1]))
     kappa_s = _call(st.smooth, mapped, f)
-    st_f = _call(st.b2, sol, rotation, st_range, Dual(mapped.tree[2], mapped.tangents[2:3]))
+    if spintaylor:
+        st_f = _call(st.b2, sol, rotation, st_range, Dual(mapped.tree[2], mapped.tangents[2:3]))
+        flags = (error_a.tree, ~ode.tree.active, summary.tree.failed, error_c.tree, summary.tree.incomplete)
+    else:
+        st_f = no_angles(mapped.tree[2].shape)
+        flags = (error_a.tree, error_c.tree)
     h = _call(st.f2, prec_e, wf_e, extra, f, values, mapped, kappa_s, st_f)
-    flags = _const((error_a.tree, ~ode.tree.active, summary.tree.failed, error_c.tree, summary.tree.incomplete,
-                    err_grid.tree, error_e.tree, h.tree[1]))
+    flags = _const(flags + (err_grid.tree, error_e.tree, h.tree[1]))
     hp, hc, error = _call(st.assemble, h, flags).split()
+    if keep and not spintaylor:
+        out.update(base=base, wf0=wf0, error_a=error_a, prec_c2=prec, wf_c2=wf, grid=grid, error_c=error_c,
+                   mf_grid=mf_grid, alpha=alpha, beta=beta, err_grid=err_grid, splines=splines, at_ref=at_ref,
+                   prec_e=prec_e, wf_e=wf_e, extra=extra, error_e=error_e, mapped=mapped, values=values,
+                   kappa_s=kappa_s, h=h, error=error, hp=hp, hc=hc)
+        return (hp.tree, hc.tree), out
     if keep:
         out.update(base=base, wf0=wf0, ode=ode, error_a=error_a, sol=sol, summary=summary, prec_c1=prec1, wf_c1=wf1,
                    points=points, rotation=rotation, st_range=st_range, bank=bank, prec_c2=prec, wf_c2=wf, grid=grid,
