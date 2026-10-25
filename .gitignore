@@ -8,6 +8,7 @@ dist/
 # the NRSur7dq4 data file (LALSuite data)
 *.h5
 # working plans (kept local, not committed)
+/plans/
 /*_PLAN.md
 # macOS Finder metadata
 .DS_Store

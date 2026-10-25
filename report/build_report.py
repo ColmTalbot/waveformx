@@ -865,6 +865,7 @@ def build(args):
     values["python_version"] = env["python"]
     values["machine"] = html.escape(f"{env['cpu'] or env['machine']}, {env['cpus']} cores")
     values["commit"] = git("rev-parse", "--short", "HEAD").strip()
+    values["branch"] = html.escape(git("rev-parse", "--abbrev-ref", "HEAD").strip())
     total, generated, n_files = source_lines()
     values["n_lines"] = f"{total:,}"
     values["n_lines_generated"] = f"{generated:,}"
