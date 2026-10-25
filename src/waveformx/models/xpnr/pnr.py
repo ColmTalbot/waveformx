@@ -893,6 +893,11 @@ def initialize_euler_angles(prec, wf):
     if "st_bank" in prec:
         q = prec.st_bank.euler.mf
     ftrans_mrd = 0.98 * fmax_inspiral
+    # (the angles and their derivatives here are the SpinTaylor solution's,
+    # exact: LAL reads them from its splines near their last knots, whose
+    # natural end condition puts the derivatives 0.6-5% off; the merger-
+    # ringdown angles, and so heavy binaries, differ from LAL's by mismatches
+    # up to ~2e-4, an accepted difference)
     # alphaMRD_coeff from the spline of alpha (at 0.97, 0.99, 0.98 and 1
     # times fmax_inspiral)
     f1 = q[0]
