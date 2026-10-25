@@ -128,7 +128,7 @@ def _st_stub(summary):
     and markers for the functions that look for the arrays (which the
     stages never read)."""
     dummy = jnp.zeros((1,), real())
-    return Struct(lean=jnp.zeros((), real()), y=dummy, dense=dummy, h=dummy, f_min_pn=summary.f_min_pn,
+    return Struct(lean=jnp.zeros((), real()), rows=dummy, h=dummy, t0=dummy, f_min_pn=summary.f_min_pn,
                   lnhat_end=list(summary.lnhat_end), s1_end=list(summary.s1_end), s2_end=list(summary.s2_end))
 
 

@@ -23,8 +23,11 @@ forward mode only:
   forward-mode differentiation (the batched model is then differentiated,
   rather than the derivative of a single binary batched).
 
-Under ``jax.vmap`` the model is ``jax.vmap`` of the single binary, with its
-choices made by :func:`switch` and :func:`cond`, which compute a branch for
+Under ``jax.vmap`` the model is ``jax.vmap`` of the single binary (or,
+with ``block``, a ``jax.lax.map`` over blocks of that many binaries, each
+block vectorised: the memory is that of a block rather than of the whole
+batch, a Jacobian's tangents included), with its choices made by
+:func:`switch` and :func:`cond`, which compute a branch for
 the whole batch only if some binary of the batch takes it (``jax.lax.switch``
 and ``jax.lax.cond`` with a batched predicate compute every branch). Its loops
 (:func:`while_loop`) run to the longest of the batch, keeping their large
@@ -272,18 +275,39 @@ def while_loop(cond_fun, body_fun, consts, small, large=()):
     return rebuild_small(out[:n_small]), rebuild_large(out[n_small:])
 
 
-def differentiable(single, batched=None):
-    """``f(binary, frequencies)`` computing ``single(binary, frequencies)``
-    (``batched`` under ``jax.vmap``, default ``jax.vmap(single)``), with
-    derivatives from forward-mode Jacobians (see the module docstring)."""
-    if batched is None:
+def _blocked(single, block):
+    """``single`` under ``jax.vmap`` as ``batched(binaries, frequencies,
+    frequencies_batched)``: ``jax.vmap`` over the binaries, or with
+    ``block`` (static) ``jax.lax.map`` over blocks of ``block`` of them."""
+    if block is None:
         def batched(binaries, frequencies, frequencies_batched=False):
             return jax.vmap(single, in_axes=(0, 0 if frequencies_batched else None))(binaries, frequencies)
+    else:
+        def batched(binaries, frequencies, frequencies_batched=False):
+            if frequencies_batched:
+                return jax.lax.map(lambda args: single(*args), (binaries, frequencies), batch_size=block)
+            return jax.lax.map(lambda binary: single(binary, frequencies), binaries, batch_size=block)
+    return batched
+
+
+def differentiable(single, batched=None, block=None, jacobian_block=None):
+    """``f(binary, frequencies)`` computing ``single(binary, frequencies)``
+    (``batched`` under ``jax.vmap``, default ``jax.vmap(single)``), with
+    derivatives from forward-mode Jacobians (see the module docstring).
+    With ``block`` (static), the binaries of a ``jax.vmap`` are computed
+    ``block`` at a time, and those of the Jacobian ``jacobian_block`` (by
+    default ``block``) at a time."""
+    primal = single
+    if batched is None:
+        batched = _blocked(single, block)
+        if block is not None:
+            primal = _vmappable(single, batched)
+            batched = _blocked(single, block if jacobian_block is None else jacobian_block)
     jacobians = {}
 
     @jax.custom_jvp
     def function(binary, frequencies):
-        return single(binary, frequencies)
+        return primal(binary, frequencies)
 
     def rule(primals, tangents):
         binary, frequencies = primals

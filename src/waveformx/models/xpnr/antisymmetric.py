@@ -34,7 +34,7 @@ inspiral = FencedModule(_inspiral)
 intermediate = FencedModule(_intermediate)
 ringdown = FencedModule(_ringdown)
 
-__all__ = ["antisymmetric_waveform", "smooth_amp_ratio"]
+__all__ = ["antisymmetric_kappa", "antisymmetric_waveform", "smooth_amp_ratio"]
 
 WIDTH = 80
 
@@ -200,19 +200,31 @@ def antisymmetric_coefficients(prec, wf, version):
                   amp_prefactor=wf.amp0 * wf.amp_norm, error=error)
 
 
-def antisymmetric_waveform(prec, wf, frequencies, version, st_alpha=None):
-    """``IMRPhenomX_PNR_GenerateAntisymmetricWaveform``: amplitude and phase
-    of the antisymmetric (2,2) co-precessing mode at ``frequencies`` (Hz),
-    ``h = amp exp(i phase)``, the error flag and the coefficients of the
-    symmetric (2,2) mode it is built on (``amp22``, ``phase22``, ``linb``).
-    ``st_alpha`` is the SpinTaylor ``alpha`` at the frequencies if computed
-    already (:func:`.pnr.region_alpha_many`)."""
+def antisymmetric_kappa(prec, wf, frequencies):
+    """The amplitude ratio of the antisymmetric mode at ``frequencies``
+    (Hz) after LAL's moving average (:func:`smooth_amp_ratio`), which reads
+    all the frequencies."""
     prec, wf = barrier((prec, wf))
     kappa_at, kappa_rd = _kappa_function(prec, wf)
     mf = hz_to_mf(frequencies, wf.m_tot)
     below = mf < wf.f_ring
     kappa = jnp.where(below, kappa_at(jnp.cbrt(PI * jnp.where(below, mf, wf.f_ring))), kappa_rd)
-    kappa = smooth_amp_ratio(kappa, frequencies)
+    return smooth_amp_ratio(kappa, frequencies)
+
+
+def antisymmetric_waveform(prec, wf, frequencies, version, st_alpha=None, kappa=None):
+    """``IMRPhenomX_PNR_GenerateAntisymmetricWaveform``: amplitude and phase
+    of the antisymmetric (2,2) co-precessing mode at ``frequencies`` (Hz),
+    ``h = amp exp(i phase)``, the error flag and the coefficients of the
+    symmetric (2,2) mode it is built on (``amp22``, ``phase22``, ``linb``).
+    ``st_alpha`` is the SpinTaylor ``alpha`` at the frequencies if computed
+    already (:func:`.pnr.region_alpha_many`), ``kappa`` the amplitude ratio
+    (:func:`antisymmetric_kappa`, of all the frequencies when these are a
+    part of them)."""
+    prec, wf = barrier((prec, wf))
+    if kappa is None:
+        kappa = antisymmetric_kappa(prec, wf, frequencies)
+    mf = hz_to_mf(frequencies, wf.m_tot)
     co = antisymmetric_coefficients(prec, wf, version)
     # the PNR alpha enters below mf_t only: computed up to the last
     # frequency there

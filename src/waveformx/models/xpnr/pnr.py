@@ -778,7 +778,7 @@ ST_MANY = 1024
 
 def _st_anchors(prec):
     st = prec.st
-    return (st.y, st.dense, st.h)
+    return (st.rows, st.h, st.t0)
 
 
 def _st_spline(prec, wf, mf):
@@ -1884,7 +1884,9 @@ def _geometric_interpolants(alpha, beta, i_start, n, h, n_eval, error):
     """The interpolants of the PNR angles: instead of LAL's splines of
     ``alpha``, ``beta`` and ``gamma``, splines of the unit vector ``(u, v,
     w) = (sin(beta) cos(alpha), sin(beta) sin(alpha), cos(beta))`` and of
-    ``gamma + alpha`` and ``gamma - alpha``, from which
+    ``gamma + alpha`` and ``gamma - alpha`` (as the sums of the splines of
+    ``gamma`` and of the unwrapped ``alpha``, splines being linear in their
+    values: two arrays of the grid fewer), from which
     :func:`spline_angles` takes ``alpha = atan2(v, u)`` and ``gamma``.
 
     Where L passes close to J (or to -J), ``alpha`` swings by nearly ``pi``
@@ -1949,17 +1951,15 @@ def _geometric_interpolants(alpha, beta, i_start, n, h, n_eval, error):
         increments = jnp.stack([jnp.where(used, d_gamma, 0.0), jnp.where(used, d_alpha, 0.0)])
         sums = jnp.cumsum(increments, axis=1)
         values = totals[:, None] + jnp.concatenate([jnp.zeros((2, 1), real()), sums[:, :-1]], axis=1)
-        return values, totals + sums[:, -1]
+        # (two arrays: the chunks of each make the grid without a transpose)
+        return (values[0], values[1]), totals + sums[:, -1]
 
     first = jnp.stack([jnp.zeros((), real()), raw[0]])
-    values, _ = blocked_scan(boole, jnp.arange(n_chunks), jnp.ceil(n_eval / chunk), first,
-                             (u, m_u, v, m_v, w, m_w, raw, i_start, n, h, x0))
-    # (chunks, 2, chunk) -> (2, capacity)
-    values = jnp.moveaxis(values, 1, 0).reshape(2, -1)
-    gamma, alpha_unwrapped = values[0], values[1]
-    plus, minus = gamma + alpha_unwrapped, gamma - alpha_unwrapped
-    m_plus, m_minus, m_unwrapped = _uniform_natural_splines([plus, minus, alpha_unwrapped], n, h, n_eval)
-    return Struct(u=u, v=v, w=w, m_u=m_u, m_v=m_v, m_w=m_w, plus=plus, m_plus=m_plus, minus=minus, m_minus=m_minus,
+    (gamma, alpha_unwrapped), _ = blocked_scan(boole, jnp.arange(n_chunks), jnp.ceil(n_eval / chunk), first,
+                                               (u, m_u, v, m_v, w, m_w, raw, i_start, n, h, x0))
+    gamma, alpha_unwrapped = gamma.reshape(-1), alpha_unwrapped.reshape(-1)
+    m_gamma, m_unwrapped = _uniform_natural_splines([gamma, alpha_unwrapped], n, h, n_eval)
+    return Struct(u=u, v=v, w=w, m_u=m_u, m_v=m_v, m_w=m_w, gamma=gamma, m_gamma=m_gamma,
                   unwrapped=alpha_unwrapped, m_unwrapped=m_unwrapped, n=n, x0=x0, h=h, error=error)
 
 
@@ -1990,10 +1990,12 @@ def spline_angles(splines, f):
     # alpha on the branch of the unwrapped spline (which matters only
     # in the band, where both forms of gamma are used and alpha is
     # smooth)
-    unwrapped = at("unwrapped")
-    a_u = unwrapped + _wrap(a - unwrapped)
+    # (with d = a_u - unwrapped: gamma + alpha - a_u = gamma - d and
+    # gamma - alpha + a_u = gamma + d)
+    d = _wrap(a - at("unwrapped"))
     weight = pa._ramp(w / safe_sqrt(u * u + v * v + w * w, tiny()), HEMISPHERE_SOFT)
-    gamma = fma(weight, at("plus") - a_u, (1.0 - weight) * (at("minus") + a_u))
+    g = at("gamma")
+    gamma = fma(weight, g - d, (1.0 - weight) * (g + d))
     return a, b, gamma, inside
 
 

@@ -354,7 +354,7 @@ def test_spintaylor():
         # (the steps fall at slightly different times than in float64: the
         # step in time takes a power that float32 rounds; the solution is
         # compared where it is used, at points, below)
-        np.testing.assert_allclose(rows[:, 1:4], np.asarray(sol.y)[:m, 2:5], atol=1e-3)
+        np.testing.assert_allclose(rows[:, 1:4], np.asarray(sol.rows)[:m, 2:5], atol=1e-3)
         np.testing.assert_allclose(rows[:, 33], np.asarray(sol.h)[:m], rtol=1e-3)
         s64 = jax_reference(name, "float64")["summary"]
         for field in ("s1_end", "s2_end", "lnhat_end", "f_min_pn", "omega_first", "omega_last"):

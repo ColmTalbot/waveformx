@@ -205,6 +205,48 @@ def cost_values(values):
         values[f"cost_runtime_{key}"] = duration(seconds)
 
 
+def memory(mb):
+    if mb is None:
+        return "–"
+    return f"{mb / 1024:.1f} GB" if mb >= 1024 else f"{mb:.0f} MB"
+
+
+MEMORY_KINDS = {"eval": "waveform", "vmap": "<code>jax.vmap</code>", "jacfwd": "<code>jax.jacfwd</code>",
+                "vmap_jacfwd": "<code>jax.vmap(jax.jacfwd)</code>"}
+
+
+def memory_values(values):
+    """The memory of IMRPhenomXPNR (``report/xpnr_memory.py``): the table
+    of the performance section."""
+    names = ["memory_rows", "memory_before_commit", "memory_vjac_before", "memory_vjac_after", "mlx_memory_eval",
+             "mlx_memory_jacobian"]
+    if not (DATA / "xpnr_memory.json").exists():
+        values.update({name: "–" for name in names})
+        return
+    data = load("xpnr_memory.json")
+    before = data["results"].get("before", {})
+    after = data["results"].get("after", {})
+    rows = []
+    for kind, mass, f_min, n, batch in data["cases"]:
+        key = "{}_{:g}_{:g}_{}_{}".format(kind, mass, f_min, n, batch)
+        b, a = before.get("values", {}).get(key, {}), after.get("values", {}).get(key, {})
+        ratio = b["temp_mb"] / a["temp_mb"] if b and a else None
+        rows.append(
+            f"<tr><td>{MEMORY_KINDS[kind]}</td><td>{mass:g} M<sub>☉</sub> from {f_min:g} Hz</td>"
+            f"<td class=\"num\">{n:,}</td><td class=\"num\">{batch}</td>"
+            f"<td class=\"num\">{memory(b.get('temp_mb'))}</td><td class=\"num\">{memory(a.get('temp_mb'))}</td>"
+            f"<td class=\"num\">{factor(ratio)}</td><td class=\"num\">{memory(a.get('output_mb'))}</td>"
+            f"<td class=\"num\">{memory(a.get('peak_rss_mb'))}</td></tr>")
+    values["memory_rows"] = "\n".join(rows)
+    values["memory_before_commit"] = before.get("commit", "–")
+    vjac = "vmap_jacfwd_2.7_10_1024_64"
+    values["memory_vjac_before"] = memory(before.get("values", {}).get(vjac, {}).get("temp_mb"))
+    values["memory_vjac_after"] = memory(after.get("values", {}).get(vjac, {}).get("temp_mb"))
+    mlx = after.get("values", {}).get("mlx", {})
+    values["mlx_memory_eval"] = memory(mlx.get("eval_mb"))
+    values["mlx_memory_jacobian"] = memory(mlx.get("jacobian_mb"))
+
+
 def reference_values(values):
     """The mass-scaled reference frequency (``report/reference_xpnr.py``)."""
     names = ["ref_n", "ref_finite_lal_21", "ref_finite_lal_all", "ref_finite_scaled_min", "ref_lal_n",
@@ -881,6 +923,7 @@ def build(args):
     values["nrsur_rs_max_rel"] = sci(rs_nrsur["max_relative_error"]) if rs_nrsur else "–"
     float32_values(values)
     cost_values(values)
+    memory_values(values)
     reference_values(values)
     mlx_values(values)
     mlx_xpnr_values(values)

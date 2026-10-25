@@ -40,13 +40,12 @@ def _uniform_function(options):
         binary, delta_f, f_min, f_max = params
         pnr.clear_cache()
         modes = model.coprecessing_modes(options.mode_array)
-        data = model._decide(binary, frequencies, delta_f, f_min, f_max, modes,
-                             phase_grid=options.extended_phase_grid)
-        hp, hc = model._twist_polarizations(data, modes, frequencies)
+        hp, hc, error = model._polarizations_of(binary, frequencies, delta_f, f_min, f_max, modes,
+                                                phase_grid=options.extended_phase_grid)
         nan = jnp.asarray(jnp.nan + 1j * jnp.nan, jnp.complex128)
-        return jnp.where(data.error, nan, hp), jnp.where(data.error, nan, hc)
+        return jnp.where(error, nan, hp), jnp.where(error, nan, hc)
 
-    return differentiable(single)
+    return differentiable(single, block=model.BATCH_BLOCK, jacobian_block=model.JACOBIAN_BLOCK)
 
 
 class _XPNR:
