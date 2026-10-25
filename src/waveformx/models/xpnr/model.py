@@ -63,6 +63,14 @@ __all__ = ["DEFAULT_MODES", "lal_order", "ordered_binary", "polarizations", "set
 
 #: The co-precessing modes ``(l, m' > 0)`` in the order of LAL's mode loop.
 DEFAULT_MODES = ((2, 1), (2, 2), (3, 2), (3, 3), (4, 4))
+#: The binaries computed together under ``jax.vmap`` (the blocks of them
+#: in turn, :func:`._transforms.differentiable`), for the waveform and for
+#: its Jacobian: the grid of the PNR interpolants and the SpinTaylor
+#: solution have fixed sizes, so that the memory grows with the binaries
+#: computed together (times the tangents, for a Jacobian) whatever the
+#: frequencies. Blocks of these sizes run about as fast as the whole batch.
+BATCH_BLOCK = 16
+JACOBIAN_BLOCK = 4
 
 
 def lal_order(modes):
@@ -499,12 +507,14 @@ def polarizations(binary, frequencies, options):
     reference frequency ``reference_mf / M`` (and ``binary.f_ref`` must be
     zero).
 
-    Under ``jax.vmap`` the binaries are computed one after the other. The
+    Under ``jax.vmap`` the binaries are computed :data:`BATCH_BLOCK` at a
+    time (:data:`JACOBIAN_BLOCK` for the derivatives). The
     derivatives with respect to the binary come from forward-mode Jacobians
     (:func:`._transforms.differentiable`): ``jax.grad``, ``jax.jvp`` and
     ``jax.jacfwd`` all work."""
     if options not in _POLARIZATIONS:
-        _POLARIZATIONS[options] = differentiable(functools.partial(_polarizations, options=options))
+        _POLARIZATIONS[options] = differentiable(functools.partial(_polarizations, options=options),
+                                                 block=BATCH_BLOCK, jacobian_block=JACOBIAN_BLOCK)
     return _POLARIZATIONS[options](binary, frequencies)
 
 
@@ -539,7 +549,8 @@ def jframe_modes(binary, frequencies, options, delta_f=0.0, f_min=None, f_max=No
     key = (options, delta_f, f_min, f_max)
     if key not in _JFRAME_MODES:
         _JFRAME_MODES[key] = differentiable(functools.partial(
-            _jframe_modes, options=options, delta_f=delta_f, f_min=f_min, f_max=f_max))
+            _jframe_modes, options=options, delta_f=delta_f, f_min=f_min, f_max=f_max), block=BATCH_BLOCK,
+            jacobian_block=JACOBIAN_BLOCK)
     return _JFRAME_MODES[key](binary, frequencies)
 
 
