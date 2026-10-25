@@ -509,7 +509,11 @@ def interpolation_delta_f(prec, wf, f_min, version):
         v02 = v0 * v0
         v06 = v02 * v02 * v02
         dpsi = g0 * deltam * PI / (4.0 * v06) * fma(psi2, v02, fma(2.0 * psi1, v0, 3.0))
-        dpsi_inv = jnp.abs(safe_div(1.0, dpsi))
+        # (at equal masses, deltam == 0, psi1 and psi2 are infinite: LAL's
+        # dpsi is NaN and its grid the coarse one without the two-spin
+        # oscillations, a step in the waveform of ~1e-3 at q = 1; dpsi
+        # diverges as q -> 1, so that the limit is the finest grid)
+        dpsi_inv = jnp.where(deltam == 0.0, 0.0, jnp.abs(safe_div(1.0, dpsi)))
         l_fmin = wf.m_tot * wf.m_tot * _prec.l_ansatz(l_coeffs, v0, wf.eta / v0)
         beta_min = jnp.arctan2(jnp.abs(prec.s1_perp - prec.s2_perp), l_fmin + prec.sl)
         beta_max = jnp.arctan2(prec.s1_perp + prec.s2_perp, l_fmin + prec.sl)

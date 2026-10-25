@@ -18,7 +18,7 @@
   agree with finite differences.
 * It tends linearly to the waveform of aligned spins as the in-plane spins
   vanish (LAL's construction left an opening angle there), also as all
-  spins vanish; its derivatives along a direction
+  spins vanish, and across equal masses; its derivatives along a direction
   of the in-plane spin tend to the one-sided derivative at zero.
 """
 
@@ -399,6 +399,19 @@ def test_continuous_as_all_spins_vanish_negative_total_spin():
         return binary(mass_1=30.0, mass_2=20.0, spin_1=(0.0, 0.0, -eps), spin_2=(0.0, 0.0, -eps))
 
     _assert_linear(_ray(make, make(0.0)))
+
+
+def test_continuous_at_equal_masses():
+    """Across ``q = 1`` (where the bodies are swapped, and where LAL's
+    estimate of the period of the two-spin oscillations is NaN, which took
+    the coarse grid of the PNR interpolants rather than its limit, the
+    finest)."""
+    def make(eps):
+        return binary(mass_1=30.0 * (1.0 + eps), mass_2=30.0, spin_1=(0.2, 0.1, 0.3), spin_2=(-0.1, 0.2, 0.3))
+
+    base = make(0.0)
+    _assert_linear(_ray(make, base))
+    _assert_linear(_ray(lambda eps: make(-eps), base))
 
 
 @functools.lru_cache(maxsize=None)
