@@ -91,7 +91,9 @@ The package has the same interface as the Python bindings of
     integration of the precession equations), and LALSimulation's discrete
     switches in the precession angles are replaced by continuous versions,
     so that the waveform and its derivatives are continuous in the
-    binary's parameters.
+    binary's parameters. The waveform also tends smoothly to that of
+    aligned spins as the in-plane spins vanish, and is continuous at equal
+    masses.
   - It solves the precession equations once with an accurate integrator
     and takes the angles from that solution, rather than repeating
     LALSimulation's integration step by step and interpolating its

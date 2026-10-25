@@ -183,7 +183,8 @@ def internals_fn(grid):
             discrete[f"order{ell}{emm}"] = a.inter_amp_pol_order
         discrete["s_tot_r>=0.8"] = wf.s_tot_r >= 0.8
         modes = jnp.stack(x.model._coprecessing_modes(wf, x.MODES, grid))
-        angles = dict(alpha=jnp.stack(data.alpha), cos_beta=jnp.stack(data.cos_beta), epsilon=jnp.stack(data.epsilon))
+        angles = dict(alpha=jnp.stack(data.alpha), cos_beta=jnp.cos(jnp.stack(data.beta)),
+                      epsilon=jnp.stack(data.epsilon))
         return ({k: jnp.asarray(val, jnp.float64) for k, val in discrete.items()}, modes, angles,
                 dict(ftrans_mrd=sa.ftrans_mrd / w.m_sec, alpha_lower=ap.mf_alpha_lower / w.m_sec,
                      beta_lower=bp.mf_beta_lower / w.m_sec, beta_upper=bp.mf_beta_upper / w.m_sec))
