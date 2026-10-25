@@ -25,4 +25,4 @@ mlx = ["mlx>=0.32.4"]
 where = ["src"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests/test_quick.py", "tests/test_api.py", "tests/test_xpnr_xas.py", "tests/test_xas.py"]
+testpaths = ["tests/test_quick.py", "tests/test_api.py"]

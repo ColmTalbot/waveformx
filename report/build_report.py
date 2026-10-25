@@ -41,7 +41,7 @@ import make_figures  # noqa: E402
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 TEST_FILES = {
-    "test_quick.py": "The quick tier (<code>pytest</code>): IMRPhenomXPNR with its derivative, NRSur7dq4",
+    "test_quick.py": "The quick tier (<code>pytest</code>): every model once under <code>jit</code>, <code>vmap</code> and a derivative, against LAL; the conversions; the matches",
     "test_api.py": "The interface: options, arguments, errors, spherical harmonics",
     "test_xpnr_xas.py": "IMRPhenomXPNR's (2,2) mode without precession against <code>SimIMRPhenomXASFrequencySequence</code>",
     "test_xas.py": "IMRPhenomXAS against LAL through the public functions, float32 (binary neutron stars too), batches, LAL's errors, the QNM fits",
