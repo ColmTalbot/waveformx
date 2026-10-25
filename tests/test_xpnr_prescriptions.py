@@ -157,3 +157,24 @@ def test_reference_converters():
         converted = wf.to_mass_scaled_reference(binary, approximant=approximant)
         for a, b in zip(converted, expected):
             np.testing.assert_array_equal(np.asarray(a), np.asarray(b))
+
+
+@pytest.mark.parametrize("version", [102, 223])
+def test_phase_grid_close_to_the_uniform_grid(version):
+    """The phase grid of the PNR interpolants (``extended_phase_grid``)
+    with the NNLO and MSA angles, for a light binary: at low frequencies its
+    NNLO ``alpha`` advances by tens of radians between the nodes of LAL's
+    uniform grid, which the interpolants of the phase grid cannot follow
+    (the phase grid starts more finely)."""
+    binary = Binary(mass_1=jnp.float64(5.0), mass_2=jnp.float64(1.5), spin_1=jnp.asarray([0.4, 0.2, 0.3]),
+                    spin_2=jnp.asarray([-0.2, 0.3, -0.1]), luminosity_distance=jnp.float64(200.0),
+                    inclination=jnp.float64(0.7), phi_ref=jnp.float64(1.2), f_ref=jnp.float64(20.0))
+    f = jnp.asarray(np.arange(10 * 8, 256 * 8 + 1) / 8.0)
+    out = {}
+    for phase_grid in (False, True):
+        options = WaveformOptions(mode_array=((2, 2), (2, -2)), extended_phase_grid=phase_grid, scaled_strain=False)
+        out[phase_grid] = np.concatenate(
+            [np.asarray(h) for h in jax.jit(lambda b, f: MODELS[version].polarizations(b, f, options))(binary, f)])
+    assert np.all(np.isfinite(out[True]))
+    a, b = out[True], out[False]
+    assert 1 - np.real(np.vdot(b, a)) / (np.linalg.norm(a) * np.linalg.norm(b)) < 1e-6

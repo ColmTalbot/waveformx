@@ -129,8 +129,10 @@ def elljac_sn(u, m):
     ``K - u`` where ``|sin(u mu_n)| >= |cos(u mu_n)|``). NaN where GSL signals
     a domain error (``|m| > 1``).
 
-    The AGM runs a fixed 15 steps (GSL's maximum) with the steps after
-    convergence masked, so that the result is that of GSL."""
+    The AGM runs GSL's maximum of 15 steps with the steps of each element
+    after its convergence masked, so that the result is that of GSL; the
+    steps that no element of ``u``, ``m`` needs (~11 for the MSA angles)
+    are skipped (``jax.lax.cond``: under ``jax.vmap``, all are computed)."""
     u, m = jnp.broadcast_arrays(jnp.asarray(u, dtype=real()), jnp.asarray(m, dtype=real()))
     domain = jnp.abs(m) > 1.0
     small = jnp.abs(m) < 2.0 * dbl_epsilon()
@@ -143,21 +145,24 @@ def elljac_sn(u, m):
     def converging(mu, nu):
         return jnp.abs(mu - nu) > 4.0 * dbl_epsilon() * jnp.abs(mu + nu)
 
-    def agm_step(carry, _):
-        mu, nu, n, active = carry
+    def agm_step(carry, k):
+        mu, nu, n, active, mus, nus = carry
         mu_next = jnp.where(active, 0.5 * (mu + nu), mu)
         nu_next = jnp.where(active, jnp.sqrt(mu * nu), nu)
         n = n + active.astype(jnp.int32)
         active = active & converging(mu_next, nu_next)
-        return (mu_next, nu_next, n, active), (mu_next, nu_next)
+        return mu_next, nu_next, n, active, mus.at[k].set(mu_next), nus.at[k].set(nu_next)
+
+    def agm(carry, k):
+        return jax.lax.cond(jnp.any(carry[3]), agm_step, lambda carry, k: carry, carry, k), None
 
     mu0 = jnp.ones_like(m_safe)
     n0 = jnp.zeros(m_safe.shape, dtype=jnp.int32)
-    (mu_n, _, n, _), (mus, nus) = jax.lax.scan(
-        agm_step, (mu0, sqrt_1mm, n0, converging(mu0, sqrt_1mm)), None, length=ELLJAC_N - 1)
-    # mu_k, nu_k for k = 0 ... 15 (frozen after convergence, so mu_15 = mu_n)
-    mus = jnp.concatenate([mu0[None], mus])
-    nus = jnp.concatenate([sqrt_1mm[None], nus])
+    # mu_k, nu_k for k = 1 ... 15 (those after the last step of all elements
+    # unused)
+    empty = jnp.zeros((ELLJAC_N - 1,) + m_safe.shape, m_safe.dtype)
+    (mu_n, _, n, _, mus, nus), _ = jax.lax.scan(
+        agm, (mu0, sqrt_1mm, n0, converging(mu0, sqrt_1mm), empty, empty), jnp.arange(ELLJAC_N - 1))
 
     sin_umu = jnp.sin(u * mu_n)
     cos_umu = jnp.cos(u * mu_n)
@@ -167,16 +172,21 @@ def elljac_sn(u, m):
 
     # Bulirsch's descending recursion from c_n = mu_n t, d_n = 1:
     # c_k = d_{k+1} c_{k+1}, d_k = (r + nu_k) / (r + mu_k), r = c_{k+1}^2 / mu_{k+1}
-    def descend(carry, x):
+    def descend_step(carry, k):
         c, d = carry
-        k, mu_k, nu_k, mu_k1 = x
+        first = k == 0
+        mu_k = jnp.where(first, mu0, mus[jnp.maximum(k - 1, 0)])
+        nu_k = jnp.where(first, sqrt_1mm, nus[jnp.maximum(k - 1, 0)])
         step = k < n
-        r = (c * c) / mu_k1
+        r = (c * c) / mus[k]
         d_k = (r + nu_k) / (r + mu_k)
-        return (jnp.where(step, d * c, c), jnp.where(step, d_k, d)), None
+        return jnp.where(step, d * c, c), jnp.where(step, d_k, d)
 
-    ks = jnp.arange(ELLJAC_N - 1)
-    (c, d), _ = jax.lax.scan(descend, (mu_n * t, jnp.ones_like(t)), (ks, mus[:-1], nus[:-1], mus[1:]), reverse=True)
+    def descend(carry, k):
+        return jax.lax.cond(k < n_max, descend_step, lambda carry, k: carry, carry, k), None
+
+    n_max = jnp.max(n, initial=0)
+    (c, d), _ = jax.lax.scan(descend, (mu_n * t, jnp.ones_like(t)), jnp.arange(ELLJAC_N - 1), reverse=True)
     hypot = gsl_hypot(1.0, c)
     dn = sqrt_1mm / d
     cn = dn * gsl_sign(cos_umu) / hypot

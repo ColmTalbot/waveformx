@@ -821,12 +821,21 @@ def _st_spline_put(prec, wf, mf, value):
     _cache_put("st", _st_anchors(prec), mf, value)
 
 
+def _msa_anchors(system):
+    anchor = jax.tree_util.tree_leaves(system)
+    return anchor[0], anchor[-1]
+
+
 def _msa_angles(system, mf):
     """``IMRPhenomX_Return_phi_zeta_costhetaL_MSA`` at ``v = (pi Mf)^(1/3)``
     (shared)."""
-    anchor = jax.tree_util.tree_leaves(system)
-    return barrier(_cached("msa", (anchor[0], anchor[-1]), mf,
+    return barrier(_cached("msa", _msa_anchors(system), mf,
                            lambda: _msa.phi_zeta_costhetal(system, jnp.cbrt(PI * mf))))
+
+
+def _msa_angles_put(system, mf, value):
+    """Record ``value`` as :func:`_msa_angles` at ``mf``."""
+    _cache_put("msa", _msa_anchors(system), mf, value)
 
 
 def _euler_points(prec, wf, context):
@@ -1497,7 +1506,8 @@ def uniform_angles(prec, wf, mf, version, st_values=None):
     """``IMRPhenomX_PNR_GeneratePNRAngles_UniformFrequencies`` without
     ``gamma``: ``alpha`` and ``beta`` at ``mf`` (an array) and the error
     flag of each point. ``st_values`` are the SpinTaylor splines at ``mf``
-    (version 330), if computed already.
+    (version 330), if computed already. The MSA angles (version 223) are
+    computed once, for ``alpha``, and passed to the variants of ``beta``.
 
     LAL's ``beta`` depends on the region of the binary (calibration,
     transition, outside) and on whether the MR ``beta`` is attached: only
@@ -1513,6 +1523,7 @@ def uniform_angles(prec, wf, mf, version, st_values=None):
     tra = _in_transition(prec, wf)
     if st_values is not None:
         _st_spline_put(prec, wf, mf, st_values)
+    msa_values = _msa_angles(prec.msa, mf) if version == 223 else None
     # alpha: the regions share the PN alpha
     a_cal, ea_cal = pnr_alpha_at(prec, wf, mf, ap, version)
     a_tra, ea_tra = merged_alpha_at(prec, wf, mf, ap, version)
@@ -1533,16 +1544,18 @@ def uniform_angles(prec, wf, mf, version, st_values=None):
 
     def guarded(beta_of, needed, extra=None):
         def run(operands):
-            prec, wf, mf, bp, st_values, extra = operands
+            prec, wf, mf, bp, st_values, msa_values, extra = operands
             if st_values is not None:
                 _st_spline_put(prec, wf, mf, st_values)
+            if msa_values is not None:
+                _msa_angles_put(prec.msa, mf, msa_values)
             return beta_of(prec, wf, mf, bp, version, extra)
 
         def skip(operands):
             mf = operands[2]
             return jnp.zeros(mf.shape, real()), jnp.zeros(mf.shape, bool)
 
-        return cond(needed, run, skip, (prec, wf, mf, bp, st_values, extra))
+        return cond(needed, run, skip, (prec, wf, mf, bp, st_values, msa_values, extra))
 
     detached = guarded(lambda prec, wf, mf, bp, v, _: beta_no_mr(prec, wf, mf, bp, v, jnp.asarray(False)),
                        need_detached)
@@ -1721,6 +1734,12 @@ def _spline_at(y, m, n, x0, h, x):
 #: grows like ``f^2`` (constant steps of the precession and nutation phases
 #: at leading order) from LAL's spacing at its start up to this.
 PHASE_GRID_MF = 1e-4
+#: The largest step (rad) of the NNLO ``alpha`` between the first nodes of
+#: the phase grid (the interpolants follow ``alpha`` through a unit vector,
+#: which needs steps well below ``pi``; LAL's uniform spacing for the NNLO
+#: angles, from its error tolerance for the splines of ``alpha``, allows
+#: steps of tens of radians at low frequencies).
+PHASE_GRID_NNLO_STEP = 0.25
 
 
 def _phase_grid(f0, f_end, h, m_tot):
@@ -1738,6 +1757,17 @@ def _phase_grid(f0, f_end, h, m_tot):
     grid.f_first = f0
     grid.f_last = _phase_f(grid, grid.s0 + (n - 1.0) * ds)
     return grid
+
+
+def _nnlo_phase_spacing(prec, wf, f0, h):
+    """The spacing (Hz) of the phase grid at its start ``f0`` for the NNLO
+    angles: ``h``, or less where the NNLO ``alpha`` would advance by more
+    than :data:`PHASE_GRID_NNLO_STEP` over it (its slope at ``f0``; the
+    spacing then grows like ``f^2``, as ``1 / alpha'``)."""
+    f = jnp.stack([f0, f0 * (1.0 + 1e-4)])
+    alpha, _ = pn_alpha(prec, wf, hz_to_mf(f, wf.m_tot), 102)
+    slope = jnp.abs(alpha[1] - alpha[0]) / (f[1] - f[0])
+    return jnp.minimum(h, PHASE_GRID_NNLO_STEP / jnp.maximum(slope, tiny()))
 
 
 def _phase_s(grid, f):
@@ -1780,8 +1810,12 @@ def angle_interpolants(prec, wf, grid, version, active=True, extra_mf=None, n_ex
     h = delta_f_int
     node_map = None
     if prec.phase_grid:
-        node_map = _phase_grid(x0, (i_start + n - 1.0) * h, h, wf.m_tot)
-        n = jnp.minimum(node_map.n, n)
+        h_phase = _nnlo_phase_spacing(prec, wf, x0, h) if version == 102 else h
+        node_map = _phase_grid(x0, (i_start + n - 1.0) * h, h_phase, wf.m_tot)
+        # (starting at LAL's spacing, no more nodes than the uniform grid;
+        # with the finer start of the NNLO angles, possibly more)
+        error = error | (node_map.n > PNR_GRID_CAPACITY)
+        n = jnp.minimum(node_map.n, PNR_GRID_CAPACITY)
         n_eval = jnp.where(active, n, 0.0)
 
     def frequencies(k, i_start, n, h):
