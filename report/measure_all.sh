@@ -44,6 +44,13 @@ fi
 "$PY" report/gradients.py
 "$PY" report/benchmark.py
 "$PY" report/xpnr_cost.py
+# (the memory now; the "before" column of report/data/xpnr_memory.json is
+# kept: see the script's docstring)
+if "$MLX_PY" -c "import mlx.core" 2>/dev/null; then
+    "$PY" report/xpnr_memory.py --mlx-python "$MLX_PY"
+else
+    "$PY" report/xpnr_memory.py
+fi
 "$PY" report/reference_xpnr.py
 # (the benchmark binaries of report/data/crossmodel_points.json are fixed:
 # report/crossmodel.py --select chose them once)

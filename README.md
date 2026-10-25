@@ -104,6 +104,9 @@ The package has the same interface as the Python bindings of
     changes the higher modes of a few binaries slightly.
   - A coarser grid for interpolating the precession angles
     (`extended_phase_grid`) makes light binaries faster.
+  - Batches of binaries and long frequency grids are computed a part at a
+    time, so that the memory a batch or a derivative needs does not grow
+    with the batch or with the number of frequencies.
   - It can take the binary at a reference frequency scaled by its total
     mass (`reference_mf`, recommended `REFERENCE_MF`) instead of a
     reference frequency in Hz: the spins and the orientation are then
