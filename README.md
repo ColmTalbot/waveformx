@@ -189,6 +189,14 @@ The package has the same interface as the Python bindings of
   filter, lengths and start times. They are also available as pure
   functions of the binary, which keep the length and start time of a
   reference binary and can be differentiated.
+- Matches between waveforms (`waveformx.match`), as pure functions that
+  can be compiled, vectorised and differentiated: maximised over time and
+  phase, or over time and the detector's polarisation response, with the
+  power spectral density given by the user. Waveforms of time-domain models
+  are compared through their conditioned frequency-domain form. A helper
+  optimises a match over the parameters that models define differently
+  (the reference phase and the orientation of the in-plane spins) from
+  several starting points, using the derivatives of the models.
 
 ## Report
 
