@@ -9,6 +9,8 @@
 * The public functions and the J-frame modes are the model's.
 * ``jax.jit``, ``jax.vmap``, ``jax.jvp`` and ``jax.grad`` work, and the
   derivatives agree with finite differences.
+* Long frequency grids in chunks and batches in blocks give the values and
+  derivatives of one pass.
 """
 
 import functools
@@ -137,6 +139,43 @@ def test_vmap_matches_single_calls():
     for i, b in enumerate(bs):
         ref = single(b, f)
         assert mismatch((hp[i], hc[i]), ref) < 1e-12
+
+
+def test_frequency_chunks_match_one_pass(monkeypatch):
+    """The polarizations and their derivative in chunks of the frequencies
+    (:data:`.model.FREQUENCY_CHUNK`, here smaller than the frequencies and
+    not dividing them) are those of one pass."""
+    b = binary(**BINARIES["light"])
+    f = frequencies_for(b, 300)
+    h, dh = with_derivative(OPTIONS)(b, f)
+    monkeypatch.setattr(model, "FREQUENCY_CHUNK", 128)
+    h_chunks, dh_chunks = with_derivative.__wrapped__(OPTIONS)(b, f)
+    assert mismatch(h_chunks, h) < 1e-14
+    for x, y in zip(dh_chunks, dh):
+        np.testing.assert_allclose(np.asarray(x), np.asarray(y), rtol=0, atol=1e-12 * np.max(np.abs(np.asarray(y))))
+
+
+def test_jacobian_blocks_match_single_binaries(monkeypatch):
+    """``jax.vmap`` of the Jacobian with the binaries in blocks
+    (:data:`.model.JACOBIAN_BLOCK`, here not dividing the batch) gives the
+    Jacobians of the single binaries, to the rounding of a batched Jacobian
+    (~1e-9 of the largest derivative, as with plain ``jax.vmap``)."""
+    monkeypatch.setattr(model, "_POLARIZATIONS", {})
+    monkeypatch.setattr(model, "BATCH_BLOCK", 2)
+    monkeypatch.setattr(model, "JACOBIAN_BLOCK", 2)
+    f = jnp.linspace(20.0, 512.0, 64)
+    bs = [binary(), binary(**BINARIES["heavy"]), binary(**SPECIAL["aligned"])]
+    batch = jax.tree_util.tree_map(lambda *x: jnp.stack(x), *bs)
+
+    def h(b):
+        return model.polarizations(b, f, OPTIONS)
+
+    jac = jax.jit(jax.vmap(jax.jacfwd(h)))(batch)
+    single = jax.jit(jax.jacfwd(h))
+    for i, b in enumerate(bs):
+        for x, y in zip(jax.tree_util.tree_leaves(jac), jax.tree_util.tree_leaves(single(b))):
+            y = np.asarray(y)
+            np.testing.assert_allclose(np.asarray(x[i]), y, rtol=0, atol=3e-9 * np.max(np.abs(y)))
 
 
 def test_gradient_matches_finite_differences():
