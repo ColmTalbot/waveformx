@@ -8,7 +8,7 @@
   "jaxlib": "0.11.2",
   "backend": "cpu",
   "xla_flags": "",
-  "waveformx_commit": "cbdb398",
+  "waveformx_commit": "30fcf3b",
   "lalsimulation": "6.2.0",
   "lal": "7.7.0",
   "waveformrs": "0.1.0"
@@ -24,15 +24,15 @@
  "seed": 4,
  "summary": {
   "mlx": {
-   "median": 5.766326249823095e-09,
-   "p90": 5.013024320210667e-07,
-   "max": 0.010710260453565934,
+   "median": 6.428234167188407e-09,
+   "p90": 5.222819674077783e-07,
+   "max": 0.010710210367298911,
    "n": 200
   },
   "jax32": {
-   "median": 9.391617927789753e-09,
-   "p90": 3.358351285509556e-07,
-   "max": 0.010704886507256095,
+   "median": 1.095044355192698e-08,
+   "p90": 3.051446696211733e-07,
+   "max": 0.010704857353774577,
    "n": 199
   },
   "finite": {
@@ -45,19 +45,19 @@
  "gradient_summary": {
   "n": 30,
   "ratio_mlx": {
-   "median": 0.05824893707884676,
-   "p90": 3.045362079014574,
-   "max": 7.374228830950157,
+   "median": 0.05103189979063001,
+   "p90": 0.9303114249775,
+   "max": 7.369645833389278,
    "n": 30
   },
   "ratio_jax32": {
-   "median": 0.28105728313631995,
-   "p90": 4.746410926132046,
-   "max": 59.447520701315554,
+   "median": 0.19694673032355725,
+   "p90": 3.341987408882701,
+   "max": 59.87972050030297,
    "n": 30
   },
-  "within_mlx": 26,
-  "within_jax32": 22,
+  "within_mlx": 27,
+  "within_jax32": 23,
   "finite_mlx": 30,
   "finite_jax32": 30
  },
@@ -65,44 +65,44 @@
   "frequencies": 8033,
   "mlx": {
    "first_calls": {
-    "imports": 0.5217834999784827,
-    "value": 8.355692792218179,
-    "grad": 0.680982958059758
+    "imports": 0.5015042913146317,
+    "value": 16.7154025840573,
+    "grad": 30.242587792221457
    },
    "value": {
-    "1": 0.019898083060979843,
-    "16": 0.06651900010183454,
-    "64": 0.09496700018644333,
-    "256": 0.14677637489512563,
-    "1024": 0.3263050829991698
+    "1": 0.020192459225654602,
+    "16": 0.06546620791777968,
+    "64": 0.09006095817312598,
+    "256": 0.13436516700312495,
+    "1024": 0.28242987487465143
    },
    "grad": {
-    "1": 0.11788595793768764,
-    "16": 0.5561832091771066,
-    "64": 1.3340233750641346,
-    "256": 5.176760041154921
+    "1": 0.11326866736635566,
+    "16": 0.4991045421920717,
+    "64": 1.1478501660749316,
+    "256": 4.417276458349079
    }
   },
   "jax_float64": {
    "value": {
-    "1": 0.010559999849647284,
-    "16": 0.41406175028532743,
-    "64": 3.680871833115816
+    "1": 0.007181624881923199,
+    "16": 0.26810458302497864,
+    "64": 1.088169083930552
    },
    "grad": {
-    "1": 0.12913566688075662,
-    "16": 4.462481541093439
+    "1": 0.10438687494024634,
+    "16": 2.3699393328279257
    }
   },
   "jax_float32": {
    "value": {
-    "1": 0.009358542039990425,
-    "16": 0.3215591670013964,
-    "64": 2.5778048750944436
+    "1": 0.008073958102613688,
+    "16": 0.2292217081412673,
+    "64": 0.878395208157599
    },
    "grad": {
-    "1": 0.1258486253209412,
-    "16": 2.8452181252650917
+    "1": 0.09394529089331627,
+    "16": 2.0158614171668887
    }
   }
  },
@@ -115,8 +115,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 7.82091713613653e-09,
-   "mismatch_mlx": 5.678549519494425e-09
+   "mismatch_jax32": 1.0778271275491136e-08,
+   "mismatch_mlx": 5.667618263593965e-09
   },
   {
    "index": 1,
@@ -126,8 +126,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.1311269465519302e-07,
-   "mismatch_mlx": 1.2220407297203195e-07
+   "mismatch_jax32": 1.2688174921837714e-07,
+   "mismatch_mlx": 1.203143993322442e-07
   },
   {
    "index": 2,
@@ -137,8 +137,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.2662701998067405e-09,
-   "mismatch_mlx": 3.3616385231027834e-09
+   "mismatch_jax32": 1.2113925418333338e-09,
+   "mismatch_mlx": 3.0445861387562445e-09
   },
   {
    "index": 3,
@@ -148,8 +148,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.0380702963885824e-09,
-   "mismatch_mlx": 8.68029648160018e-10
+   "mismatch_jax32": 1.1191062521120898e-09,
+   "mismatch_mlx": 6.668928742570301e-10
   },
   {
    "index": 4,
@@ -159,8 +159,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 2.0359593788654706e-07,
-   "mismatch_mlx": 1.9296429643045343e-07
+   "mismatch_jax32": 2.2325904924791473e-07,
+   "mismatch_mlx": 2.3409459704026858e-07
   },
   {
    "index": 5,
@@ -170,8 +170,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 5.056023710814372e-09,
-   "mismatch_mlx": 1.9805437179165608e-08
+   "mismatch_jax32": 4.394058894519048e-09,
+   "mismatch_mlx": 1.6165738858653356e-08
   },
   {
    "index": 6,
@@ -181,8 +181,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 9.315382909491632e-10,
-   "mismatch_mlx": 7.946320268459317e-10
+   "mismatch_jax32": 7.727611883723284e-10,
+   "mismatch_mlx": 6.457658852099257e-10
   },
   {
    "index": 7,
@@ -192,8 +192,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 4.876643533435754e-09,
-   "mismatch_mlx": 6.439631050625394e-10
+   "mismatch_jax32": 4.568382894198919e-09,
+   "mismatch_mlx": 3.7821301646090433e-10
   },
   {
    "index": 8,
@@ -203,8 +203,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 2.102932716852024e-09,
-   "mismatch_mlx": 1.5031532685227944e-09
+   "mismatch_jax32": 6.4265619492687165e-09,
+   "mismatch_mlx": 1.4801563308353138e-09
   },
   {
    "index": 9,
@@ -214,8 +214,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 3.647208091095422e-09,
-   "mismatch_mlx": 2.079488026218712e-09
+   "mismatch_jax32": 4.379670515142209e-09,
+   "mismatch_mlx": 2.0702640712855214e-09
   },
   {
    "index": 10,
@@ -225,8 +225,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 3.414054636330377e-06,
-   "mismatch_mlx": 4.7437716580445155e-06
+   "mismatch_jax32": 3.337304313788536e-06,
+   "mismatch_mlx": 4.7202198625306835e-06
   },
   {
    "index": 11,
@@ -236,8 +236,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 6.400978569409688e-08,
-   "mismatch_mlx": 6.44556719109346e-09
+   "mismatch_jax32": 2.7906210231520845e-08,
+   "mismatch_mlx": 7.080095287825827e-09
   },
   {
    "index": 12,
@@ -247,8 +247,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.4233220158033077e-09,
-   "mismatch_mlx": 2.8217208569714103e-09
+   "mismatch_jax32": 2.2412196543086793e-09,
+   "mismatch_mlx": 3.002477710900564e-09
   },
   {
    "index": 13,
@@ -258,8 +258,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 6.361838833512934e-10,
-   "mismatch_mlx": 2.9412140500895134e-09
+   "mismatch_jax32": 5.367987165882937e-10,
+   "mismatch_mlx": 9.501049946791795e-10
   },
   {
    "index": 14,
@@ -269,8 +269,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 5.044433352141553e-07,
-   "mismatch_mlx": 5.902902274756983e-07
+   "mismatch_jax32": 4.996514860744483e-07,
+   "mismatch_mlx": 5.772870015352538e-07
   },
   {
    "index": 15,
@@ -280,8 +280,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.7124206497243222e-09,
-   "mismatch_mlx": 4.963037647520707e-09
+   "mismatch_jax32": 2.2515315167837002e-09,
+   "mismatch_mlx": 4.702680356238886e-09
   },
   {
    "index": 16,
@@ -291,8 +291,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 4.474127734965805e-10,
-   "mismatch_mlx": 2.8525826145653355e-10
+   "mismatch_jax32": 4.380708018558721e-10,
+   "mismatch_mlx": 2.503194318492774e-10
   },
   {
    "index": 17,
@@ -302,8 +302,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 8.317783184441652e-08,
-   "mismatch_mlx": 9.453017868477076e-08
+   "mismatch_jax32": 8.091443726154779e-08,
+   "mismatch_mlx": 9.37881909912619e-08
   },
   {
    "index": 18,
@@ -313,8 +313,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 2.875661597734336e-09,
-   "mismatch_mlx": 2.5372915990473643e-09
+   "mismatch_jax32": 2.902482476585533e-09,
+   "mismatch_mlx": 2.516579611366865e-09
   },
   {
    "index": 19,
@@ -324,8 +324,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.2399791970985063e-08,
-   "mismatch_mlx": 2.2447331327057896e-08
+   "mismatch_jax32": 1.3092006700965442e-08,
+   "mismatch_mlx": 2.4013924737609216e-08
   },
   {
    "index": 20,
@@ -335,8 +335,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 8.789255323549128e-09,
-   "mismatch_mlx": 1.2844075802931343e-09
+   "mismatch_jax32": 9.408692935863883e-09,
+   "mismatch_mlx": 2.0122888910734105e-09
   },
   {
    "index": 21,
@@ -346,8 +346,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 6.374507366402327e-09,
-   "mismatch_mlx": 7.747102959143604e-10
+   "mismatch_jax32": 5.959756355089496e-09,
+   "mismatch_mlx": 4.283698951113024e-10
   },
   {
    "index": 22,
@@ -357,8 +357,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.1832132051914357e-08,
-   "mismatch_mlx": 3.7083287551809008e-09
+   "mismatch_jax32": 1.1305937963612678e-08,
+   "mismatch_mlx": 3.387862101966732e-09
   },
   {
    "index": 23,
@@ -368,8 +368,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 6.865005786060863e-09,
-   "mismatch_mlx": 1.9895850189577402e-08
+   "mismatch_jax32": 2.10106105846819e-08,
+   "mismatch_mlx": 1.9750109325755716e-08
   },
   {
    "index": 24,
@@ -379,8 +379,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 7.705430147275649e-07,
-   "mismatch_mlx": 7.507013696228526e-07
+   "mismatch_jax32": 7.391366987352654e-07,
+   "mismatch_mlx": 7.448766472517576e-07
   },
   {
    "index": 25,
@@ -390,8 +390,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 7.091672871162302e-08,
-   "mismatch_mlx": 7.326309836575007e-08
+   "mismatch_jax32": 9.959504243539641e-08,
+   "mismatch_mlx": 7.41724446307046e-08
   },
   {
    "index": 26,
@@ -401,8 +401,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 3.3469970844413055e-05,
-   "mismatch_mlx": 3.354786998666093e-05
+   "mismatch_jax32": 3.3454087651318964e-05,
+   "mismatch_mlx": 3.354098615193646e-05
   },
   {
    "index": 27,
@@ -412,8 +412,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 7.293301396149587e-08,
-   "mismatch_mlx": 2.173083490930594e-08
+   "mismatch_jax32": 6.249750272857568e-08,
+   "mismatch_mlx": 2.711408697564366e-08
   },
   {
    "index": 28,
@@ -423,8 +423,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 8.080995461678953e-08,
-   "mismatch_mlx": 5.389449553305781e-09
+   "mismatch_jax32": 1.1246652176222227e-07,
+   "mismatch_mlx": 6.364950899673261e-09
   },
   {
    "index": 29,
@@ -434,8 +434,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 5.472344022372511e-09,
-   "mismatch_mlx": 1.2067536969695425e-09
+   "mismatch_jax32": 1.000433846876092e-09,
+   "mismatch_mlx": 9.126727151809177e-10
   },
   {
    "index": 30,
@@ -445,8 +445,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 2.4755449912206018e-09,
-   "mismatch_mlx": 1.3371910245751906e-09
+   "mismatch_jax32": 4.532439978888192e-10,
+   "mismatch_mlx": 2.554496170148468e-09
   },
   {
    "index": 31,
@@ -456,8 +456,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 3.197264231147301e-09,
-   "mismatch_mlx": 1.8890535802285058e-09
+   "mismatch_jax32": 2.0544290380009045e-08,
+   "mismatch_mlx": 2.4774038376307317e-09
   },
   {
    "index": 32,
@@ -467,8 +467,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 5.471160191561353e-10,
-   "mismatch_mlx": 1.0342070533297942e-09
+   "mismatch_jax32": 6.082513381855392e-10,
+   "mismatch_mlx": 9.62282364902478e-10
   },
   {
    "index": 33,
@@ -478,8 +478,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 8.480841007241224e-08,
-   "mismatch_mlx": 7.007880897802465e-08
+   "mismatch_jax32": 9.253358801419864e-08,
+   "mismatch_mlx": 8.59427627952769e-08
   },
   {
    "index": 34,
@@ -489,8 +489,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.1676137690042054e-07,
-   "mismatch_mlx": 2.253343784897055e-07
+   "mismatch_jax32": 1.1577429737119616e-07,
+   "mismatch_mlx": 2.217992349784481e-07
   },
   {
    "index": 35,
@@ -500,8 +500,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.1653177311998775e-08,
-   "mismatch_mlx": 9.115229127054647e-09
+   "mismatch_jax32": 2.0802208178238857e-08,
+   "mismatch_mlx": 8.623757152825817e-09
   },
   {
    "index": 36,
@@ -511,8 +511,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.0689130691687865e-09,
-   "mismatch_mlx": 5.805887548504529e-09
+   "mismatch_jax32": 1.931052984183168e-09,
+   "mismatch_mlx": 3.383242241916662e-09
   },
   {
    "index": 37,
@@ -522,8 +522,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 2.5906732314950887e-10,
-   "mismatch_mlx": 2.333594428804986e-10
+   "mismatch_jax32": 1.399216298381134e-10,
+   "mismatch_mlx": 2.1491408652707378e-10
   },
   {
    "index": 38,
@@ -533,8 +533,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.5343049286631327e-07,
-   "mismatch_mlx": 2.196170835189193e-07
+   "mismatch_jax32": 1.4932216918506214e-07,
+   "mismatch_mlx": 2.2067247906765175e-07
   },
   {
    "index": 39,
@@ -544,8 +544,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 2.287889155905276e-08,
-   "mismatch_mlx": 1.3213154903546354e-08
+   "mismatch_jax32": 2.890229222618501e-08,
+   "mismatch_mlx": 1.3295568757065723e-08
   },
   {
    "index": 40,
@@ -555,8 +555,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.0477739909031669e-07,
-   "mismatch_mlx": 9.285600321984333e-08
+   "mismatch_jax32": 1.1071147187902142e-07,
+   "mismatch_mlx": 9.163681602419871e-08
   },
   {
    "index": 41,
@@ -566,8 +566,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 2.778094387867469e-08,
-   "mismatch_mlx": 4.717381907326512e-08
+   "mismatch_jax32": 4.4934521881145884e-08,
+   "mismatch_mlx": 5.2506086256620677e-08
   },
   {
    "index": 42,
@@ -577,8 +577,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 7.289570058688355e-10,
-   "mismatch_mlx": 1.4361331013290624e-09
+   "mismatch_jax32": 7.044868022276773e-10,
+   "mismatch_mlx": 9.806142564627862e-10
   },
   {
    "index": 43,
@@ -588,8 +588,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 8.055219269387237e-09,
-   "mismatch_mlx": 3.619128441378905e-09
+   "mismatch_jax32": 1.17269193244951e-08,
+   "mismatch_mlx": 9.283307456087186e-09
   },
   {
    "index": 44,
@@ -599,8 +599,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 8.196850087571761e-09,
-   "mismatch_mlx": 3.5373333151511588e-09
+   "mismatch_jax32": 8.597285550138167e-09,
+   "mismatch_mlx": 3.5687958144237086e-09
   },
   {
    "index": 45,
@@ -610,8 +610,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 3.369175627376819e-08,
-   "mismatch_mlx": 7.685753411479368e-08
+   "mismatch_jax32": 3.2260675575379594e-08,
+   "mismatch_mlx": 2.215355054957513e-08
   },
   {
    "index": 46,
@@ -621,8 +621,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.4997848518660817e-09,
-   "mismatch_mlx": 1.1935771260240813e-09
+   "mismatch_jax32": 1.4452200547410143e-09,
+   "mismatch_mlx": 1.1004939182157614e-09
   },
   {
    "index": 47,
@@ -632,8 +632,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 9.316090121558318e-10,
-   "mismatch_mlx": 8.481847446617508e-10
+   "mismatch_jax32": 1.024307749730724e-09,
+   "mismatch_mlx": 8.007853269376142e-10
   },
   {
    "index": 48,
@@ -643,8 +643,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.3504780072004507e-08,
-   "mismatch_mlx": 4.2161459878897745e-09
+   "mismatch_jax32": 1.3555523814545722e-08,
+   "mismatch_mlx": 4.5232919632098856e-09
   },
   {
    "index": 49,
@@ -654,8 +654,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 7.175388061497756e-09,
-   "mismatch_mlx": 5.151825965832302e-09
+   "mismatch_jax32": 4.80510531364331e-09,
+   "mismatch_mlx": 4.123748231776858e-09
   },
   {
    "index": 50,
@@ -665,8 +665,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 9.934721978410721e-08,
-   "mismatch_mlx": 5.794585901075511e-05
+   "mismatch_jax32": 1.0242311743180466e-07,
+   "mismatch_mlx": 5.824641230689487e-05
   },
   {
    "index": 51,
@@ -676,8 +676,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.7835471544103143e-08,
-   "mismatch_mlx": 3.264823078552581e-09
+   "mismatch_jax32": 1.0128607486059593e-07,
+   "mismatch_mlx": 7.186958672633637e-08
   },
   {
    "index": 52,
@@ -687,8 +687,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 7.490000419885234e-07,
-   "mismatch_mlx": 4.915694907792201e-07
+   "mismatch_jax32": 7.461504438754929e-07,
+   "mismatch_mlx": 4.897710033091585e-07
   },
   {
    "index": 53,
@@ -698,8 +698,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 9.603248896095096e-08,
-   "mismatch_mlx": 3.778179857860664e-08
+   "mismatch_jax32": 7.283200376129173e-08,
+   "mismatch_mlx": 1.2110778480067808e-07
   },
   {
    "index": 54,
@@ -709,8 +709,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 3.4075920973819507e-09,
-   "mismatch_mlx": 7.284011172004057e-10
+   "mismatch_jax32": 2.742017835011268e-09,
+   "mismatch_mlx": 1.188204978852525e-09
   },
   {
    "index": 55,
@@ -720,8 +720,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 9.391617927789753e-09,
-   "mismatch_mlx": 5.426799565277918e-09
+   "mismatch_jax32": 9.77879444086227e-09,
+   "mismatch_mlx": 6.717888356710944e-09
   },
   {
    "index": 56,
@@ -731,8 +731,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 3.998453013132064e-09,
-   "mismatch_mlx": 2.010417943232312e-09
+   "mismatch_jax32": 5.84418813343035e-09,
+   "mismatch_mlx": 1.8166305126854354e-09
   },
   {
    "index": 57,
@@ -742,8 +742,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 3.0063856959472446e-09,
-   "mismatch_mlx": 5.726764951141661e-09
+   "mismatch_jax32": 3.510604917877913e-09,
+   "mismatch_mlx": 4.433590050645364e-09
   },
   {
    "index": 58,
@@ -753,8 +753,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 3.7004349184854846e-06,
-   "mismatch_mlx": 1.9609432537759375e-06
+   "mismatch_jax32": 7.675880550062075e-07,
+   "mismatch_mlx": 1.0792775774204344e-06
   },
   {
    "index": 59,
@@ -764,8 +764,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 2.232003026847451e-09,
-   "mismatch_mlx": 9.677876278146869e-10
+   "mismatch_jax32": 2.556485134697084e-09,
+   "mismatch_mlx": 1.0665232030859784e-09
   },
   {
    "index": 60,
@@ -775,8 +775,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 2.952351807472553e-09,
-   "mismatch_mlx": 2.945354626859853e-09
+   "mismatch_jax32": 3.0090268055005254e-09,
+   "mismatch_mlx": 2.0196055938725976e-09
   },
   {
    "index": 61,
@@ -786,8 +786,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.3950707700161047e-08,
-   "mismatch_mlx": 6.46592079878161e-09
+   "mismatch_jax32": 1.549336026140935e-08,
+   "mismatch_mlx": 6.80231915239915e-09
   },
   {
    "index": 62,
@@ -797,8 +797,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 2.8929223461204856e-09,
-   "mismatch_mlx": 9.219645047409131e-10
+   "mismatch_jax32": 1.1224648988061858e-09,
+   "mismatch_mlx": 1.0904147584867019e-09
   },
   {
    "index": 63,
@@ -808,8 +808,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.1549017631118375e-08,
-   "mismatch_mlx": 6.29603091883979e-09
+   "mismatch_jax32": 4.10193623512356e-09,
+   "mismatch_mlx": 5.06496800056766e-09
   },
   {
    "index": 64,
@@ -819,8 +819,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.2110370373186186e-07,
-   "mismatch_mlx": 1.0546791928689458e-07
+   "mismatch_jax32": 1.1705486613333704e-07,
+   "mismatch_mlx": 1.1589995041472179e-07
   },
   {
    "index": 65,
@@ -830,8 +830,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.937578486543856e-08,
-   "mismatch_mlx": 7.154008163645642e-09
+   "mismatch_jax32": 2.6873306802066566e-08,
+   "mismatch_mlx": 5.277093984012993e-09
   },
   {
    "index": 66,
@@ -841,8 +841,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 2.394993858789718e-08,
-   "mismatch_mlx": 2.4004209731032233e-09
+   "mismatch_jax32": 3.086806654728491e-08,
+   "mismatch_mlx": 2.5591753161080533e-09
   },
   {
    "index": 67,
@@ -852,8 +852,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 3.286049543582692e-09,
-   "mismatch_mlx": 1.2594509435359669e-08
+   "mismatch_jax32": 3.243172397304761e-09,
+   "mismatch_mlx": 1.1229645435761881e-08
   },
   {
    "index": 68,
@@ -863,8 +863,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.4495876499154292e-08,
-   "mismatch_mlx": 1.4428276462474798e-08
+   "mismatch_jax32": 1.606414012922386e-08,
+   "mismatch_mlx": 1.3604731119443159e-08
   },
   {
    "index": 69,
@@ -874,8 +874,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 4.10673508532966e-08,
-   "mismatch_mlx": 5.058707563954101e-09
+   "mismatch_jax32": 3.736191955816537e-08,
+   "mismatch_mlx": 5.086169818646624e-09
   },
   {
    "index": 70,
@@ -885,8 +885,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.1335382910093728e-07,
-   "mismatch_mlx": 8.046042609954895e-09
+   "mismatch_jax32": 1.1383841580503429e-07,
+   "mismatch_mlx": 7.950268332557187e-09
   },
   {
    "index": 71,
@@ -896,8 +896,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 7.2919984495101176e-09,
-   "mismatch_mlx": 1.1148505230096362e-08
+   "mismatch_jax32": 8.7507290302824e-09,
+   "mismatch_mlx": 1.4537544390513801e-08
   },
   {
    "index": 72,
@@ -907,8 +907,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 5.6912636825501295e-09,
-   "mismatch_mlx": 2.6358772942103315e-09
+   "mismatch_jax32": 3.2204892086440395e-09,
+   "mismatch_mlx": 3.3249657471756677e-09
   },
   {
    "index": 73,
@@ -918,8 +918,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.76969416898487e-09,
-   "mismatch_mlx": 1.1249854381389923e-09
+   "mismatch_jax32": 9.414505841576215e-10,
+   "mismatch_mlx": 1.0164816766078388e-09
   },
   {
    "index": 74,
@@ -929,8 +929,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.7532692186961185e-08,
-   "mismatch_mlx": 1.2235709001551243e-08
+   "mismatch_jax32": 8.617493385543185e-09,
+   "mismatch_mlx": 1.293679507963219e-08
   },
   {
    "index": 75,
@@ -940,8 +940,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 8.225503611569707e-10,
-   "mismatch_mlx": 5.517077905636825e-10
+   "mismatch_jax32": 1.1436973923473204e-08,
+   "mismatch_mlx": 9.643729148578473e-10
   },
   {
    "index": 76,
@@ -951,8 +951,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 3.390487695675848e-05,
-   "mismatch_mlx": 5.746043383547672e-06
+   "mismatch_jax32": 3.406612127632158e-05,
+   "mismatch_mlx": 5.634578605251406e-06
   },
   {
    "index": 77,
@@ -962,8 +962,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 3.4414219252099087e-09,
-   "mismatch_mlx": 5.554490867254458e-09
+   "mismatch_jax32": 2.7501627641868254e-09,
+   "mismatch_mlx": 5.65318725165298e-09
   },
   {
    "index": 78,
@@ -973,8 +973,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 3.982471175056901e-08,
-   "mismatch_mlx": 4.320361846055221e-09
+   "mismatch_jax32": 4.022897204247755e-08,
+   "mismatch_mlx": 1.4190259634005997e-08
   },
   {
    "index": 79,
@@ -984,8 +984,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 4.350453386425812e-08,
-   "mismatch_mlx": 3.833430917143943e-08
+   "mismatch_jax32": 4.8359977133927146e-08,
+   "mismatch_mlx": 4.517768092959784e-08
   },
   {
    "index": 80,
@@ -995,8 +995,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 2.4079930716069953e-07,
-   "mismatch_mlx": 5.236962749011198e-07
+   "mismatch_jax32": 2.4044469648654143e-07,
+   "mismatch_mlx": 5.219091406827303e-07
   },
   {
    "index": 81,
@@ -1006,8 +1006,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.1553362155858338e-08,
-   "mismatch_mlx": 2.0043740001085553e-09
+   "mismatch_jax32": 1.3186329583803058e-08,
+   "mismatch_mlx": 2.4100352824518723e-09
   },
   {
    "index": 82,
@@ -1017,8 +1017,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 2.1711277220504144e-10,
-   "mismatch_mlx": 1.6621659604254546e-10
+   "mismatch_jax32": 5.534986913247053e-10,
+   "mismatch_mlx": 2.874285254250708e-10
   },
   {
    "index": 83,
@@ -1028,8 +1028,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.0073336609295325e-09,
-   "mismatch_mlx": 1.3896773731758572e-09
+   "mismatch_jax32": 5.294394922472634e-10,
+   "mismatch_mlx": 1.6282055703698006e-09
   },
   {
    "index": 84,
@@ -1039,8 +1039,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.496928914157536e-09,
-   "mismatch_mlx": 2.043765046089163e-09
+   "mismatch_jax32": 4.056298630317201e-09,
+   "mismatch_mlx": 1.8640641252787304e-09
   },
   {
    "index": 85,
@@ -1050,8 +1050,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 7.994727087012876e-07,
-   "mismatch_mlx": 9.169046277790471e-07
+   "mismatch_jax32": 8.032428489013199e-07,
+   "mismatch_mlx": 8.872947159233036e-07
   },
   {
    "index": 86,
@@ -1061,8 +1061,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 3.998253570447474e-07,
-   "mismatch_mlx": 7.691958887612316e-07
+   "mismatch_jax32": 4.008322105342188e-07,
+   "mismatch_mlx": 7.703835144257098e-07
   },
   {
    "index": 87,
@@ -1072,8 +1072,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 4.5175863716551135e-08,
-   "mismatch_mlx": 1.1909765562645447e-07
+   "mismatch_jax32": 5.7441735257235393e-08,
+   "mismatch_mlx": 1.2763662937675946e-07
   },
   {
    "index": 88,
@@ -1083,8 +1083,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 4.4087668216175047e-07,
-   "mismatch_mlx": 3.9045868382991955e-07
+   "mismatch_jax32": 4.1477835210912417e-07,
+   "mismatch_mlx": 3.933972901881688e-07
   },
   {
    "index": 89,
@@ -1094,8 +1094,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 5.337580377684503e-10,
-   "mismatch_mlx": 1.3212781979632382e-09
+   "mismatch_jax32": 6.724457657369953e-10,
+   "mismatch_mlx": 1.3177833269040207e-09
   },
   {
    "index": 90,
@@ -1105,8 +1105,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 2.711305047142787e-08,
-   "mismatch_mlx": 1.8952433511465472e-08
+   "mismatch_jax32": 3.776601331662022e-08,
+   "mismatch_mlx": 1.9279983609621354e-08
   },
   {
    "index": 91,
@@ -1116,8 +1116,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.6975851291345379e-07,
-   "mismatch_mlx": 3.399727321884427e-08
+   "mismatch_jax32": 1.6679383552098415e-07,
+   "mismatch_mlx": 2.8092227888354415e-07
   },
   {
    "index": 92,
@@ -1127,8 +1127,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.2316778708054699e-09,
-   "mismatch_mlx": 1.8614532137917195e-10
+   "mismatch_jax32": 1.1792551379841143e-09,
+   "mismatch_mlx": 2.1755797163791613e-10
   },
   {
    "index": 93,
@@ -1138,8 +1138,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.1094524166033182e-07,
-   "mismatch_mlx": 4.788391572141393e-08
+   "mismatch_jax32": 1.0839449804400658e-07,
+   "mismatch_mlx": 4.5921110136681875e-08
   },
   {
    "index": 94,
@@ -1149,8 +1149,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.5606285153069166e-09,
-   "mismatch_mlx": 1.312045028178943e-09
+   "mismatch_jax32": 1.8039713056694495e-09,
+   "mismatch_mlx": 1.2346071942559433e-09
   },
   {
    "index": 95,
@@ -1160,8 +1160,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 3.0293638486611485e-08,
-   "mismatch_mlx": 8.278593266464185e-08
+   "mismatch_jax32": 3.9201488388762584e-08,
+   "mismatch_mlx": 8.272206974968555e-08
   },
   {
    "index": 96,
@@ -1171,8 +1171,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 5.471136432788626e-08,
-   "mismatch_mlx": 1.2703501028887842e-08
+   "mismatch_jax32": 5.879021047761057e-08,
+   "mismatch_mlx": 1.1643165875874217e-08
   },
   {
    "index": 97,
@@ -1182,8 +1182,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 4.4131687193527114e-10,
-   "mismatch_mlx": 2.1753210344144236e-10
+   "mismatch_jax32": 3.790426861272067e-10,
+   "mismatch_mlx": 6.469110802598266e-10
   },
   {
    "index": 98,
@@ -1193,8 +1193,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.4098688883024124e-09,
-   "mismatch_mlx": 1.3538595800000053e-09
+   "mismatch_jax32": 1.3741043858317425e-09,
+   "mismatch_mlx": 8.916497540312207e-10
   },
   {
    "index": 99,
@@ -1204,8 +1204,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.235825825007808e-07,
-   "mismatch_mlx": 7.31429982137044e-08
+   "mismatch_jax32": 1.2529079640444252e-07,
+   "mismatch_mlx": 7.666413537332772e-08
   },
   {
    "index": 100,
@@ -1215,8 +1215,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 3.2550182549329065e-09,
-   "mismatch_mlx": 6.142467867675805e-09
+   "mismatch_jax32": 3.994802044715584e-09,
+   "mismatch_mlx": 1.0312490528185947e-08
   },
   {
    "index": 101,
@@ -1226,8 +1226,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 2.6680635478726344e-09,
-   "mismatch_mlx": 1.4703623874012806e-09
+   "mismatch_jax32": 1.5707678491239108e-09,
+   "mismatch_mlx": 7.558962344944575e-10
   },
   {
    "index": 102,
@@ -1237,8 +1237,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 7.154610237591896e-10,
-   "mismatch_mlx": 8.300953258100208e-10
+   "mismatch_jax32": 9.710475756818937e-10,
+   "mismatch_mlx": 8.539745577351709e-10
   },
   {
    "index": 103,
@@ -1248,8 +1248,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 2.873412729975655e-09,
-   "mismatch_mlx": 9.83534031995248e-10
+   "mismatch_jax32": 2.5249317081588174e-09,
+   "mismatch_mlx": 9.179007554038776e-10
   },
   {
    "index": 104,
@@ -1259,8 +1259,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 4.146303300700538e-09,
-   "mismatch_mlx": 3.924405467259362e-09
+   "mismatch_jax32": 6.960330201088993e-09,
+   "mismatch_mlx": 3.9140596319597876e-09
   },
   {
    "index": 105,
@@ -1270,8 +1270,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 2.091337103493629e-09,
-   "mismatch_mlx": 1.6305952144080038e-09
+   "mismatch_jax32": 2.3188523323725008e-09,
+   "mismatch_mlx": 1.870231858269733e-09
   },
   {
    "index": 106,
@@ -1281,8 +1281,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 4.471195991229138e-08,
-   "mismatch_mlx": 8.955122865472731e-09
+   "mismatch_jax32": 4.029892308743399e-08,
+   "mismatch_mlx": 9.43693667654344e-09
   },
   {
    "index": 107,
@@ -1292,8 +1292,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.0332993560790982e-07,
-   "mismatch_mlx": 4.988142272566165e-07
+   "mismatch_jax32": 6.138744279571284e-08,
+   "mismatch_mlx": 5.256374079332105e-07
   },
   {
    "index": 108,
@@ -1303,8 +1303,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 5.712894823872716e-09,
-   "mismatch_mlx": 2.071835480954576e-09
+   "mismatch_jax32": 6.294338050771842e-09,
+   "mismatch_mlx": 1.695314699734496e-08
   },
   {
    "index": 109,
@@ -1314,8 +1314,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.9130101658326737e-07,
-   "mismatch_mlx": 1.775123111835697e-07
+   "mismatch_jax32": 2.128165795811654e-07,
+   "mismatch_mlx": 1.8769737797352803e-07
   },
   {
    "index": 110,
@@ -1325,8 +1325,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 8.871900214479922e-08,
-   "mismatch_mlx": 1.3605221849122273e-07
+   "mismatch_jax32": 8.757595704178556e-08,
+   "mismatch_mlx": 1.3599959181043175e-07
   },
   {
    "index": 111,
@@ -1336,8 +1336,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 4.849618884250617e-08,
-   "mismatch_mlx": 4.624683702658672e-08
+   "mismatch_jax32": 4.710290713028087e-08,
+   "mismatch_mlx": 4.537264775006378e-08
   },
   {
    "index": 112,
@@ -1347,8 +1347,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 3.883469990029198e-08,
-   "mismatch_mlx": 9.263989020347196e-08
+   "mismatch_jax32": 4.552171073424205e-08,
+   "mismatch_mlx": 4.747493520529389e-08
   },
   {
    "index": 113,
@@ -1358,8 +1358,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 4.4877553129207826e-07,
-   "mismatch_mlx": 4.0479554692662845e-06
+   "mismatch_jax32": 4.7392450930328067e-07,
+   "mismatch_mlx": 4.047329329570637e-06
   },
   {
    "index": 114,
@@ -1369,8 +1369,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 4.343141180029875e-09,
-   "mismatch_mlx": 3.29913896202072e-09
+   "mismatch_jax32": 2.4132743803306766e-08,
+   "mismatch_mlx": 5.732231689314915e-09
   },
   {
    "index": 115,
@@ -1380,8 +1380,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.5048908785786352e-09,
-   "mismatch_mlx": 8.129847905991028e-10
+   "mismatch_jax32": 2.3543954563720604e-09,
+   "mismatch_mlx": 7.626494991086474e-10
   },
   {
    "index": 116,
@@ -1391,8 +1391,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.1345860073674885e-07,
-   "mismatch_mlx": 1.1762197105191774e-07
+   "mismatch_jax32": 1.0323968013814522e-07,
+   "mismatch_mlx": 1.301138125020529e-07
   },
   {
    "index": 117,
@@ -1402,8 +1402,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 2.153115563618968e-08,
-   "mismatch_mlx": 1.6623439957896835e-08
+   "mismatch_jax32": 2.3433864848598773e-08,
+   "mismatch_mlx": 1.6098519961538216e-08
   },
   {
    "index": 118,
@@ -1413,8 +1413,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.8293524473023126e-09,
-   "mismatch_mlx": 4.685359877854012e-10
+   "mismatch_jax32": 4.664103436802236e-09,
+   "mismatch_mlx": 5.431611826978155e-10
   },
   {
    "index": 119,
@@ -1424,8 +1424,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 4.2764647378845666e-10,
-   "mismatch_mlx": 4.5858572494950067e-10
+   "mismatch_jax32": 6.508524830195483e-10,
+   "mismatch_mlx": 4.900860828271902e-10
   },
   {
    "index": 120,
@@ -1435,8 +1435,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 3.4720621933104212e-09,
-   "mismatch_mlx": 1.0251300919250639e-09
+   "mismatch_jax32": 2.709198421158021e-09,
+   "mismatch_mlx": 1.294580886934682e-09
   },
   {
    "index": 121,
@@ -1446,8 +1446,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 3.018356575790193e-08,
-   "mismatch_mlx": 2.2275281952310877e-08
+   "mismatch_jax32": 2.762116613208576e-08,
+   "mismatch_mlx": 2.0836080416586356e-08
   },
   {
    "index": 122,
@@ -1457,8 +1457,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 2.078232180791062e-07,
-   "mismatch_mlx": 1.4104440282380892e-07
+   "mismatch_jax32": 2.0779415255134381e-07,
+   "mismatch_mlx": 1.387099451966023e-07
   },
   {
    "index": 123,
@@ -1468,8 +1468,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 4.428613298301798e-08,
-   "mismatch_mlx": 1.0024409069497864e-07
+   "mismatch_jax32": 4.461145508560804e-08,
+   "mismatch_mlx": 2.822260236623464e-08
   },
   {
    "index": 124,
@@ -1479,8 +1479,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 2.7444501116136166e-09,
-   "mismatch_mlx": 2.1861933374722753e-09
+   "mismatch_jax32": 2.9756905828293156e-09,
+   "mismatch_mlx": 2.318860548022883e-09
   },
   {
    "index": 125,
@@ -1490,8 +1490,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 4.4915262620293106e-08,
-   "mismatch_mlx": 3.438530016275365e-09
+   "mismatch_jax32": 4.6653315655120764e-08,
+   "mismatch_mlx": 4.316579538254928e-09
   },
   {
    "index": 126,
@@ -1501,8 +1501,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.1721141834897253e-09,
-   "mismatch_mlx": 7.557281467285293e-10
+   "mismatch_jax32": 9.019947011523755e-10,
+   "mismatch_mlx": 9.359805153152934e-10
   },
   {
    "index": 127,
@@ -1512,8 +1512,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 2.033259934863807e-07,
-   "mismatch_mlx": 2.1372047642742587e-07
+   "mismatch_jax32": 1.9791493055532072e-07,
+   "mismatch_mlx": 2.1474439604318718e-07
   },
   {
    "index": 128,
@@ -1523,8 +1523,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 8.411562335552958e-09,
-   "mismatch_mlx": 3.1177834758366885e-08
+   "mismatch_jax32": 2.349496874831658e-08,
+   "mismatch_mlx": 3.912334878286572e-08
   },
   {
    "index": 129,
@@ -1534,8 +1534,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 3.18223603024137e-09,
-   "mismatch_mlx": 7.027661785841133e-10
+   "mismatch_jax32": 6.117150119777648e-10,
+   "mismatch_mlx": 5.979710060444177e-10
   },
   {
    "index": 130,
@@ -1545,8 +1545,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 4.905532202670315e-09,
-   "mismatch_mlx": 5.302779326754603e-09
+   "mismatch_jax32": 6.662407181501351e-09,
+   "mismatch_mlx": 4.881634763087561e-09
   },
   {
    "index": 131,
@@ -1556,8 +1556,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.9631984926604673e-10,
-   "mismatch_mlx": 6.546130304485587e-11
+   "mismatch_jax32": 2.182775071801757e-10,
+   "mismatch_mlx": 6.523748208309144e-11
   },
   {
    "index": 132,
@@ -1567,8 +1567,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 4.650660008209684e-07,
-   "mismatch_mlx": 4.402759146149293e-07
+   "mismatch_jax32": 4.5305272755591375e-07,
+   "mismatch_mlx": 4.406152046554368e-07
   },
   {
    "index": 133,
@@ -1578,8 +1578,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 4.1550507479115595e-08,
-   "mismatch_mlx": 1.557713702471375e-08
+   "mismatch_jax32": 4.1911676462724756e-08,
+   "mismatch_mlx": 1.5603820679999103e-08
   },
   {
    "index": 134,
@@ -1589,8 +1589,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 5.117040136060069e-08,
-   "mismatch_mlx": 2.2686292511231443e-08
+   "mismatch_jax32": 6.207461478169307e-08,
+   "mismatch_mlx": 2.1075081235721882e-08
   },
   {
    "index": 135,
@@ -1600,8 +1600,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 3.198375714275059e-07,
-   "mismatch_mlx": 2.767741138498536e-07
+   "mismatch_jax32": 2.812227843929094e-07,
+   "mismatch_mlx": 2.543180631642272e-07
   },
   {
    "index": 136,
@@ -1611,8 +1611,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.1186810366936584e-09,
-   "mismatch_mlx": 7.010545477470487e-10
+   "mismatch_jax32": 1.1221468199096307e-09,
+   "mismatch_mlx": 6.994337331533984e-10
   },
   {
    "index": 137,
@@ -1622,8 +1622,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 3.409117432795483e-09,
-   "mismatch_mlx": 3.4974315665792233e-09
+   "mismatch_jax32": 5.174373929328624e-09,
+   "mismatch_mlx": 3.6498664091055844e-09
   },
   {
    "index": 138,
@@ -1633,8 +1633,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 2.3870954657390087e-08,
-   "mismatch_mlx": 3.2220773715785356e-08
+   "mismatch_jax32": 2.2293939250239703e-08,
+   "mismatch_mlx": 2.5776686674028326e-08
   },
   {
    "index": 139,
@@ -1644,8 +1644,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 8.776622872908035e-09,
-   "mismatch_mlx": 1.7367507432197726e-09
+   "mismatch_jax32": 8.392913586341422e-09,
+   "mismatch_mlx": 2.609823246402243e-09
   },
   {
    "index": 140,
@@ -1655,8 +1655,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.792768489217167e-09,
-   "mismatch_mlx": 1.1416267930997037e-09
+   "mismatch_jax32": 1.6954163628568608e-09,
+   "mismatch_mlx": 2.2423065626497873e-09
   },
   {
    "index": 141,
@@ -1666,8 +1666,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 7.932952073019806e-10,
-   "mismatch_mlx": 5.063569563645842e-10
+   "mismatch_jax32": 8.6262585963226e-10,
+   "mismatch_mlx": 4.554864263539571e-10
   },
   {
    "index": 142,
@@ -1677,8 +1677,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.0463896416013085e-09,
-   "mismatch_mlx": 1.7789117956468203e-09
+   "mismatch_jax32": 1.0115493997986391e-09,
+   "mismatch_mlx": 2.3259398851394053e-09
   },
   {
    "index": 143,
@@ -1688,8 +1688,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 6.089194226621686e-08,
-   "mismatch_mlx": 5.624237742196669e-09
+   "mismatch_jax32": 1.9532736539318307e-09,
+   "mismatch_mlx": 3.0950960683284734e-09
   },
   {
    "index": 144,
@@ -1699,8 +1699,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.6349630205247934e-08,
-   "mismatch_mlx": 2.3764994305786047e-08
+   "mismatch_jax32": 1.031682783647625e-08,
+   "mismatch_mlx": 2.464455639561436e-08
   },
   {
    "index": 145,
@@ -1710,8 +1710,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 2.6422752652521808e-08,
-   "mismatch_mlx": 1.8580513683197353e-08
+   "mismatch_jax32": 2.7609077579704433e-08,
+   "mismatch_mlx": 2.6704002675792538e-08
   },
   {
    "index": 146,
@@ -1721,8 +1721,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 0.001314491104564941,
-   "mismatch_mlx": 0.0007058719259931401
+   "mismatch_jax32": 0.0013145014929124565,
+   "mismatch_mlx": 0.0007058703723313853
   },
   {
    "index": 147,
@@ -1732,8 +1732,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.0146766760144033e-09,
-   "mismatch_mlx": 1.1784360154365459e-09
+   "mismatch_jax32": 9.67381508232279e-10,
+   "mismatch_mlx": 1.3748443494776552e-09
   },
   {
    "index": 148,
@@ -1743,8 +1743,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.1039907098053803e-05,
-   "mismatch_mlx": 1.4543533413902132e-05
+   "mismatch_jax32": 1.0284453526576698e-05,
+   "mismatch_mlx": 1.537454079014733e-05
   },
   {
    "index": 149,
@@ -1754,8 +1754,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.1595809010778169e-06,
-   "mismatch_mlx": 1.1243728824661403e-06
+   "mismatch_jax32": 1.0521562123777528e-06,
+   "mismatch_mlx": 1.0773690363174993e-06
   },
   {
    "index": 150,
@@ -1765,8 +1765,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 2.2830395352002597e-09,
-   "mismatch_mlx": 4.8333114177623315e-09
+   "mismatch_jax32": 2.103141993892166e-09,
+   "mismatch_mlx": 3.338276322040201e-09
   },
   {
    "index": 151,
@@ -1776,8 +1776,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 2.3715183150585517e-09,
-   "mismatch_mlx": 2.2362312002144336e-09
+   "mismatch_jax32": 3.2170834884936994e-09,
+   "mismatch_mlx": 2.1551295192878683e-09
   },
   {
    "index": 152,
@@ -1787,8 +1787,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 9.13421269732595e-08,
-   "mismatch_mlx": 8.294216280457789e-08
+   "mismatch_jax32": 8.086388803008049e-08,
+   "mismatch_mlx": 8.604253654009852e-08
   },
   {
    "index": 153,
@@ -1798,8 +1798,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.2627434164969031e-07,
-   "mismatch_mlx": 1.2816913697033527e-07
+   "mismatch_jax32": 1.2106124569477572e-07,
+   "mismatch_mlx": 1.2606717703089743e-07
   },
   {
    "index": 154,
@@ -1809,8 +1809,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.8242948041091722e-08,
-   "mismatch_mlx": 3.208847454416741e-08
+   "mismatch_jax32": 1.7433014032341987e-08,
+   "mismatch_mlx": 3.145831051210024e-08
   },
   {
    "index": 155,
@@ -1820,8 +1820,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 2.543818478084603e-08,
-   "mismatch_mlx": 7.49676387634679e-09
+   "mismatch_jax32": 2.819272415521823e-08,
+   "mismatch_mlx": 7.723318207197849e-09
   },
   {
    "index": 156,
@@ -1831,8 +1831,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 7.147719416344955e-09,
-   "mismatch_mlx": 6.631069027207559e-09
+   "mismatch_jax32": 7.0154581033321506e-09,
+   "mismatch_mlx": 6.1721379118750974e-09
   },
   {
    "index": 157,
@@ -1842,8 +1842,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 2.7072969310815154e-08,
-   "mismatch_mlx": 3.024304351395557e-08
+   "mismatch_jax32": 3.240280554983599e-08,
+   "mismatch_mlx": 2.178900204707901e-08
   },
   {
    "index": 158,
@@ -1853,8 +1853,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.5076574433336987e-09,
-   "mismatch_mlx": 1.909542524103358e-09
+   "mismatch_jax32": 1.2826272266508454e-09,
+   "mismatch_mlx": 1.5123978736042432e-09
   },
   {
    "index": 159,
@@ -1864,8 +1864,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 2.5769857026070042e-08,
-   "mismatch_mlx": 1.786251913049597e-08
+   "mismatch_jax32": 2.5749262055896338e-08,
+   "mismatch_mlx": 1.2059445220202747e-08
   },
   {
    "index": 160,
@@ -1875,8 +1875,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.811751093594438e-08,
-   "mismatch_mlx": 1.6074818920408518e-08
+   "mismatch_jax32": 2.0976000825179142e-08,
+   "mismatch_mlx": 3.299181305926879e-08
   },
   {
    "index": 161,
@@ -1886,8 +1886,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 9.696838887407466e-09,
-   "mismatch_mlx": 1.0730376587275714e-08
+   "mismatch_jax32": 8.148750119119086e-09,
+   "mismatch_mlx": 6.491517434703553e-09
   },
   {
    "index": 162,
@@ -1897,8 +1897,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.0226702817917044e-09,
-   "mismatch_mlx": 5.547174941611388e-10
+   "mismatch_jax32": 7.721234762669837e-10,
+   "mismatch_mlx": 7.870755158734255e-10
   },
   {
    "index": 163,
@@ -1908,8 +1908,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 4.1394210281708865e-09,
-   "mismatch_mlx": 3.0487203872553437e-09
+   "mismatch_jax32": 4.875279735472304e-09,
+   "mismatch_mlx": 3.259512659781194e-09
   },
   {
    "index": 164,
@@ -1919,8 +1919,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 3.007570192892217e-09,
-   "mismatch_mlx": 1.7831922605182626e-09
+   "mismatch_jax32": 1.5888216298165503e-09,
+   "mismatch_mlx": 2.0491662811039646e-09
   },
   {
    "index": 165,
@@ -1930,8 +1930,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 2.434252455163488e-08,
-   "mismatch_mlx": 9.108047094308347e-09
+   "mismatch_jax32": 3.318678987174195e-08,
+   "mismatch_mlx": 8.980696519778064e-09
   },
   {
    "index": 166,
@@ -1941,8 +1941,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.277724814841008e-09,
-   "mismatch_mlx": 4.276843323935964e-10
+   "mismatch_jax32": 8.154212860489451e-10,
+   "mismatch_mlx": 1.0674612305194842e-09
   },
   {
    "index": 167,
@@ -1952,8 +1952,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 8.540508367183008e-08,
-   "mismatch_mlx": 9.198540873445182e-08
+   "mismatch_jax32": 8.440493104444613e-08,
+   "mismatch_mlx": 9.063749817350697e-08
   },
   {
    "index": 168,
@@ -1963,8 +1963,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 6.148043185660867e-10,
-   "mismatch_mlx": 8.958416231052979e-10
+   "mismatch_jax32": 5.817180070977201e-10,
+   "mismatch_mlx": 9.544267598471379e-10
   },
   {
    "index": 169,
@@ -1974,8 +1974,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 4.078749560321171e-09,
-   "mismatch_mlx": 1.5410235310042708e-09
+   "mismatch_jax32": 1.095044355192698e-08,
+   "mismatch_mlx": 9.24460175077968e-10
   },
   {
    "index": 170,
@@ -1985,8 +1985,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 6.607145941472936e-10,
-   "mismatch_mlx": 7.238974975010137e-10
+   "mismatch_jax32": 4.984981316624726e-10,
+   "mismatch_mlx": 7.663807366498077e-10
   },
   {
    "index": 171,
@@ -1996,8 +1996,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 2.1881707579218812e-07,
-   "mismatch_mlx": 1.9805057793753633e-07
+   "mismatch_jax32": 1.724673903691354e-07,
+   "mismatch_mlx": 2.1022846319329602e-07
   },
   {
    "index": 172,
@@ -2007,8 +2007,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 2.8853350819701973e-09,
-   "mismatch_mlx": 5.8161107041598825e-09
+   "mismatch_jax32": 3.5290607103277694e-09,
+   "mismatch_mlx": 6.0280238578513945e-09
   },
   {
    "index": 173,
@@ -2018,8 +2018,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 6.654333666311629e-07,
-   "mismatch_mlx": 7.220076565506162e-07
+   "mismatch_jax32": 6.550908373537112e-07,
+   "mismatch_mlx": 7.503906602757127e-07
   },
   {
    "index": 174,
@@ -2029,8 +2029,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.1895308529519255e-05,
-   "mismatch_mlx": 9.45893892212446e-06
+   "mismatch_jax32": 1.2138241678671946e-05,
+   "mismatch_mlx": 9.806174440574189e-06
   },
   {
    "index": 175,
@@ -2040,8 +2040,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 4.9480896158193843e-08,
-   "mismatch_mlx": 6.381344475059336e-08
+   "mismatch_jax32": 4.5193508602103805e-08,
+   "mismatch_mlx": 5.228277499824685e-08
   },
   {
    "index": 176,
@@ -2051,8 +2051,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 8.566523046482644e-10,
-   "mismatch_mlx": 1.0437425368436948e-09
+   "mismatch_jax32": 8.356974001699768e-10,
+   "mismatch_mlx": 1.058081844362846e-09
   },
   {
    "index": 177,
@@ -2062,8 +2062,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 9.431887493249747e-10,
-   "mismatch_mlx": 1.7298326104864259e-09
+   "mismatch_jax32": 7.84636355888324e-10,
+   "mismatch_mlx": 8.161641362747218e-10
   },
   {
    "index": 178,
@@ -2073,7 +2073,7 @@
    "finite_double": true,
    "finite_jax32": false,
    "finite_mlx": true,
-   "mismatch_mlx": 3.890962653274599e-05
+   "mismatch_mlx": 3.87494123824661e-05
   },
   {
    "index": 179,
@@ -2083,8 +2083,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.1170790826797727e-06,
-   "mismatch_mlx": 1.1902852784517748e-06
+   "mismatch_jax32": 8.313139177040796e-07,
+   "mismatch_mlx": 1.3265278281382464e-06
   },
   {
    "index": 180,
@@ -2094,8 +2094,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 5.0151224062489064e-08,
-   "mismatch_mlx": 9.71754252621082e-08
+   "mismatch_jax32": 5.513315870508961e-08,
+   "mismatch_mlx": 9.958130375853358e-08
   },
   {
    "index": 181,
@@ -2105,8 +2105,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 2.161739689365838e-06,
-   "mismatch_mlx": 3.430563737860659e-06
+   "mismatch_jax32": 2.3619465340241064e-06,
+   "mismatch_mlx": 3.551010046121128e-06
   },
   {
    "index": 182,
@@ -2116,8 +2116,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.5098737815577579e-09,
-   "mismatch_mlx": 1.9435099085640672e-09
+   "mismatch_jax32": 1.3157692713150482e-09,
+   "mismatch_mlx": 2.1953321382994773e-09
   },
   {
    "index": 183,
@@ -2127,8 +2127,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 5.7615954229817135e-09,
-   "mismatch_mlx": 2.7324498219627458e-09
+   "mismatch_jax32": 4.3074529498809966e-09,
+   "mismatch_mlx": 2.576688307165398e-09
   },
   {
    "index": 184,
@@ -2138,8 +2138,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 2.2197589211181423e-08,
-   "mismatch_mlx": 1.0898323354879835e-08
+   "mismatch_jax32": 1.9383375571280226e-08,
+   "mismatch_mlx": 1.1272257460781532e-08
   },
   {
    "index": 185,
@@ -2149,8 +2149,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 5.199463637417523e-09,
-   "mismatch_mlx": 8.449280164413153e-10
+   "mismatch_jax32": 7.3550411316958275e-09,
+   "mismatch_mlx": 1.2091411205616964e-09
   },
   {
    "index": 186,
@@ -2160,8 +2160,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 7.261705792238615e-09,
-   "mismatch_mlx": 2.4249294239275798e-08
+   "mismatch_jax32": 6.632037918841149e-09,
+   "mismatch_mlx": 1.151325967896355e-08
   },
   {
    "index": 187,
@@ -2171,8 +2171,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 3.396956715917554e-09,
-   "mismatch_mlx": 9.009841650531314e-09
+   "mismatch_jax32": 2.1184214382685695e-09,
+   "mismatch_mlx": 7.1558904357615916e-09
   },
   {
    "index": 188,
@@ -2182,8 +2182,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 6.435759702938526e-10,
-   "mismatch_mlx": 5.43121436713534e-10
+   "mismatch_jax32": 8.569173703953936e-09,
+   "mismatch_mlx": 6.702784993706246e-10
   },
   {
    "index": 189,
@@ -2193,8 +2193,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.6425191096125502e-08,
-   "mismatch_mlx": 2.158000234064872e-08
+   "mismatch_jax32": 2.3880512234342177e-08,
+   "mismatch_mlx": 2.1780689030137523e-08
   },
   {
    "index": 190,
@@ -2204,8 +2204,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 5.083660381544064e-09,
-   "mismatch_mlx": 4.6804233821973185e-09
+   "mismatch_jax32": 2.692836065243398e-09,
+   "mismatch_mlx": 4.6712606005527846e-09
   },
   {
    "index": 191,
@@ -2215,8 +2215,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 2.1039349384910366e-07,
-   "mismatch_mlx": 2.1581473852450017e-07
+   "mismatch_jax32": 1.9465895362280605e-07,
+   "mismatch_mlx": 1.9503828030398296e-07
   },
   {
    "index": 192,
@@ -2226,8 +2226,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 0.010704886507256095,
-   "mismatch_mlx": 0.010710260453565934
+   "mismatch_jax32": 0.010704857353774577,
+   "mismatch_mlx": 0.010710210367298911
   },
   {
    "index": 193,
@@ -2237,8 +2237,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 5.13657860690131e-09,
-   "mismatch_mlx": 2.670623944212025e-09
+   "mismatch_jax32": 4.182714730127657e-09,
+   "mismatch_mlx": 3.257628611308405e-09
   },
   {
    "index": 194,
@@ -2248,8 +2248,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 3.299240947107762e-08,
-   "mismatch_mlx": 3.031182860269155e-09
+   "mismatch_jax32": 3.441118479052818e-08,
+   "mismatch_mlx": 1.123534820735017e-09
   },
   {
    "index": 195,
@@ -2259,8 +2259,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 9.908614817533135e-09,
-   "mismatch_mlx": 1.4627983713211279e-08
+   "mismatch_jax32": 9.785800059169958e-09,
+   "mismatch_mlx": 2.8596311318906942e-08
   },
   {
    "index": 196,
@@ -2270,8 +2270,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.262979831828659e-09,
-   "mismatch_mlx": 9.85233783445949e-10
+   "mismatch_jax32": 9.596580197168691e-10,
+   "mismatch_mlx": 8.06977595857461e-10
   },
   {
    "index": 197,
@@ -2281,8 +2281,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 2.4297975853571074e-09,
-   "mismatch_mlx": 1.5513866857830294e-09
+   "mismatch_jax32": 2.705900947752582e-09,
+   "mismatch_mlx": 3.2234654945284547e-09
   },
   {
    "index": 198,
@@ -2292,8 +2292,8 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 1.5837257061335208e-09,
-   "mismatch_mlx": 1.3735335091524803e-09
+   "mismatch_jax32": 3.1329731031704e-09,
+   "mismatch_mlx": 7.380693833880514e-10
   },
   {
    "index": 199,
@@ -2303,1478 +2303,1478 @@
    "finite_double": true,
    "finite_jax32": true,
    "finite_mlx": true,
-   "mismatch_jax32": 4.452904156515558e-09,
-   "mismatch_mlx": 4.970091893596873e-09
+   "mismatch_jax32": 4.406630615960694e-09,
+   "mismatch_mlx": 4.217025617592185e-09
   }
  ],
  "gradients": [
   {
    "index": 0,
    "double": [
-    0.021176807517499178,
-    -0.010009101216247339,
-    -1.906031900700086,
-    4.851345305749565,
-    -1.531729230019988,
-    -0.7835051199589196,
-    1.2775382161525033,
-    -2.3530241877587796,
-    -6.862578087754277e-06,
-    -0.014738745876589666,
-    1.4181339371808643,
-    0.038359677374489504
+    0.021176799183879554,
+    -0.010009084612971234,
+    -1.9060312881312131,
+    4.851344386006036,
+    -1.5317288252273595,
+    -0.7835051216789177,
+    1.2775381601906068,
+    -2.353024104685541,
+    -6.862617251409033e-06,
+    -0.014738732019597432,
+    1.4181337654850574,
+    0.038359672722707336
    ],
    "mlx": [
-    0.021208014339208603,
-    -0.010032519698143005,
-    -1.9092921018600464,
-    4.859770774841309,
-    -1.5344420671463013,
-    -0.7848613262176514,
-    1.279776692390442,
-    -2.3571386337280273,
-    -6.3034240156412125e-06,
-    -0.014611266553401947,
-    1.4206610918045044,
-    0.03842505067586899
+    0.02120755799114704,
+    -0.010032004676759243,
+    -1.9092438220977783,
+    4.859683990478516,
+    -1.5344207286834717,
+    -0.784854531288147,
+    1.2797701358795166,
+    -2.3571527004241943,
+    -6.3083425629884005e-06,
+    -0.014612235128879547,
+    1.4206442832946777,
+    0.03842436522245407
    ],
    "jax32": [
-    0.02123010903596878,
-    -0.010065286420285702,
-    -1.9104256629943848,
-    4.862039566040039,
-    -1.556135654449463,
-    -0.7854055762290955,
-    1.2805160284042358,
-    -2.3672235012054443,
-    -6.431691872421652e-06,
-    -0.014648043550550938,
-    1.4211156368255615,
-    0.03843767195940018
+    0.021236032247543335,
+    -0.010071266442537308,
+    -1.9111456871032715,
+    4.863935470581055,
+    -1.5566365718841553,
+    -0.7857110500335693,
+    1.2810204029083252,
+    -2.368095874786377,
+    -6.284730261540972e-06,
+    -0.014615342952311039,
+    1.421657919883728,
+    0.038450729101896286
    ],
-   "ratio_mlx": 0.1578843985204117,
-   "ratio_jax32": 1.210117654267103,
+   "ratio_mlx": 0.15627541580461954,
+   "ratio_jax32": 1.2349744825795164,
    "finite_mlx": true,
    "finite_jax32": true
   },
   {
    "index": 1,
    "double": [
-    0.05825162870964145,
-    0.13754071172126908,
-    0.011016045800428299,
-    -0.010966303652942534,
-    -0.6338758485296527,
-    -0.002575781864615685,
-    -0.007240086054878757,
-    -0.21074654032869689,
-    1.844105647500665e-05,
-    0.0015028226643635856,
-    0.048626983553441416,
-    -0.009218560042958762
+    0.05825161903254393,
+    0.13754099125381442,
+    0.01101604420107096,
+    -0.01096580266506457,
+    -0.6338751562542668,
+    -0.002575979360437372,
+    -0.0072401919609822235,
+    -0.21074689509680292,
+    1.8441043765726014e-05,
+    0.0015028170653934878,
+    0.048626980155090614,
+    -0.009218561534160901
    ],
    "mlx": [
-    0.05826999992132187,
-    0.13755227625370026,
-    0.011018364690244198,
-    -0.010991931892931461,
-    -0.6341652274131775,
-    -0.002569638891145587,
-    -0.007239705417305231,
-    -0.21078698337078094,
-    1.845222504925914e-05,
-    0.0015054766554385424,
-    0.048628587275743484,
-    -0.009216761216521263
+    0.058268748223781586,
+    0.13755588233470917,
+    0.011018529534339905,
+    -0.010986600071191788,
+    -0.6341399550437927,
+    -0.002571964869275689,
+    -0.007240645587444305,
+    -0.21079018712043762,
+    1.8452230506227352e-05,
+    0.0015053646638989449,
+    0.048627663403749466,
+    -0.009217072278261185
    ],
    "jax32": [
-    0.05827085301280022,
-    0.13754957914352417,
-    0.011016881093382835,
-    -0.010994629934430122,
-    -0.6341800689697266,
-    -0.0025676602963358164,
-    -0.007238536141812801,
-    -0.2107837200164795,
-    1.8452185031492263e-05,
-    0.001505532767623663,
-    0.048629872500896454,
-    -0.00921664573252201
+    0.05827061086893082,
+    0.13756173849105835,
+    0.011020396836102009,
+    -0.010985882952809334,
+    -0.6341603994369507,
+    -0.0025724885053932667,
+    -0.007240522652864456,
+    -0.2107992023229599,
+    1.8453636585036293e-05,
+    0.0015057632699608803,
+    0.0486302487552166,
+    -0.00921772513538599
    ],
-   "ratio_mlx": 0.04150208797282012,
-   "ratio_jax32": 0.04363063162483293,
+   "ratio_mlx": 0.03797690600760975,
+   "ratio_jax32": 0.040908999461407386,
    "finite_mlx": true,
    "finite_jax32": true
   },
   {
    "index": 2,
    "double": [
-    0.03140652739881774,
-    0.02481615272165579,
-    0.5229397080518781,
-    -0.6694222499191118,
-    -2.232550691128207,
-    0.2764870542934357,
-    -0.2553005061998591,
-    -1.5410722011333347,
-    -5.1694641505300856e-05,
-    -0.3169556806297373,
-    2.008311473957389,
-    0.06800686642913775
+    0.03140653013636634,
+    0.02481613820376715,
+    0.5229386802657748,
+    -0.6694228228073245,
+    -2.232551081544353,
+    0.2764873301278587,
+    -0.25530080898817886,
+    -1.5410721881115035,
+    -5.169489368163283e-05,
+    -0.31695572956268303,
+    2.008311456872513,
+    0.06800686267762718
    ],
    "mlx": [
-    0.03141873702406883,
-    0.02482856810092926,
-    0.5233794450759888,
-    -0.6695252656936646,
-    -2.2338764667510986,
-    0.27671799063682556,
-    -0.2553403675556183,
-    -1.5417581796646118,
-    -5.054287612438202e-05,
-    -0.3167397379875183,
-    2.007770538330078,
-    0.06800330430269241
+    0.03142718970775604,
+    0.02483568713068962,
+    0.5235934257507324,
+    -0.6697301268577576,
+    -2.234365224838257,
+    0.2767639458179474,
+    -0.25540393590927124,
+    -1.542140245437622,
+    -5.069668623036705e-05,
+    -0.31689000129699707,
+    2.008460521697998,
+    0.0680236965417862
    ],
    "jax32": [
-    0.031358752399683,
-    0.024811673909425735,
-    0.5213353037834167,
-    -0.6667078733444214,
-    -2.2106223106384277,
-    0.2754429876804352,
-    -0.25373390316963196,
-    -1.5276970863342285,
-    -5.184736801311374e-05,
-    -0.3166821599006653,
-    2.005539655685425,
-    0.06783239543437958
+    0.03135886788368225,
+    0.02480742149055004,
+    0.5211532711982727,
+    -0.6668559908866882,
+    -2.210700035095215,
+    0.2754276990890503,
+    -0.2537670135498047,
+    -1.527712345123291,
+    -5.142904046806507e-05,
+    -0.31654709577560425,
+    2.005537271499634,
+    0.06783236563205719
    ],
-   "ratio_mlx": 0.05893059527722359,
-   "ratio_jax32": 0.8929199875981643,
+   "ratio_mlx": 0.08774469784099491,
+   "ratio_jax32": 0.8897708027936133,
    "finite_mlx": true,
    "finite_jax32": true
   },
   {
    "index": 3,
    "double": [
-    0.07251801884458017,
-    0.07024726219956648,
-    0.4662119971055505,
-    -1.5339215194861815,
-    -8.222535722949502,
-    0.24232124131319938,
-    -0.5295441105488795,
-    -4.467041473272307,
-    5.859447868333756e-05,
-    -0.17916344940031026,
-    3.8615352365072297,
-    0.21284351190365625
+    0.07251811313625567,
+    0.07024723436525643,
+    0.46621239029782624,
+    -1.533925883050887,
+    -8.22254413604799,
+    0.24232254316141189,
+    -0.5295433994023206,
+    -4.467043693242301,
+    5.859111149001146e-05,
+    -0.179164033932128,
+    3.8615372952528784,
+    0.21284364692209767
    ],
    "mlx": [
-    0.07256609201431274,
-    0.07028432935476303,
-    0.4664381146430969,
-    -1.5350719690322876,
-    -8.22805404663086,
-    0.24252459406852722,
-    -0.529761552810669,
-    -4.469771385192871,
-    5.744189184042625e-05,
-    -0.17957553267478943,
-    3.86365008354187,
-    0.21296803653240204
+    0.07256029546260834,
+    0.07029697299003601,
+    0.46650582551956177,
+    -1.5345858335494995,
+    -8.227571487426758,
+    0.2423856556415558,
+    -0.5299514532089233,
+    -4.469845771789551,
+    5.765430978499353e-05,
+    -0.1795160323381424,
+    3.8638293743133545,
+    0.21295508742332458
    ],
    "jax32": [
-    0.07254964113235474,
-    0.07033826410770416,
-    0.4664231836795807,
-    -1.5333456993103027,
-    -8.209342956542969,
-    0.2422952651977539,
-    -0.5292510390281677,
-    -4.460909843444824,
-    5.726965900976211e-05,
-    -0.17967140674591064,
-    3.864680051803589,
-    0.21290268003940582
+    0.07257725298404694,
+    0.07034041732549667,
+    0.46612685918807983,
+    -1.5344974994659424,
+    -8.212791442871094,
+    0.24236181378364563,
+    -0.5293273329734802,
+    -4.462429046630859,
+    5.839734512846917e-05,
+    -0.17946814000606537,
+    3.866069793701172,
+    0.21299520134925842
    ],
-   "ratio_mlx": 0.06101108053737681,
-   "ratio_jax32": 0.1458604062061397,
+   "ratio_mlx": 0.05558278994462473,
+   "ratio_jax32": 0.10782653835082344,
    "finite_mlx": true,
    "finite_jax32": true
   },
   {
    "index": 4,
    "double": [
-    0.16352829199989066,
-    0.36741934692835065,
-    -0.0020466291383952374,
-    -0.0009114942617967525,
-    -0.1005202748913559,
-    -9.658002821635712e-05,
-    0.0004948023254477045,
-    -0.04091848766401748,
-    1.8147917490275002e-05,
-    0.005106161771845969,
-    -0.0027236697956298643,
-    0.2616238868175692
+    0.1635282924792452,
+    0.3674193436236507,
+    -0.002046628961535233,
+    -0.0009114939649526115,
+    -0.10052027632862715,
+    -9.658009644109244e-05,
+    0.0004948023284084035,
+    -0.04091848720269213,
+    1.8147917343405733e-05,
+    0.0051061617514135856,
+    -0.0027236696085491657,
+    0.2616238665693204
    ],
    "mlx": [
-    0.1635955274105072,
-    0.3675057888031006,
-    -0.0020451738964766264,
-    -0.0009059174917638302,
-    -0.10054871439933777,
-    -9.755422797752544e-05,
-    0.0004948648856952786,
-    -0.0409151129424572,
-    1.8147526134271175e-05,
-    0.005106352735310793,
-    -0.002723818412050605,
-    0.26163896918296814
+    0.16360531747341156,
+    0.3675397038459778,
+    -0.002045345725491643,
+    -0.0009065502090379596,
+    -0.1005493775010109,
+    -9.744023554958403e-05,
+    0.0004948975401930511,
+    -0.04091824218630791,
+    1.8147673472412862e-05,
+    0.005106394644826651,
+    -0.002723958110436797,
+    0.2616540491580963
    ],
    "jax32": [
-    0.15708822011947632,
-    0.35645461082458496,
-    -0.002040790393948555,
-    -0.000929549103602767,
-    -0.09948187321424484,
-    -9.465015318710357e-05,
-    0.000484332675114274,
-    -0.04048833250999451,
-    1.814778079278767e-05,
-    0.005106089636683464,
-    -0.0027236798778176308,
-    0.25521576404571533
+    0.1570912003517151,
+    0.3564390540122986,
+    -0.0020404397509992123,
+    -0.0009280670201405883,
+    -0.0994880199432373,
+    -9.491616947343573e-05,
+    0.0004843341885134578,
+    -0.04048571735620499,
+    1.814784263842739e-05,
+    0.0051061054691672325,
+    -0.002723684534430504,
+    0.2552123963832855
    ],
-   "ratio_mlx": 0.033572344590041714,
-   "ratio_jax32": 3.2156911123366005,
+   "ratio_mlx": 0.038460531743086675,
+   "ratio_jax32": 3.2142032438107093,
    "finite_mlx": true,
    "finite_jax32": true
   },
   {
    "index": 5,
    "double": [
-    0.008206272740793222,
-    0.008013944078529825,
-    0.6197074216964444,
-    -0.7113854255297742,
-    -0.1867251887820373,
-    0.21743829422426397,
-    -0.1894179512019199,
-    -0.4370066554309835,
-    -2.3275778363432278e-05,
-    -0.0291192794784996,
-    0.5827374437452294,
-    0.014766863660715258
+    0.008206283673637871,
+    0.008013469816782672,
+    0.6197030184028901,
+    -0.7113839442593726,
+    -0.18673608404779302,
+    0.2174414105919038,
+    -0.1894208375462607,
+    -0.43699972239343005,
+    -2.3279071469743767e-05,
+    -0.029118751488868003,
+    0.5827363739809489,
+    0.014766788141357696
    ],
    "mlx": [
-    0.00821467861533165,
-    0.008024629205465317,
-    0.6202699542045593,
-    -0.7117761969566345,
-    -0.18542662262916565,
-    0.21762199699878693,
-    -0.18952171504497528,
-    -0.4374173879623413,
-    -2.1455280148074962e-05,
-    -0.028374817222356796,
-    0.5844387412071228,
-    0.014816280454397202
+    0.0082121342420578,
+    0.008022640831768513,
+    0.6201081275939941,
+    -0.7116522789001465,
+    -0.18547090888023376,
+    0.21755635738372803,
+    -0.1894768476486206,
+    -0.4373011291027069,
+    -2.1780413590022363e-05,
+    -0.02850266546010971,
+    0.5841556191444397,
+    0.01480807363986969
    ],
    "jax32": [
-    0.008200278505682945,
-    0.008012041449546814,
-    0.6190927028656006,
-    -0.7106354236602783,
-    -0.18570098280906677,
-    0.21719634532928467,
-    -0.18921780586242676,
-    -0.4363332986831665,
-    -2.2243022613110952e-05,
-    -0.028714299201965332,
-    0.5824748277664185,
-    0.014760954305529594
+    0.008200285956263542,
+    0.008015895262360573,
+    0.6192278265953064,
+    -0.7107725143432617,
+    -0.18517327308654785,
+    0.21722780168056488,
+    -0.18923386931419373,
+    -0.43637728691101074,
+    -2.2439839085564017e-05,
+    -0.028752095997333527,
+    0.5829082131385803,
+    0.014773311093449593
    ],
-   "ratio_mlx": 0.7425478043090451,
-   "ratio_jax32": 0.4039388332285126,
+   "ratio_mlx": 0.6145058520634721,
+   "ratio_jax32": 0.6060355295703946,
    "finite_mlx": true,
    "finite_jax32": true
   },
   {
    "index": 6,
    "double": [
-    0.013683566053971578,
-    0.003287998474725384,
-    0.4108205415719728,
-    -0.45060381338091904,
-    -0.6700314583406063,
-    0.059458542024495284,
-    -0.0863690715192332,
-    -0.397035040175695,
-    -5.1512943312306394e-06,
-    0.06951752760199975,
-    -0.7715711944975514,
-    0.18821295612041822
+    0.01368359317385701,
+    0.0032880446655407032,
+    0.410821139197867,
+    -0.45060378864278894,
+    -0.6700313789629607,
+    0.059458168929734684,
+    -0.08636865208322332,
+    -0.39703632382870435,
+    -5.151271494457636e-06,
+    0.06951748051862175,
+    -0.7715725178472077,
+    0.18821325163722552
    ],
    "mlx": [
-    0.01369006559252739,
-    0.0032903607934713364,
-    0.4110153615474701,
-    -0.45081770420074463,
-    -0.6703517436981201,
-    0.05949408560991287,
-    -0.08641330152750015,
-    -0.3972126245498657,
-    -5.372217856347561e-06,
-    0.06950180977582932,
-    -0.7719628810882568,
-    0.1883084923028946
+    0.013689220882952213,
+    0.0032903258688747883,
+    0.4109885096549988,
+    -0.4507702589035034,
+    -0.6703072190284729,
+    0.05948961153626442,
+    -0.08640521764755249,
+    -0.3971858024597168,
+    -5.396723281592131e-06,
+    0.06949137896299362,
+    -0.7719040513038635,
+    0.1882937252521515
    ],
    "jax32": [
-    0.013607261702418327,
-    0.0032606665045022964,
-    0.41062673926353455,
-    -0.4503971338272095,
-    -0.6625730991363525,
-    0.059365011751651764,
-    -0.08623985946178436,
-    -0.39450064301490784,
-    -5.126253199705388e-06,
-    0.06954047083854675,
-    -0.771868109703064,
-    0.1868734210729599
+    0.013606594875454903,
+    0.003260476514697075,
+    0.41060835123062134,
+    -0.4503808915615082,
+    -0.6625393629074097,
+    0.05935968831181526,
+    -0.08623640239238739,
+    -0.3944821357727051,
+    -5.1160504881409e-06,
+    0.06953726708889008,
+    -0.7718310952186584,
+    0.18686452507972717
    ],
-   "ratio_mlx": 0.046149820180236036,
-   "ratio_jax32": 0.9981896707134007,
+   "ratio_mlx": 0.03906231035110227,
+   "ratio_jax32": 1.0026940650922507,
    "finite_mlx": true,
    "finite_jax32": true
   },
   {
    "index": 7,
    "double": [
-    0.10201152081946042,
-    0.12744571113393746,
-    -0.43625093793434755,
-    0.10733445811086156,
-    -5.215687392776906,
-    -0.06722265435222205,
-    0.1809231791782071,
-    -2.865187683763957,
-    0.00010997330828975428,
-    -0.061330759400790434,
-    -1.1698350660786367,
-    2.7599062590542935
+    0.10201153385483464,
+    0.12744567469964646,
+    -0.4362507247765775,
+    0.1073348241426364,
+    -5.21568793859837,
+    -0.06722277537765656,
+    0.18092307782846123,
+    -2.865187407232586,
+    0.00010997356146331608,
+    -0.0613306768602359,
+    -1.1698350613619586,
+    2.7599062994106514
    ],
    "mlx": [
-    0.10201378911733627,
-    0.1274455189704895,
-    -0.43626123666763306,
-    0.10735747218132019,
-    -5.215865135192871,
-    -0.0672239363193512,
-    0.1809265911579132,
-    -2.86525821685791,
-    0.00011004224506905302,
-    -0.06131085753440857,
-    -1.1698038578033447,
-    2.759838819503784
+    0.10201554745435715,
+    0.1274476945400238,
+    -0.4362606704235077,
+    0.10735447704792023,
+    -5.215945243835449,
+    -0.06722912192344666,
+    0.18092866241931915,
+    -2.8652868270874023,
+    0.00011003256804542616,
+    -0.0613175705075264,
+    -1.1698358058929443,
+    2.7599120140075684
    ],
    "jax32": [
-    0.10210298001766205,
-    0.12755422294139862,
-    -0.4362524151802063,
-    0.10739798843860626,
-    -5.217541694641113,
-    -0.06726187467575073,
-    0.1809084564447403,
-    -2.866126298904419,
-    0.0001101820234907791,
-    -0.06126904487609863,
-    -1.169808030128479,
-    2.761723518371582
+    0.10211232304573059,
+    0.1275680661201477,
+    -0.4362987279891968,
+    0.10739716142416,
+    -5.217988967895508,
+    -0.06726279854774475,
+    0.18092960119247437,
+    -2.8664050102233887,
+    0.00011016434291377664,
+    -0.061282962560653687,
+    -1.1699333190917969,
+    2.762017250061035
    ],
-   "ratio_mlx": 0.003659397909597227,
-   "ratio_jax32": 0.055379343685757934,
+   "ratio_mlx": 0.004484813022639788,
+   "ratio_jax32": 0.06432932112490666,
    "finite_mlx": true,
    "finite_jax32": true
   },
   {
    "index": 8,
    "double": [
-    0.03320297221947405,
-    0.07014824929341007,
-    0.04219518494618314,
-    0.03885995815438152,
-    -1.0904558220854519,
-    -0.005273121262894505,
-    -0.006742691499208583,
-    -0.31592088485288405,
-    2.9884377769555404e-05,
-    0.023118933849485213,
-    -0.14396949370948448,
-    0.39462693335024174
+    0.033202987101983175,
+    0.07014825052636793,
+    0.04219518856199328,
+    0.03885995746564609,
+    -1.090456208911777,
+    -0.00527310801051159,
+    -0.00674267925583223,
+    -0.31592090748820234,
+    2.988457392284636e-05,
+    0.023118975878844948,
+    -0.14396935467349498,
+    0.394626545237839
    ],
    "mlx": [
-    0.03320655971765518,
-    0.07015581429004669,
-    0.042199425399303436,
-    0.03886443004012108,
-    -1.0905722379684448,
-    -0.005274082999676466,
-    -0.006743649486452341,
-    -0.3159543573856354,
-    2.989065797009971e-05,
-    0.023122284561395645,
-    -0.1439894288778305,
-    0.3946821689605713
+    0.03320632874965668,
+    0.07015516608953476,
+    0.042198292911052704,
+    0.03886396065354347,
+    -1.0905640125274658,
+    -0.005273834802210331,
+    -0.006743770558387041,
+    -0.31595027446746826,
+    2.9890506993979216e-05,
+    0.023122578859329224,
+    -0.14398817718029022,
+    0.39467841386795044
    ],
    "jax32": [
-    0.03317718580365181,
-    0.07010076940059662,
-    0.04219565540552139,
-    0.03886529803276062,
-    -1.0902647972106934,
-    -0.005277336575090885,
-    -0.006745249032974243,
-    -0.3158520460128784,
-    2.9891696613049135e-05,
-    0.02312319353222847,
-    -0.14399346709251404,
-    0.39444759488105774
+    0.03317827731370926,
+    0.07010293006896973,
+    0.04219895228743553,
+    0.03886798024177551,
+    -1.0903027057647705,
+    -0.00527773704379797,
+    -0.0067456490360200405,
+    -0.31586259603500366,
+    2.9894672479713336e-05,
+    0.023123634979128838,
+    -0.14399725198745728,
+    0.39445793628692627
    ],
-   "ratio_mlx": 0.010966572251470127,
-   "ratio_jax32": 0.035606165443638656,
+   "ratio_mlx": 0.010298093402709829,
+   "ratio_jax32": 0.033475931816641706,
    "finite_mlx": true,
    "finite_jax32": true
   },
   {
    "index": 9,
    "double": [
-    0.2012456873539486,
-    0.4028288174203127,
-    0.006439692266483363,
-    -0.0017464647469851264,
-    -0.6274758437511272,
-    -0.004202662577000422,
-    0.0011504449332247293,
-    -0.26023513216409266,
-    4.750131283309699e-05,
-    0.012210968385467823,
-    -0.015587261266454128,
-    0.1552300181981254
+    0.20124565018278395,
+    0.40282866269889495,
+    0.006438345274374415,
+    -0.0017463398405723103,
+    -0.6274757685076748,
+    -0.00420298281090505,
+    0.0011505899062747424,
+    -0.26023508918717764,
+    4.7501318776132395e-05,
+    0.012210971830407886,
+    -0.015587272668231688,
+    0.15523014151926365
    ],
    "mlx": [
-    0.2012438178062439,
-    0.4028471112251282,
-    0.0064437189139425755,
-    -0.0017475548665970564,
-    -0.6274509429931641,
-    -0.00420380150899291,
-    0.0011505897855386138,
-    -0.26024243235588074,
-    4.750322477775626e-05,
-    0.012211397290229797,
-    -0.015589245595037937,
-    0.15524816513061523
+    0.2012457549571991,
+    0.4028381407260895,
+    0.006439209915697575,
+    -0.001748017966747284,
+    -0.6274652481079102,
+    -0.004203477408736944,
+    0.0011502595152705908,
+    -0.2602379024028778,
+    4.75032975373324e-05,
+    0.012211422435939312,
+    -0.015588920563459396,
+    0.1552460938692093
    ],
    "jax32": [
-    0.20124952495098114,
-    0.40283817052841187,
-    0.00643808301538229,
-    -0.001747234258800745,
-    -0.6274737119674683,
-    -0.004202274605631828,
-    0.0011501060798764229,
-    -0.26023581624031067,
-    4.750280641019344e-05,
-    0.012211546301841736,
-    -0.015588570386171341,
-    0.1552487015724182
+    0.2012472301721573,
+    0.4028494954109192,
+    0.006440038792788982,
+    -0.001741910120472312,
+    -0.6274545192718506,
+    -0.004202884156256914,
+    0.00115184485912323,
+    -0.26024121046066284,
+    4.750323932967149e-05,
+    0.012211844325065613,
+    -0.015588488429784775,
+    0.15524587035179138
    ],
-   "ratio_mlx": 0.008325136287217785,
-   "ratio_jax32": 0.008571235793151326,
+   "ratio_mlx": 0.007318339720650441,
+   "ratio_jax32": 0.0072157983143181295,
    "finite_mlx": true,
    "finite_jax32": true
   },
   {
    "index": 10,
    "double": [
-    -0.10567531936170026,
-    -0.16599968097627382,
-    -0.0009450968932933027,
-    -0.0002563236850008944,
-    -0.0006853990881475294,
-    0.00021247722020821162,
-    -0.0007045691751713528,
-    0.0024104525300648674,
-    2.4536215754381744e-05,
-    0.004735568015824448,
-    0.0027744476813206208,
-    -0.888264814088408
+    -0.10567540552750607,
+    -0.16599981104660655,
+    -0.000945097254713978,
+    -0.00025632334743643377,
+    -0.0006853933168759298,
+    0.0002124772017610414,
+    -0.0007045690301787874,
+    0.0024104562423730436,
+    2.453621575212691e-05,
+    0.0047355681685234356,
+    0.0027744472837219485,
+    -0.8882646533675308
    ],
    "mlx": [
-    -0.10540521144866943,
-    -0.1655968725681305,
-    -0.0009503952460363507,
-    -0.0002513041254132986,
-    -0.000629425048828125,
-    0.0002119497221428901,
-    -0.0007036172901280224,
-    0.0024467557668685913,
-    2.454345485602971e-05,
-    0.004737487994134426,
-    0.002769754035398364,
-    -0.8862894177436829
+    -0.10541024804115295,
+    -0.16560456156730652,
+    -0.0009503384353592992,
+    -0.0002513495273888111,
+    -0.0006296224892139435,
+    0.00021199585171416402,
+    -0.0007036728784441948,
+    0.0024468805640935898,
+    2.4543465769966133e-05,
+    0.004737458191812038,
+    0.002769655780866742,
+    -0.8862553834915161
    ],
    "jax32": [
-    0.009951178915798664,
-    -0.016945961862802505,
-    -0.000782000133767724,
-    -0.000465448887553066,
-    -0.006790264509618282,
-    0.0002881349064409733,
-    -0.00082349096192047,
-    -0.0015676494222134352,
-    2.4540844606235623e-05,
-    0.00473697017878294,
-    0.0027693863958120346,
-    -0.7578877806663513
+    0.010791771113872528,
+    -0.014764356426894665,
+    -0.0007798305014148355,
+    -0.00046737585216760635,
+    -0.006807255558669567,
+    0.0002877105725929141,
+    -0.0008243877673521638,
+    -0.0015942581230774522,
+    2.4540866434108466e-05,
+    0.004736960865557194,
+    0.002769194543361664,
+    -0.757825493812561
    ],
-   "ratio_mlx": 0.20217111275357402,
-   "ratio_jax32": 59.447520701315554,
+   "ratio_mlx": 0.20563792235458744,
+   "ratio_jax32": 59.87972050030297,
    "finite_mlx": true,
    "finite_jax32": true
   },
   {
    "index": 11,
    "double": [
-    0.17360566390394266,
-    0.20208248039570087,
-    0.0002001360445942368,
-    -0.008779186175983358,
-    -0.4755313662814397,
-    0.00576105349233076,
-    0.006009153292947668,
-    -0.4367613291324167,
-    0.0001813007313281623,
-    0.0584955530900156,
-    0.03126339693872639,
-    -0.12481044230394742
+    0.18371674973434995,
+    0.22146343776051508,
+    0.009798793511618695,
+    0.0013936325787732994,
+    -0.4678348876844257,
+    0.010836533590736445,
+    -0.0017384743158366156,
+    -0.4105350347375867,
+    0.00018141070165989285,
+    0.05787243845088015,
+    0.03140835816329558,
+    -0.12499142806654409
    ],
    "mlx": [
-    0.17490710318088531,
-    0.20098204910755157,
-    -0.0027871141210198402,
-    -0.01200809795409441,
-    -0.4810594320297241,
-    0.0037799994461238384,
-    0.00861021876335144,
-    -0.44810888171195984,
-    0.00018130557145923376,
-    0.058496106415987015,
-    0.031268347054719925,
-    -0.12490038573741913
+    0.18371327221393585,
+    0.22146829962730408,
+    0.009806782938539982,
+    0.0014017344219610095,
+    -0.4678172469139099,
+    0.010888959281146526,
+    -0.0017484120326116681,
+    -0.4104798436164856,
+    0.0001814115239540115,
+    0.057873986661434174,
+    0.03140698000788689,
+    -0.12498502433300018
    ],
    "jax32": [
-    0.17213904857635498,
-    0.20329686999320984,
-    0.00355257885530591,
-    -0.005153617821633816,
-    -0.46934711933135986,
-    0.007553165778517723,
-    0.0031024757772684097,
-    -0.42425695061683655,
-    0.00018130100215785205,
-    0.0584959015250206,
-    0.03124994784593582,
-    -0.12467434257268906
+    0.18371449410915375,
+    0.22144615650177002,
+    0.009783875197172165,
+    0.001377451466396451,
+    -0.46784597635269165,
+    0.010800197720527649,
+    -0.0017251636600121856,
+    -0.41058844327926636,
+    0.00018141108739655465,
+    0.05787185579538345,
+    0.031405605375766754,
+    -0.12497890740633011
    ],
-   "ratio_mlx": 6.255592545638162,
-   "ratio_jax32": 7.020341482533707,
+   "ratio_mlx": 0.09098519622793938,
+   "ratio_jax32": 0.06306118727669573,
    "finite_mlx": true,
    "finite_jax32": true
   },
   {
    "index": 12,
    "double": [
-    0.5667388690629813,
-    0.6914410541093092,
-    0.05828239119288991,
-    0.00810914413385536,
-    -3.9418514227658967,
-    0.013236136742040999,
-    0.01919425803375576,
-    -3.2070995647084297,
-    0.0002248479921968379,
-    0.03926118375530614,
-    0.36834949798395444,
-    -0.07061069313728352
+    0.5667389061974422,
+    0.6914409433892188,
+    0.058283292053464164,
+    0.008109520845077002,
+    -3.941851319650615,
+    0.013235274159833454,
+    0.019193874476201585,
+    -3.2070995524827444,
+    0.0002248480191331997,
+    0.03926119261940307,
+    0.3683495051016168,
+    -0.07061069451178247
    ],
    "mlx": [
-    0.5667786002159119,
-    0.6914137601852417,
-    0.05874734744429588,
-    0.008321823552250862,
-    -3.9418277740478516,
-    0.01274582464247942,
-    0.01898293010890484,
-    -3.2071259021759033,
-    0.00022484830697067082,
-    0.03926059603691101,
-    0.36835891008377075,
-    -0.07062575966119766
+    0.5667800307273865,
+    0.6914112567901611,
+    0.058773741126060486,
+    0.00833546370267868,
+    -3.9418203830718994,
+    0.012715015560388565,
+    0.018970733508467674,
+    -3.207122325897217,
+    0.00022484874352812767,
+    0.03926093131303787,
+    0.3683587908744812,
+    -0.07062555849552155
    ],
    "jax32": [
-    0.5667866468429565,
-    0.6914139986038208,
-    0.058812215924263,
-    0.008352985605597496,
-    -3.941847801208496,
-    0.01267475076019764,
-    0.018953915685415268,
-    -3.2071495056152344,
-    0.0002248486562166363,
-    0.039260972291231155,
-    0.36835843324661255,
-    -0.07062037289142609
+    0.5667797327041626,
+    0.6914182901382446,
+    0.05873323976993561,
+    0.008315022103488445,
+    -3.941844940185547,
+    0.012759966775774956,
+    0.018988635390996933,
+    -3.207145929336548,
+    0.00022484944202005863,
+    0.03926117718219757,
+    0.3683587312698364,
+    -0.07061955332756042
    ],
-   "ratio_mlx": 0.12034523595395173,
-   "ratio_jax32": 0.13779004945337875,
+   "ratio_mlx": 0.1276957637918124,
+   "ratio_jax32": 0.11666263567387251,
    "finite_mlx": true,
    "finite_jax32": true
   },
   {
    "index": 13,
    "double": [
-    0.007228552421974481,
-    0.016004447197788145,
-    -0.3694242172187344,
-    -0.1376844723052153,
-    -1.108545612965417,
-    -0.05849670174635514,
-    0.043127679339371075,
-    -0.3292785115226642,
-    5.059796298830884e-06,
-    -0.0760154162911488,
-    -0.2761091461858935,
-    0.17794804514727136
+    0.0072285977784463055,
+    0.016004522707904256,
+    -0.36942506222643956,
+    -0.13768537289415242,
+    -1.108550507981775,
+    -0.058496964285900385,
+    0.04312766179139648,
+    -0.32927965283620925,
+    5.0588461386497895e-06,
+    -0.07601514397589935,
+    -0.27611096820538183,
+    0.17794916112596848
    ],
    "mlx": [
-    0.007224017754197121,
-    0.01599443331360817,
-    -0.36920392513275146,
-    -0.1375809758901596,
-    -1.1078436374664307,
-    -0.05846262723207474,
-    0.043101586401462555,
-    -0.32907867431640625,
-    4.9619625315244775e-06,
-    -0.07599771022796631,
-    -0.2758980393409729,
-    0.1778198480606079
+    0.0072258529253304005,
+    0.01599818654358387,
+    -0.3693186342716217,
+    -0.1376275271177292,
+    -1.1081295013427734,
+    -0.05847787857055664,
+    0.043115872889757156,
+    -0.3291695713996887,
+    5.014641374145867e-06,
+    -0.07599296420812607,
+    -0.27593642473220825,
+    0.17784446477890015
    ],
    "jax32": [
-    0.00717720203101635,
-    0.015902604907751083,
-    -0.3692435622215271,
-    -0.13762113451957703,
-    -1.1054757833480835,
-    -0.058450087904930115,
-    0.043139535933732986,
-    -0.3283771276473999,
-    5.043865712650586e-06,
-    -0.07599115371704102,
-    -0.2759666442871094,
-    0.17689836025238037
+    0.007178883999586105,
+    0.01590665616095066,
+    -0.36929911375045776,
+    -0.1376611590385437,
+    -1.1057569980621338,
+    -0.05846383422613144,
+    0.04314182698726654,
+    -0.3284519910812378,
+    5.068835889687762e-06,
+    -0.0760015919804573,
+    -0.27609482407569885,
+    0.17697210609912872
    ],
-   "ratio_mlx": 0.05756727888046993,
-   "ratio_jax32": 0.3634610185193074,
+   "ratio_mlx": 0.0451056332085783,
+   "ratio_jax32": 0.3383105185101591,
    "finite_mlx": true,
    "finite_jax32": true
   },
   {
    "index": 14,
    "double": [
-    0.3483468312173237,
-    0.4093563027093996,
-    8.314996906749098,
-    29.367995189718755,
-    -31.339283620894307,
-    0.06267335350063864,
-    2.331317706415125,
-    -10.582180269839718,
-    0.0010270212527156387,
-    -0.12238572852068429,
-    11.325782653844595,
-    1.5559782749266309
+    0.34834639773472675,
+    0.4093561535866447,
+    8.315072178059166,
+    29.36815182210521,
+    -31.33931339260411,
+    0.0626758662694943,
+    2.331265741137154,
+    -10.582184207018734,
+    0.0010270393229415515,
+    -0.12238712737106823,
+    11.325755295516974,
+    1.5559740943633287
    ],
    "mlx": [
-    0.3503827750682831,
-    0.41168689727783203,
-    8.368073463439941,
-    29.555871963500977,
-    -31.57990837097168,
-    0.06320697069168091,
-    2.345987319946289,
-    -10.64720344543457,
-    0.0010450778063386679,
-    -0.11989456415176392,
-    11.397821426391602,
-    1.5654947757720947
+    0.3503410518169403,
+    0.4116421937942505,
+    8.36701488494873,
+    29.552309036254883,
+    -31.577573776245117,
+    0.06320532411336899,
+    2.3457071781158447,
+    -10.64608383178711,
+    0.001044881995767355,
+    -0.11984038352966309,
+    11.396242141723633,
+    1.5652778148651123
    ],
    "jax32": [
-    0.35033196210861206,
-    0.411155104637146,
-    8.370702743530273,
-    29.571311950683594,
-    -31.671119689941406,
-    0.06361601501703262,
-    2.3408007621765137,
-    -10.660690307617188,
-    0.0010403604246675968,
-    -0.12112845480442047,
-    11.39051628112793,
-    1.5653657913208008
+    0.3503110408782959,
+    0.41105109453201294,
+    8.362024307250977,
+    29.539230346679688,
+    -31.664173126220703,
+    0.0635630339384079,
+    2.347517967224121,
+    -10.659038543701172,
+    0.001040748436935246,
+    -0.12085862457752228,
+    11.388790130615234,
+    1.5649648904800415
    ],
-   "ratio_mlx": 0.6980050196545288,
-   "ratio_jax32": 0.9625910959817049,
+   "ratio_mlx": 0.6911458016041503,
+   "ratio_jax32": 0.9423532253588973,
    "finite_mlx": true,
    "finite_jax32": true
   },
   {
    "index": 15,
    "double": [
-    0.005110825866712179,
-    0.0025269679187444687,
-    -0.044255283171679774,
-    0.01540243891843476,
-    -0.17502698891943913,
-    -0.0069200419966564735,
-    0.001126659212737218,
-    -0.08221990219293523,
-    3.2299352674646034e-06,
-    0.022078074164992724,
-    0.11506965665594587,
-    -0.00041586273197968457
+    0.0051108542670985895,
+    0.0025269012665260345,
+    -0.04425101132015266,
+    0.015400252762745339,
+    -0.17502689473531918,
+    -0.0069182946764966375,
+    0.0011289550242117388,
+    -0.08221990765290285,
+    3.2299217996341204e-06,
+    0.022078071054368827,
+    0.11506965567280182,
+    -0.00041586272760361535
    ],
    "mlx": [
-    0.00511214230209589,
-    0.0025301463901996613,
-    -0.04447221755981445,
-    0.015493777580559254,
-    -0.17513762414455414,
-    -0.006999671924859285,
-    0.0010298769921064377,
-    -0.082267627120018,
-    3.33650314132683e-06,
-    0.022099554538726807,
-    0.1151084452867508,
-    -0.00041597356903366745
+    0.005110582336783409,
+    0.002530848840251565,
+    -0.044526051729917526,
+    0.015522955916821957,
+    -0.1750943660736084,
+    -0.007024288177490234,
+    0.0009958032751455903,
+    -0.08225370943546295,
+    3.325364787087892e-06,
+    0.022094834595918655,
+    0.11507762968540192,
+    -0.00041581582627259195
    ],
    "jax32": [
-    0.0051016961224377155,
-    0.0025358437560498714,
-    -0.04454182833433151,
-    0.015524342656135559,
-    -0.17439284920692444,
-    -0.007046218495815992,
-    0.0009340870892629027,
-    -0.08199112117290497,
-    3.262361360611976e-06,
-    0.02206752821803093,
-    0.11494137346744537,
-    -0.0004169924068264663
+    0.005105247721076012,
+    0.0025294446386396885,
+    -0.04411252588033676,
+    0.015307009220123291,
+    -0.17439985275268555,
+    -0.0068704355508089066,
+    0.0011649725493043661,
+    -0.08200187236070633,
+    3.2461039154441096e-06,
+    0.022062085568904877,
+    0.11495625972747803,
+    -0.000417165516410023
    ],
-   "ratio_mlx": 0.5195145215790399,
-   "ratio_jax32": 1.0337024088120688,
+   "ratio_mlx": 0.7146537659747294,
+   "ratio_jax32": 0.3256860420751945,
    "finite_mlx": true,
    "finite_jax32": true
   },
   {
    "index": 16,
    "double": [
-    0.01909994326062145,
-    0.007717050839610546,
-    0.5529067657328629,
-    -0.05958414886300141,
-    -1.457186467011268,
-    0.10960512862321595,
-    0.007564448173935421,
-    -0.8671500039304418,
-    9.81995394955423e-06,
-    0.06459367756093712,
-    0.8146568547198604,
-    0.026140222903125933
+    0.019099949497509164,
+    0.007717042174119075,
+    0.5529054061313601,
+    -0.05958400042415873,
+    -1.4571866093351522,
+    0.10960575563563409,
+    0.0075651597803163655,
+    -0.8671500897907047,
+    9.819972297750283e-06,
+    0.06459368815354102,
+    0.8146569165813727,
+    0.02614022491975574
    ],
    "mlx": [
-    0.01909608021378517,
-    0.007722184993326664,
-    0.5536428689956665,
-    -0.05969490110874176,
-    -1.4571152925491333,
-    0.10924290120601654,
-    0.007170389406383038,
-    -0.867047905921936,
-    9.617510841053445e-06,
-    0.06453641504049301,
-    0.814538300037384,
-    0.02613670378923416
+    0.019096873700618744,
+    0.00772064970806241,
+    0.5534303188323975,
+    -0.05966555327177048,
+    -1.4571176767349243,
+    0.10934025794267654,
+    0.007275356445461512,
+    -0.8670876622200012,
+    9.69801658357028e-06,
+    0.06456392258405685,
+    0.8146121501922607,
+    0.026139026507735252
    ],
    "jax32": [
-    0.019117742776870728,
-    0.007671170402318239,
-    0.5529556274414062,
-    -0.0593632310628891,
-    -1.4628046751022339,
-    0.10999017208814621,
-    0.007840357720851898,
-    -0.8691215515136719,
-    9.965829121938441e-06,
-    0.06467343866825104,
-    0.8145052790641785,
-    0.026136789470911026
+    0.019113916903734207,
+    0.007680876646190882,
+    0.5544432401657104,
+    -0.059554025530815125,
+    -1.4628896713256836,
+    0.10935450345277786,
+    0.007123241201043129,
+    -0.869139552116394,
+    9.960254828911275e-06,
+    0.06467309594154358,
+    0.8145332336425781,
+    0.02613872103393078
    ],
-   "ratio_mlx": 0.2570790783377466,
-   "ratio_jax32": 0.35050160130526453,
+   "ratio_mlx": 0.18906322500656678,
+   "ratio_jax32": 0.35579532342391523,
    "finite_mlx": true,
    "finite_jax32": true
   },
   {
    "index": 17,
    "double": [
-    0.12152772194492543,
-    0.541851052090943,
-    0.08090527985892701,
-    -0.6096223190414528,
-    -3.724392744303745,
-    -0.00437168384904146,
-    -0.011968162905729988,
-    -0.3198874700333132,
-    0.0001249091993674456,
-    0.1050819022157986,
-    -0.17383972935274233,
-    2.7263251515545557
+    0.12152772162160586,
+    0.541851059694272,
+    0.08090528204330161,
+    -0.609622320086457,
+    -3.7243927153138934,
+    -0.0043716838682018744,
+    -0.011968163093239064,
+    -0.3198874704098539,
+    0.00012490919924058652,
+    0.1050819018531706,
+    -0.1738397304572584,
+    2.7263251689039745
    ],
    "mlx": [
     0.12149546295404434,
-    0.5416789650917053,
-    0.08087688684463501,
-    -0.6094435453414917,
-    -3.723529100418091,
-    -0.004370063543319702,
-    -0.011964377947151661,
-    -0.31981173157691956,
-    0.0001248290209332481,
-    0.10504830628633499,
-    -0.1737419217824936,
-    2.7249343395233154
+    0.5416803956031799,
+    0.08087712526321411,
+    -0.6094426512718201,
+    -3.7235255241394043,
+    -0.004370060283690691,
+    -0.011964404955506325,
+    -0.3198113739490509,
+    0.00012482923921197653,
+    0.10504816472530365,
+    -0.1737418919801712,
+    2.7249341011047363
    ],
    "jax32": [
-    0.12241201847791672,
-    0.5455200672149658,
-    0.08089709281921387,
-    -0.6096639037132263,
-    -3.7358415126800537,
-    -0.00437321700155735,
-    -0.011953072622418404,
-    -0.32093220949172974,
-    0.00012498705473262817,
-    0.10511136054992676,
-    -0.17391857504844666,
-    2.73976469039917
+    0.12241196632385254,
+    0.5455189943313599,
+    0.0808963030576706,
+    -0.609663724899292,
+    -3.7358455657958984,
+    -0.004373232834041119,
+    -0.011953080072999,
+    -0.32093173265457153,
+    0.0001249867636943236,
+    0.10511136800050735,
+    -0.17391842603683472,
+    2.739762306213379
    ],
-   "ratio_mlx": 0.044882793270036574,
-   "ratio_jax32": 0.4337063744476974,
+   "ratio_mlx": 0.04489104693103759,
+   "ratio_jax32": 0.4336288726585675,
    "finite_mlx": true,
    "finite_jax32": true
   },
   {
    "index": 18,
    "double": [
-    0.00781278449992863,
-    0.0036136986158567426,
-    -0.12157176300527726,
-    -0.30785609308480366,
-    -1.1256751659949829,
-    -0.008055612968914331,
-    -0.017061918205737096,
-    -0.15465541642219593,
-    1.950789477566847e-06,
-    0.0019559129511707704,
-    -0.7189428592459863,
-    0.10678844727983693
+    0.007812784001649396,
+    0.003613693608748408,
+    -0.12157174955297674,
+    -0.3078560749664983,
+    -1.1256751647820784,
+    -0.00805560921464658,
+    -0.017061933835695473,
+    -0.1546554038845211,
+    1.951003524100387e-06,
+    0.0019559763515101247,
+    -0.7189430856536796,
+    0.10678847915617613
    ],
    "mlx": [
-    0.007814058102667332,
-    0.0036154109984636307,
-    -0.12164673209190369,
-    -0.30792540311813354,
-    -1.1258845329284668,
-    -0.008060897700488567,
-    -0.017066646367311478,
-    -0.15469247102737427,
-    1.7874954210128635e-06,
-    0.0019219852983951569,
-    -0.7189849615097046,
-    0.10679785162210464
+    0.007814486511051655,
+    0.0036154333502054214,
+    -0.12164559960365295,
+    -0.3079608082771301,
+    -1.1259558200836182,
+    -0.008060675114393234,
+    -0.017068199813365936,
+    -0.1546974629163742,
+    1.8216815078631043e-06,
+    0.0019344184547662735,
+    -0.7190560698509216,
+    0.10680784285068512
    ],
    "jax32": [
-    0.007812517695128918,
-    0.0036149322986602783,
-    -0.12159901857376099,
-    -0.3079116940498352,
-    -1.12552809715271,
-    -0.008057406172156334,
-    -0.017064673826098442,
-    -0.15463629364967346,
-    1.774109705365845e-06,
-    0.001960892230272293,
-    -0.7191276550292969,
-    0.10679195821285248
+    0.007812469266355038,
+    0.00361488270573318,
+    -0.12159920483827591,
+    -0.3079097270965576,
+    -1.1255156993865967,
+    -0.008057355880737305,
+    -0.017064621672034264,
+    -0.15463589131832123,
+    1.7748849359122687e-06,
+    0.0019603311084210873,
+    -0.7191246747970581,
+    0.1067914366722107
    ],
-   "ratio_mlx": 0.03201901310748431,
-   "ratio_jax32": 0.02222411032726338,
+   "ratio_mlx": 0.03154107891769746,
+   "ratio_jax32": 0.021838463985058256,
    "finite_mlx": true,
    "finite_jax32": true
   },
   {
    "index": 19,
    "double": [
-    0.0024922051278007578,
-    0.0032743412272726626,
-    0.0053457265446536575,
-    0.015244711627068658,
-    -0.05250514238485282,
-    -1.0270004354910145e-05,
-    0.001289091689801708,
-    -0.013353525455150924,
-    2.155673602310679e-06,
-    0.0013261979505497865,
-    0.0035897605452424276,
-    -0.0002083180102545538
+    0.0024922055858096702,
+    0.0032743502945479005,
+    0.005345725227576233,
+    0.015244703727552933,
+    -0.052505130533621894,
+    -1.0273147844968786e-05,
+    0.001289089514681885,
+    -0.013353531563078452,
+    2.155672232940311e-06,
+    0.0013261987781792292,
+    0.0035897618629047966,
+    -0.00020831797377358487
    ],
    "mlx": [
-    0.002492727944627404,
-    0.0032755257561802864,
-    0.005347389727830887,
-    0.015252004377543926,
-    -0.052514124661684036,
-    -1.0186840881942771e-05,
-    0.0012895824620500207,
-    -0.013355489820241928,
-    2.1546320567722432e-06,
-    0.00132329436019063,
-    0.0035876755136996508,
-    -0.000208353711059317
+    0.002492732834070921,
+    0.003275558352470398,
+    0.005347528960555792,
+    0.015252129174768925,
+    -0.05251408740878105,
+    -1.0183062840951607e-05,
+    0.001289595733396709,
+    -0.013355450704693794,
+    2.15438672057644e-06,
+    0.0013231418561190367,
+    0.0035880550276488066,
+    -0.0002083626895910129
    ],
    "jax32": [
-    0.0024924525059759617,
-    0.003275084774941206,
-    0.005347555037587881,
-    0.015245812013745308,
-    -0.0525030791759491,
-    -1.0429008398205042e-05,
-    0.001289154402911663,
-    -0.013353383168578148,
-    2.158727738788002e-06,
-    0.0013261028798297048,
-    0.003590938402339816,
-    -0.0002084169682348147
+    0.002492450410500169,
+    0.00327518442645669,
+    0.005347753409296274,
+    0.015245966613292694,
+    -0.052502140402793884,
+    -1.0531104635447264e-05,
+    0.001289136242121458,
+    -0.013353424146771431,
+    2.158810730179539e-06,
+    0.001326169352978468,
+    0.0035907786805182695,
+    -0.00020843150559812784
    ],
-   "ratio_mlx": 0.04414957315598453,
-   "ratio_jax32": 0.017256053081892025,
+   "ratio_mlx": 0.0464810096366353,
+   "ratio_jax32": 0.019140582405453205,
    "finite_mlx": true,
    "finite_jax32": true
   },
   {
    "index": 20,
    "double": [
-    0.010499833648167775,
-    0.017997736248735616,
-    0.061900120683297165,
-    0.204208439839011,
-    -1.4579187687171156,
-    0.011073369435531194,
-    0.011411124257204872,
-    -0.22715151490469737,
-    6.854381238391548e-06,
-    0.03241813077190711,
-    0.1780392176078165,
-    -0.020651005017702895
+    0.0104998111945134,
+    0.017997672843113176,
+    0.06189994464691133,
+    0.2042080274342424,
+    -1.457916027514623,
+    0.011073369943792617,
+    0.011411121140329827,
+    -0.22715110401319194,
+    6.8547084652988445e-06,
+    0.03241834192613542,
+    0.17803892453251888,
+    -0.020650971100000762
    ],
    "mlx": [
-    0.010499726980924606,
-    0.017997410148382187,
-    0.06187567859888077,
-    0.2041812539100647,
-    -1.4579052925109863,
-    0.011069984175264835,
-    0.011409959755837917,
-    -0.22714537382125854,
-    6.90978231432382e-06,
-    0.032431572675704956,
-    0.17805251479148865,
-    -0.02065258100628853
+    0.010498984716832638,
+    0.017994603142142296,
+    0.06187176704406738,
+    0.2041599601507187,
+    -1.4577901363372803,
+    0.011067881248891354,
+    0.011408145539462566,
+    -0.227131649851799,
+    7.013240065134596e-06,
+    0.03246917203068733,
+    0.17801165580749512,
+    -0.020647814497351646
    ],
    "jax32": [
-    0.010516880080103874,
-    0.018021225929260254,
-    0.061924684792757034,
-    0.204137921333313,
-    -1.4594089984893799,
-    0.011077305302023888,
-    0.011417664587497711,
-    -0.22742204368114471,
-    6.836667125753593e-06,
-    0.032402392476797104,
-    0.17806512117385864,
-    -0.020507890731096268
+    0.010515808127820492,
+    0.018018081784248352,
+    0.06192904710769653,
+    0.2041216343641281,
+    -1.4592424631118774,
+    0.011076622642576694,
+    0.011417023837566376,
+    -0.22739864885807037,
+    6.904504516569432e-06,
+    0.0324249342083931,
+    0.17799259722232819,
+    -0.020499445497989655
    ],
-   "ratio_mlx": 0.011768428588551342,
-   "ratio_jax32": 0.09292385608110476,
+   "ratio_mlx": 0.02852259712210113,
+   "ratio_jax32": 0.09103776666319274,
    "finite_mlx": true,
    "finite_jax32": true
   },
   {
    "index": 21,
    "double": [
-    0.0034828363745146975,
-    0.0017520941965089379,
-    -0.04977403714789789,
-    0.03390803389057678,
-    -0.10218956501423926,
-    -0.004837245210430448,
-    0.0015811841516325774,
-    -0.08215474675781634,
-    8.588456895186025e-06,
-    -0.005070420842031034,
-    0.1315793764648466,
-    0.00447532100338208
+    0.003482839299185863,
+    0.0017520869604224919,
+    -0.049774072354963145,
+    0.033908071229423936,
+    -0.10218980746928487,
+    -0.004837252386759409,
+    0.001581205532319371,
+    -0.08215478634283599,
+    8.588440920180161e-06,
+    -0.005070418551800805,
+    0.1315794300273607,
+    0.004475322851256854
    ],
    "mlx": [
-    0.0034838165156543255,
-    0.0017526207957416773,
-    -0.04980087652802467,
-    0.0339207723736763,
-    -0.10218951851129532,
-    -0.004839545581489801,
-    0.0015812702476978302,
-    -0.0821879580616951,
-    8.547907782485709e-06,
-    -0.005079454742372036,
-    0.13161566853523254,
-    0.00447671627625823
+    0.0034831746015697718,
+    0.001752378768287599,
+    -0.0497908890247345,
+    0.0339118093252182,
+    -0.10216759890317917,
+    -0.004838522989302874,
+    0.001580814365297556,
+    -0.08217360824346542,
+    8.5604206105927e-06,
+    -0.005077410954982042,
+    0.1315937489271164,
+    0.004475966561585665
    ],
    "jax32": [
-    0.0034831701777875423,
-    0.001755687058903277,
-    -0.04982123151421547,
-    0.033916715532541275,
-    -0.10194547474384308,
-    -0.004838975146412849,
-    0.0015781569527462125,
-    -0.0821399837732315,
-    8.600041837780736e-06,
-    -0.005067928694188595,
-    0.13161683082580566,
-    0.004476882982999086
+    0.0034831324592232704,
+    0.0017558590043336153,
+    -0.04982013627886772,
+    0.03391572833061218,
+    -0.10194076597690582,
+    -0.004838887136429548,
+    0.001577970338985324,
+    -0.08214078843593597,
+    8.609283213445451e-06,
+    -0.005067868158221245,
+    0.13161823153495789,
+    0.004476920701563358
    ],
-   "ratio_mlx": 0.04955959334842622,
-   "ratio_jax32": 0.2116129649673753,
+   "ratio_mlx": 0.03836002023723914,
+   "ratio_jax32": 0.2159049408071932,
    "finite_mlx": true,
    "finite_jax32": true
   },
   {
    "index": 22,
    "double": [
-    0.2774351836892426,
-    0.2882619146273806,
-    -0.0017858627095114579,
-    -0.05794989236257862,
-    -1.265218005900561,
-    -0.011286218849861088,
-    -0.06120621946980055,
-    -1.1638482445304703,
-    7.991426421122958e-05,
-    0.02133619706246432,
-    -0.16254873019299085,
-    1.4150058534588406
+    0.2774349955925896,
+    0.2882622573394671,
+    -0.0017860500098937104,
+    -0.05794982481936205,
+    -1.2652182489010557,
+    -0.011285753602522406,
+    -0.06120680481976222,
+    -1.1638475969505921,
+    7.9914184253534e-05,
+    0.021336178430175518,
+    -0.1625486224490437,
+    1.415005417660755
    ],
    "mlx": [
-    0.2774277329444885,
-    0.2882837951183319,
-    -0.0017921209800988436,
-    -0.05792286992073059,
-    -1.2652193307876587,
-    -0.011261815205216408,
-    -0.06119876354932785,
-    -1.163825511932373,
-    7.992069004103541e-05,
-    0.021338436752557755,
-    -0.16255533695220947,
-    1.4150663614273071
+    0.27744463086128235,
+    0.28826963901519775,
+    -0.0017850385047495365,
+    -0.05793265998363495,
+    -1.2652262449264526,
+    -0.011292348615825176,
+    -0.06116826832294464,
+    -1.163882851600647,
+    7.992151222424582e-05,
+    0.021338731050491333,
+    -0.1625562310218811,
+    1.4150731563568115
    ],
    "jax32": [
-    0.2774534523487091,
-    0.2882966995239258,
-    -0.0017876292113214731,
-    -0.057929061353206635,
-    -1.2652597427368164,
-    -0.011269452050328255,
-    -0.06119095906615257,
-    -1.1638760566711426,
-    7.992351311258972e-05,
-    0.021338265389204025,
-    -0.16255706548690796,
-    1.4151372909545898
+    0.277446985244751,
+    0.28830641508102417,
+    -0.0017913391347974539,
+    -0.057923574000597,
+    -1.2652640342712402,
+    -0.011254161596298218,
+    -0.061204127967357635,
+    -1.1638563871383667,
+    7.99245317466557e-05,
+    0.021338392049074173,
+    -0.1625576615333557,
+    1.41514253616333
    ],
-   "ratio_mlx": 0.01597235099794058,
-   "ratio_jax32": 0.010973984056471691,
+   "ratio_mlx": 0.019010902893576355,
+   "ratio_jax32": 0.02067725128616565,
    "finite_mlx": true,
    "finite_jax32": true
   },
   {
    "index": 23,
    "double": [
-    -0.018509467378277647,
-    -0.07953880573065977,
-    -0.001117150216927761,
-    -0.0031379284206932163,
-    0.006727804845196354,
-    -6.90541359071141e-05,
-    -0.00024090350567497048,
-    0.0018802841855103665,
-    8.998321021920997e-06,
-    0.003594137881042323,
-    -0.0016480904018504308,
-    0.005464033334157407
+    -0.018509471546812345,
+    -0.07953882023255171,
+    -0.0011171503844377316,
+    -0.0031379287648342644,
+    0.006727811525977981,
+    -6.905415596137105e-05,
+    -0.00024090355139836115,
+    0.0018802854241709958,
+    8.998321159988981e-06,
+    0.003594137581737698,
+    -0.0016480905744694603,
+    0.005464033844011526
    ],
    "mlx": [
-    -0.018504537642002106,
-    -0.07952012866735458,
-    -0.0011171272490173578,
-    -0.0031374874524772167,
-    0.006721753627061844,
-    -6.904071778990328e-05,
-    -0.00024090213992167264,
-    0.0018788385204970837,
-    8.997917575470638e-06,
-    0.0035939826630055904,
-    -0.001647909521125257,
-    0.0054632979445159435
+    -0.018504450097680092,
+    -0.07951956987380981,
+    -0.0011171159567311406,
+    -0.0031375004909932613,
+    0.006721614859998226,
+    -6.904323527123779e-05,
+    -0.00024091235536616296,
+    0.001878767041489482,
+    8.9979494077852e-06,
+    0.003593997098505497,
+    -0.001647895434871316,
+    0.005463293753564358
    ],
    "jax32": [
-    -0.018505211919546127,
-    -0.07952246814966202,
-    -0.0011170473881065845,
-    -0.003137294901534915,
-    0.006721035577356815,
-    -6.903502799104899e-05,
-    -0.0002408905711490661,
-    0.0018787772860378027,
-    8.9981549535878e-06,
-    0.003594036214053631,
-    -0.0016480281483381987,
-    0.0054633766412734985
+    -0.018504884093999863,
+    -0.07952135801315308,
+    -0.0011170429643243551,
+    -0.0031372904777526855,
+    0.006720519624650478,
+    -6.903034955030307e-05,
+    -0.00024088911595754325,
+    0.0018786843866109848,
+    8.998191333375871e-06,
+    0.003594060894101858,
+    -0.0016480101039633155,
+    0.0054633296094834805
    ],
-   "ratio_mlx": 0.04121609993756852,
-   "ratio_jax32": 0.046106885188527263,
+   "ratio_mlx": 0.04220675195933708,
+   "ratio_jax32": 0.04966662260760442,
    "finite_mlx": true,
    "finite_jax32": true
   },
   {
    "index": 24,
    "double": [
-    0.10155294864179859,
-    0.6614065556524225,
-    0.0002774366052890342,
-    -0.001001854659974382,
-    0.004830990565164929,
-    -2.8151771234515946e-06,
-    -3.6991498637161786e-05,
-    0.0005410295238111916,
-    5.442030677925035e-06,
-    0.0012394932997175745,
-    -0.00019897795996085216,
-    0.0018927183747094395
+    0.10154593756996882,
+    0.6613625253785316,
+    0.0002774422364360719,
+    -0.001001853123944938,
+    0.0048315813146496385,
+    -2.81228191473957e-06,
+    -3.6992098289728184e-05,
+    0.0005411125840748749,
+    5.442030939544873e-06,
+    0.0012394912219249469,
+    -0.0001989783616358897,
+    0.001892750356602285
    ],
    "mlx": [
-    0.11013074964284897,
-    0.7150575518608093,
-    0.00023556464293505996,
-    -0.0010002985363826156,
-    0.0033116773702204227,
-    -2.1305113477865234e-06,
-    -3.685754563775845e-05,
-    0.0003125329967588186,
-    5.435213097371161e-06,
-    0.001238419790752232,
-    -0.00018828130851034075,
-    0.0015956442803144455
+    0.1101175993680954,
+    0.7149766087532043,
+    0.00023562338901683688,
+    -0.0010002816561609507,
+    0.0033138496801257133,
+    -2.1309956537152175e-06,
+    -3.685545379994437e-05,
+    0.00031286809826269746,
+    5.4351507969840895e-06,
+    0.0012384080328047276,
+    -0.00018829225155059248,
+    0.0015960205346345901
    ],
    "jax32": [
-    0.11136165261268616,
-    0.7205322980880737,
-    0.00023376174794975668,
-    -0.0010001449845731258,
-    0.003127522300928831,
-    -2.2002427613188047e-06,
-    -3.681250018416904e-05,
-    0.0002847546129487455,
-    5.435075763671193e-06,
-    0.001238516648299992,
-    -0.00018814470968209207,
-    0.0017342832870781422
+    0.11115793883800507,
+    0.7192535996437073,
+    0.00023461802629753947,
+    -0.0010001463815569878,
+    0.003158322535455227,
+    -2.197677531512454e-06,
+    -3.6811230529565364e-05,
+    0.00028938110335730016,
+    5.435053481051e-06,
+    0.0012384825386106968,
+    -0.00018832393107004464,
+    0.0017393245361745358
    ],
-   "ratio_mlx": 7.374228830950157,
-   "ratio_jax32": 8.126722434506352,
+   "ratio_mlx": 7.369645833389278,
+   "ratio_jax32": 7.957549348877315,
    "finite_mlx": true,
    "finite_jax32": true
   },
   {
    "index": 25,
    "double": [
-    0.0025768085067583947,
-    0.00614937484560046,
-    -0.00014343974729964998,
-    -0.0003930071711559017,
-    -0.002293923931574032,
-    -9.850917465909106e-06,
-    -7.038769810123984e-05,
-    -0.0006805708235323145,
-    3.4882173438091492e-06,
-    0.0011826696037638966,
-    -0.00020752980755957387,
-    0.000696035467058348
+    0.00257686700942549,
+    0.006149470981474697,
+    -0.00014343980318963932,
+    -0.00039300710113618543,
+    -0.002293938618844746,
+    -9.850740537351232e-06,
+    -7.0386676677857e-05,
+    -0.0006805702802874983,
+    3.48821748629137e-06,
+    0.0011826696138014306,
+    -0.00020752984120070325,
+    0.0006960354985477257
    ],
    "mlx": [
-    0.002645918633788824,
-    0.006344566587358713,
-    -0.0001433782745152712,
-    -0.0003925178898498416,
-    -0.0023074382916092873,
-    -9.863389095698949e-06,
-    -7.041780918370932e-05,
-    -0.0006851406651549041,
-    3.4887841593445046e-06,
-    0.0011828964343294501,
-    -0.00020732521079480648,
-    0.0006952121038921177
+    0.0026449239812791348,
+    0.006343693006783724,
+    -0.00014337840548250824,
+    -0.0003925288328900933,
+    -0.00230685668066144,
+    -9.866104846878443e-06,
+    -7.044529775157571e-05,
+    -0.0006851052166894078,
+    3.4887916626757942e-06,
+    0.0011828974820673466,
+    -0.00020731473341584206,
+    0.0006951551185920835
    ],
    "jax32": [
-    0.0026298798620700836,
-    0.006296703591942787,
-    -0.00014338929031509906,
-    -0.0003926011559087783,
-    -0.0023053474724292755,
-    -9.856374163064174e-06,
-    -7.038520561764017e-05,
-    -0.0006842538132332265,
-    3.488723905320512e-06,
-    0.0011828895658254623,
-    -0.00020735347061417997,
-    0.0006953280535526574
+    0.002628788584843278,
+    0.006299174390733242,
+    -0.00014339902554638684,
+    -0.0003926642530132085,
+    -0.002303710673004389,
+    -9.86646227829624e-06,
+    -7.047837425488979e-05,
+    -0.0006841485155746341,
+    3.4888262234744616e-06,
+    0.0011829312425106764,
+    -0.00020737183513119817,
+    0.0006953877164050937
    ],
-   "ratio_mlx": 2.885611016036885,
-   "ratio_jax32": 2.1780299186573933,
+   "ratio_mlx": 2.8712303560024046,
+   "ratio_jax32": 2.213101075309446,
    "finite_mlx": true,
    "finite_jax32": true
   },
   {
    "index": 26,
    "double": [
-    0.15185780012674313,
-    0.08609916929710992,
-    -0.015825771828803365,
-    0.18114171559164466,
-    -3.556652090295337,
-    -0.01913192912455715,
-    0.16814579388379847,
-    -3.2385450859023077,
-    9.361199375677321e-05,
-    0.06010075177223481,
-    0.8232061951019451,
-    -0.12210570957410483
+    0.15185774875816083,
+    0.08609913080674896,
+    -0.015825784883084965,
+    0.18114167231382838,
+    -3.5566508277708824,
+    -0.0191318369160414,
+    0.16814575668806497,
+    -3.238544017394692,
+    9.361211747098766e-05,
+    0.06010083476607452,
+    0.8232063370465946,
+    -0.1221057297877071
    ],
    "mlx": [
-    0.17030784487724304,
-    0.06629433482885361,
-    -0.015472499653697014,
-    0.18084555864334106,
-    -3.4871716499328613,
-    -0.01916366070508957,
-    0.16812065243721008,
-    -3.328094720840454,
-    9.399540431331843e-05,
-    0.06019333750009537,
-    0.8229301571846008,
-    -0.12205538898706436
+    0.17031046748161316,
+    0.06628802418708801,
+    -0.015512844547629356,
+    0.18089905381202698,
+    -3.4870762825012207,
+    -0.01916656270623207,
+    0.1681390255689621,
+    -3.328052043914795,
+    9.39984165597707e-05,
+    0.06019638851284981,
+    0.8229289650917053,
+    -0.1220555230975151
    ],
    "jax32": [
-    0.170314759016037,
-    0.0662473738193512,
-    -0.01641358807682991,
-    0.18194782733917236,
-    -3.4858779907226562,
-    -0.019335247576236725,
-    0.16869190335273743,
-    -3.3274364471435547,
-    9.393465006724e-05,
-    0.060165196657180786,
-    0.8227674961090088,
-    -0.12205591797828674
+    0.1702962964773178,
+    0.0662548840045929,
+    -0.016357608139514923,
+    0.18186333775520325,
+    -3.485765218734741,
+    -0.019318338483572006,
+    0.16864043474197388,
+    -3.327241897583008,
+    9.394343214808032e-05,
+    0.06016852706670761,
+    0.8227272033691406,
+    -0.1220494955778122
    ],
-   "ratio_mlx": 4.4831216458137515,
-   "ratio_jax32": 4.493751975420746,
+   "ratio_mlx": 4.484543113834916,
+   "ratio_jax32": 4.49204489453061,
    "finite_mlx": true,
    "finite_jax32": true
   },
   {
    "index": 27,
    "double": [
-    0.008922681379773149,
-    0.01896710608706207,
-    0.13623706050652917,
-    0.08449307904700529,
-    -1.2216123431262895,
-    0.019679459317230256,
-    -0.021685647113052132,
-    -0.29023041630821467,
-    4.7337562729002396e-07,
-    0.07109140752885369,
-    -0.3584545216779375,
-    0.26130309707667143
+    0.008922694756653252,
+    0.01896713684282384,
+    0.1362404412604388,
+    0.08449543698625384,
+    -1.2216186923977417,
+    0.019679887391607892,
+    -0.021686268825898844,
+    -0.29023240975931547,
+    4.734066057328163e-07,
+    0.07109162526978026,
+    -0.3584547651928355,
+    0.26130334874905664
    ],
    "mlx": [
-    0.008930363692343235,
-    0.01898389682173729,
-    0.13624852895736694,
-    0.08448291569948196,
-    -1.222663164138794,
-    0.019680660218000412,
-    -0.021694257855415344,
-    -0.2905174493789673,
-    5.835977390233893e-07,
-    0.07117351144552231,
-    -0.35870930552482605,
-    0.261494517326355
+    0.008931050077080727,
+    0.018985580652952194,
+    0.13625918328762054,
+    0.08448773622512817,
+    -1.2227675914764404,
+    0.019681725651025772,
+    -0.021697720512747765,
+    -0.2905527353286743,
+    6.06012690695934e-07,
+    0.07117918878793716,
+    -0.3587270975112915,
+    0.2615085244178772
    ],
    "jax32": [
-    0.008953765965998173,
-    0.019028417766094208,
-    0.13632985949516296,
-    0.08453584462404251,
-    -1.224134922027588,
-    0.01969883218407631,
-    -0.021671094000339508,
-    -0.2909352481365204,
-    4.375792173050286e-07,
-    0.07112845778465271,
-    -0.3587658703327179,
-    0.26191985607147217
+    0.00895266979932785,
+    0.019025731831789017,
+    0.13633029162883759,
+    0.08453346788883209,
+    -1.2240104675292969,
+    0.019698817282915115,
+    -0.021671824157238007,
+    -0.29090479016304016,
+    4.542309284261137e-07,
+    0.07112742960453033,
+    -0.3587242364883423,
+    0.26189056038856506
    ],
-   "ratio_mlx": 0.07819926140437798,
-   "ratio_jax32": 0.1877235081602154,
+   "ratio_mlx": 0.0854975218051015,
+   "ratio_jax32": 0.1779885198399213,
    "finite_mlx": true,
    "finite_jax32": true
   },
   {
    "index": 28,
    "double": [
-    -0.03546115305013036,
-    -0.18274196556870476,
-    0.00565889395753573,
-    -0.007323089734825391,
-    0.0732931696007324,
-    -0.0003124775874568268,
-    -0.00022476724858605475,
-    0.013320034033487516,
-    2.4824771339405303e-05,
-    0.006506048877523308,
-    -0.000835691146785184,
-    -0.0007103582193314516
+    -0.0354610713880031,
+    -0.1827416653487851,
+    0.005658975745156268,
+    -0.007323138595073173,
+    0.07329319363074047,
+    -0.00031248198687045973,
+    -0.0002247740016959729,
+    0.013320036630916271,
+    2.4824767173197848e-05,
+    0.006506050329657526,
+    -0.0008356844928179437,
+    -0.0007103637007078417
    ],
    "mlx": [
-    -0.03548285365104675,
-    -0.18284697830677032,
-    0.005662329029291868,
-    -0.0073248655535280704,
-    0.07334836572408676,
-    -0.0003124031063634902,
-    -0.00022483128122985363,
-    0.013328352011740208,
-    2.4825425498420373e-05,
-    0.0065058376640081406,
-    -0.0008359963539987803,
-    -0.0007101322989910841
+    -0.035483695566654205,
+    -0.18285436928272247,
+    0.005662759765982628,
+    -0.007324967533349991,
+    0.07334969937801361,
+    -0.0003125356452073902,
+    -0.00022478625760413706,
+    0.013329054228961468,
+    2.4825405489536934e-05,
+    0.006505811586976051,
+    -0.0008360800566151738,
+    -0.0007100439979694784
    ],
    "jax32": [
-    -0.03547615930438042,
-    -0.18282008171081543,
-    0.0056613292545080185,
-    -0.007324518170207739,
-    0.07333047688007355,
-    -0.0003127570962533355,
-    -0.00022473570425063372,
-    0.013326463289558887,
-    2.4826138542266563e-05,
-    0.006506121251732111,
-    -0.0008368560811504722,
-    -0.0007092965533956885
+    -0.03547148406505585,
+    -0.18279686570167542,
+    0.005660370457917452,
+    -0.007324063219130039,
+    0.07331793010234833,
+    -0.0003127695235889405,
+    -0.00022471357078757137,
+    0.01332445815205574,
+    2.4826334993122146e-05,
+    0.006506266072392464,
+    -0.0008366581751033664,
+    -0.0007094711763784289
    ],
-   "ratio_mlx": 0.060279251954631984,
-   "ratio_jax32": 0.04074298618236505,
+   "ratio_mlx": 0.06170948596851747,
+   "ratio_jax32": 0.02746069917629788,
    "finite_mlx": true,
    "finite_jax32": true
   },
   {
    "index": 29,
    "double": [
-    0.11877382155813938,
-    0.13709300817070785,
-    -0.03333459893309193,
-    -0.013818825887395074,
-    -0.4738220840263375,
-    -0.011153804536603678,
-    -0.0014705871858307121,
-    -0.305380011466286,
-    2.8531812182042217e-05,
-    0.0007180954038279311,
-    -0.05416295175897813,
-    0.3441224851028748
+    0.118773818095676,
+    0.1370932786968681,
+    -0.03333481868685814,
+    -0.013818916767340008,
+    -0.47382180641450133,
+    -0.011153620658166295,
+    -0.001470520915271614,
+    -0.30538026655108197,
+    2.8531790046904574e-05,
+    0.0007180840995866503,
+    -0.054162966653233474,
+    0.3441225286026497
    ],
    "mlx": [
-    0.11877278983592987,
-    0.1370924860239029,
-    -0.033346667885780334,
-    -0.013826396316289902,
-    -0.4738140404224396,
-    -0.011160834692418575,
-    -0.001474660588428378,
-    -0.3053765892982483,
-    2.853099249477964e-05,
-    0.0007179253152571619,
-    -0.05416280776262283,
-    0.3441214859485626
+    0.11877334117889404,
+    0.13709358870983124,
+    -0.03334766626358032,
+    -0.013826733455061913,
+    -0.47381672263145447,
+    -0.011160457506775856,
+    -0.0014746114611625671,
+    -0.30537843704223633,
+    2.8531580028356984e-05,
+    0.0007179946405813098,
+    -0.054163116961717606,
+    0.3441229462623596
    ],
    "jax32": [
-    0.11878372728824615,
-    0.1371029019355774,
-    -0.033310458064079285,
-    -0.013803970068693161,
-    -0.4738558530807495,
-    -0.011140817776322365,
-    -0.001463279826566577,
-    -0.30540546774864197,
-    2.853299884009175e-05,
-    0.0007182079134508967,
-    -0.05416334420442581,
-    0.34414392709732056
+    0.11878177523612976,
+    0.13710331916809082,
+    -0.033340178430080414,
+    -0.013821146450936794,
+    -0.4738355875015259,
+    -0.011154918000102043,
+    -0.001471116440370679,
+    -0.30538803339004517,
+    2.853198748198338e-05,
+    0.0007183168199844658,
+    -0.05416298657655716,
+    0.34414058923721313
    ],
-   "ratio_mlx": 0.014952217619567039,
-   "ratio_jax32": 0.029908106885640624,
+   "ratio_mlx": 0.015916816567875698,
+   "ratio_jax32": 0.00664016659052404,
    "finite_mlx": true,
    "finite_jax32": true
   }

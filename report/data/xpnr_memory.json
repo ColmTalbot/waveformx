@@ -153,68 +153,68 @@
    }
   },
   "after": {
-   "commit": "0a70acc",
+   "commit": "30fcf3b",
    "compile_only": false,
    "values": {
     "eval_2.7_10_1024_1": {
      "temp_mb": 27.650718688964844,
      "output_mb": 0.0312652587890625,
-     "peak_rss_mb": 1014.09375
+     "peak_rss_mb": 1023.421875
     },
     "eval_2.7_10_16384_1": {
      "temp_mb": 29.60071563720703,
      "output_mb": 0.5000152587890625,
-     "peak_rss_mb": 1036.484375
+     "peak_rss_mb": 1066.765625
     },
     "eval_2.7_10_262144_1": {
      "temp_mb": 37.87397003173828,
      "output_mb": 8.000015258789062,
-     "peak_rss_mb": 1367.53125
+     "peak_rss_mb": 1408.046875
     },
     "jacfwd_2.7_10_1024_1": {
      "temp_mb": 360.7542495727539,
      "output_mb": 0.3750152587890625,
-     "peak_rss_mb": 2917.5625
+     "peak_rss_mb": 2999.171875
     },
     "jacfwd_2.7_10_16384_1": {
      "temp_mb": 370.6164093017578,
      "output_mb": 6.0000152587890625,
-     "peak_rss_mb": 3077.078125
+     "peak_rss_mb": 2990.5625
     },
     "jacfwd_2.7_10_262144_1": {
      "temp_mb": 550.9629821777344,
      "output_mb": 96.00001525878906,
-     "peak_rss_mb": 3721.75
+     "peak_rss_mb": 3661.375
     },
     "vmap_2.7_10_1024_64": {
      "temp_mb": 441.5312805175781,
      "output_mb": 2.0000152587890625,
-     "peak_rss_mb": 1505.09375
+     "peak_rss_mb": 1506.921875
     },
     "vmap_2.7_10_16384_64": {
      "temp_mb": 467.5561065673828,
      "output_mb": 32.00001525878906,
-     "peak_rss_mb": 1565.203125
+     "peak_rss_mb": 1587.28125
     },
     "vmap_jacfwd_2.7_10_1024_64": {
      "temp_mb": 1424.0208587646484,
      "output_mb": 24.000015258789062,
-     "peak_rss_mb": 4424.6875
+     "peak_rss_mb": 4290.6875
     },
     "vmap_jacfwd_2.7_10_16384_64": {
      "temp_mb": 1471.224021911621,
      "output_mb": 384.00001525878906,
-     "peak_rss_mb": 4895.171875
+     "peak_rss_mb": 4670.828125
     },
     "eval_60_20_16384_1": {
      "temp_mb": 29.60071563720703,
      "output_mb": 0.5000152587890625,
-     "peak_rss_mb": 1017.578125
+     "peak_rss_mb": 1066.546875
     },
     "jacfwd_60_20_16384_1": {
      "temp_mb": 370.6164093017578,
      "output_mb": 6.0000152587890625,
-     "peak_rss_mb": 3072.609375
+     "peak_rss_mb": 2934.9375
     },
     "mlx": {
      "eval_mb": 218.21919631958008,
@@ -232,7 +232,7 @@
   "jaxlib": "0.11.2",
   "backend": "cpu",
   "xla_flags": "",
-  "waveformx_commit": "0a70acc",
+  "waveformx_commit": "30fcf3b",
   "lalsimulation": "6.2.0",
   "lal": "7.7.0",
   "waveformrs": "0.1.0"
