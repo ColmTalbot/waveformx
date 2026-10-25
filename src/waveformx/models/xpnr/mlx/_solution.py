@@ -26,6 +26,10 @@ __all__ = ["Solution", "Tables", "integrate", "tables", "st_angles", "CAPACITIES
 #: The capacities of the SpinTaylor solution tried in turn (the last is
 #: the JAX model's).
 CAPACITIES = (512, 2048, 8192)
+#: The steps of a batch's first try: its first capacity is the largest of
+#: :data:`CAPACITIES` within this many steps for the batch (a binary that
+#: needs more steps than the capacity is integrated again).
+FIRST_TRY_STEPS = 1 << 15
 _INFO = {name: i for i, name in enumerate(INFO)}
 _SUMMARY = {name: i for i, name in enumerate(SUMMARY)}
 _TWO_PI = 2.0 * PI
@@ -89,9 +93,10 @@ def integrate(ode, ode_t, n_directions):
     x, dx = _ode_inputs(ode, ode_t, n_directions)
     active = ode.active.astype(mx.float32)
     batch = x.shape[0]
-    rows, info, summary = st.solve(x, active, CAPACITIES[0])
-    capacity = CAPACITIES[0]
-    for bigger in CAPACITIES[1:]:
+    first = max([c for c in CAPACITIES if c * batch <= FIRST_TRY_STEPS] or [CAPACITIES[0]])
+    rows, info, summary = st.solve(x, active, first)
+    capacity = first
+    for bigger in [c for c in CAPACITIES if c > first]:
         overflow = np.asarray(info[:, _INFO["overflow"]]) > 0
         if not overflow.any():
             break

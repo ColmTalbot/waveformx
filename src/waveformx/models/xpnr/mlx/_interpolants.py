@@ -72,7 +72,8 @@ def interpolants(alpha, beta, dalpha, dbeta, grid, dgrid, n_grid, n_directions):
 
 def intervals(splines, x):
     """The interval ``k`` (real and int) of the grid holding each of ``x``
-    (Hz, ``(B, ...)``), clipped to the grid (:func:`..pnr._spline_at`)."""
+    (the index among the nodes, ``(B, ...)``), clipped to the grid
+    (:func:`..pnr._spline_at`)."""
     grid = splines.grid
     shape = (-1,) + (1,) * (x.ndim - 1)
     i_start, h = grid[:, 0].reshape(shape), grid[:, 2].reshape(shape)
@@ -91,7 +92,8 @@ def ends_gather(first_arg, slot=0):
 
 
 def spline_values(splines, x, dx, n_directions):
-    """The interpolants at ``x`` (Hz, ``(B, M)``): ``(values (B, M, S),
+    """The interpolants at ``x`` (the index among the nodes,
+    :func:`._stages.node_x`, ``(B, M)``): ``(values (B, M, S),
     inside (B, M), tangents (B, M, S, P))``."""
     batch, m = x.shape
     k, ki = intervals(splines, x)

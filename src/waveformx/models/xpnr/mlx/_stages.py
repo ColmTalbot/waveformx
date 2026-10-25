@@ -184,15 +184,37 @@ def stage_c2(prec, wf, points, values, st_range, modes):
     """The rest of ``model._spintaylor_setup`` with the SpinTaylor angles at the
     bank's points ``values`` (``(alpha, dalpha, beta, dbeta,
     inside)``, each of shape ``(15,)``): returns ``(prec, wf, grid,
-    error)`` with ``grid = (i_start, n, delta_f)`` of the PNR interpolants."""
+    error)`` with ``grid`` the nodes of the PNR interpolants
+    (:func:`..pnr.node_grid`), :func:`node_vector`."""
     pnr.clear_cache()
     prec = _with_bank(prec, points, values, st_range)
     prec = pnr.initialize_euler_angles(prec, wf)
     prec = pnr.populate_structs(prec, wf, 330)
     grid = pnr.interpolation_grid(prec, wf, modes, 330)
     f0 = grid[0] * grid[2]
-    error = prec.error_structs | grid[3] | prec.error_euler | (prec.fmin_integration > f0)
-    return prec, wf, jnp.stack([grid[0], grid[1], grid[2]]), error
+    nodes, error_nodes = pnr.node_grid(grid, wf.m_tot)
+    error = prec.error_structs | error_nodes | prec.error_euler | (prec.fmin_integration > f0)
+    return prec, wf, node_vector(nodes), error
+
+
+def node_vector(nodes):
+    """The nodes of the interpolants (:func:`..pnr.node_grid`) as the vector
+    ``(0, n, 1, s0, ds, fc2, f_first, f_last)``: the splines are in the index
+    of the nodes, a uniform grid ``(i_start, n, h) = (0, n, 1)``, followed by
+    the node map (:func:`node_map`)."""
+    zero = jnp.zeros_like(nodes.n)
+    return jnp.stack([zero, nodes.n, zero + 1.0, nodes.s0, nodes.ds, nodes.fc2, nodes.f_first, nodes.f_last])
+
+
+def node_map(grid):
+    """The node map of the vector of :func:`node_vector`."""
+    return Struct(n=grid[1], s0=grid[3], ds=grid[4], fc2=grid[5], f_first=grid[6], f_last=grid[7])
+
+
+def node_x(grid, f):
+    """The index among the nodes of ``grid`` (:func:`node_vector`) of the
+    frequency ``f`` (Hz): where the splines read it."""
+    return pnr.node_coordinate(node_map(grid), f)
 
 
 # ---------------------------------------------------------------------------
@@ -201,10 +223,9 @@ def stage_c2(prec, wf, points, values, st_range, modes):
 
 
 def grid_frequencies(k, grid, m_tot):
-    """``Mf`` of the points ``k`` (real) of the grid of the PNR
-    interpolants (the last point repeated beyond ``n``)."""
-    i_start, n, h = grid[0], grid[1], grid[2]
-    return hz_to_mf((i_start + jnp.minimum(k, n - 1.0)) * h, m_tot)
+    """``Mf`` of the nodes ``k`` (real) of the PNR interpolants
+    (:func:`node_vector`; the last node repeated beyond ``n``)."""
+    return hz_to_mf(pnr.node_frequencies(node_map(grid), k), m_tot)
 
 
 def grid_point(prec, wf, mf, st_values):
@@ -234,6 +255,7 @@ def stage_e(prec, wf, at_ref, inside_ref, modes):
     pnr.clear_cache()
     alpha_ref, beta_ref, gamma_ref = spline_tail(list(at_ref))
     error = ~inside_ref | ~jnp.isfinite(beta_ref)
+    prec.alpha_offset_grid = prec.alpha_offset
     prec.alpha_offset = alpha_ref
     prec.epsilon_offset = -gamma_ref - prec.epsilon0
     prec = pnr.remap_theta_jsf(prec, wf, beta_ref)
@@ -266,10 +288,11 @@ def stage_e(prec, wf, at_ref, inside_ref, modes):
 # ---------------------------------------------------------------------------
 
 
-def stage_f1(prec, wf, f, modes):
-    """At one frequency ``f`` (Hz): the frequencies (Hz) at which each mode
-    reads the PNR angles and whether the map failed, ``Mf`` of the
-    antisymmetric mode and its amplitude ratio before the moving average."""
+def stage_f1(prec, wf, grid, f, modes):
+    """At one frequency ``f`` (Hz): where each mode reads the PNR angles
+    (the index among the nodes ``grid``, :func:`node_x`) and whether the
+    map failed, ``Mf`` of the antisymmetric mode and its amplitude ratio
+    before the moving average."""
     pnr.clear_cache()
     mf = wf.m_sec * f
     mapped, errors = [], []
@@ -281,7 +304,7 @@ def stage_f1(prec, wf, f, modes):
             low, high = pa.linear_frequency_map_transition_frequencies(emm, wf.f_ring, mf_rd_lm, prec.pnr_hm_mflow,
                                                                        prec.pnr_hm_mfhigh)
             mf_mapped, map_error = pnr.frequency_map(prec, mf, ell, emm, low, high, wf.f_ring, mf_rd_lm)
-        mapped.append(mf_to_hz(mf_mapped, wf.m_tot))
+        mapped.append(node_x(grid, mf_to_hz(mf_mapped, wf.m_tot)))
         errors.append(map_error)
     mf_as = hz_to_mf(f, wf.m_tot)
     if (2, 2) in modes:
@@ -293,13 +316,11 @@ def stage_f1(prec, wf, f, modes):
     return jnp.stack(mapped), jnp.stack(errors), mf_as, kappa
 
 
-def stage_f2(prec, wf, extra, f, spline_values, inside, map_errors, kappa, st_alpha, st_inside, modes):
+def stage_f2(prec, wf, extra, f, spline_values, inside, map_errors, kappa, modes):
     """At one frequency ``f`` (Hz): ``(h_+, h_x)`` as ``(re, im)`` pairs
     and whether the point makes the waveform fail. ``spline_values``
-    (``(n_modes, 6)``) and ``inside`` are the interpolants at the mapped
-    frequencies of the modes, ``kappa`` the smoothed amplitude ratio and
-    ``st_alpha``, ``st_inside`` the SpinTaylor ``alpha`` at ``Mf`` of the
-    antisymmetric mode."""
+    (``(n_modes, 3)``) and ``inside`` are the interpolants at the mapped
+    frequencies of the modes, ``kappa`` the smoothed amplitude ratio."""
     pnr.clear_cache()
     wf_out = extra.wf_out
     mf = wf.m_sec * f
@@ -307,8 +328,11 @@ def stage_f2(prec, wf, extra, f, spline_values, inside, map_errors, kappa, st_al
     vanishing_odd = (wf.q == 1.0) & (wf.chi1l == wf.chi2l)
     error = jnp.zeros((), bool)
     angles = []
+    alpha22 = None
     for index, (ell, emm) in enumerate(modes):
         a, b, g = spline_tail([spline_values[index, j] for j in range(len(SPLINES))])
+        if (ell, emm) == (2, 2):
+            alpha22 = a
         err = map_errors[index] | ~inside[index]
         if emm % 2:
             err = err & ~vanishing_odd
@@ -317,12 +341,8 @@ def stage_f2(prec, wf, extra, f, spline_values, inside, map_errors, kappa, st_al
     h_as = None
     if (2, 2) in modes:
         co = extra.co
-        mf_as = hz_to_mf(f, wf.m_tot)
-        nan = jnp.full_like(st_alpha, jnp.nan)
-        pnr._st_spline_put(prec, wf, mf_as, (st_alpha, nan, nan, nan, st_inside))
-        alpha_pnr, err_alpha = pnr.region_alpha_at(prec, wf, mf_as, co.alpha_params, 330)
-        used = mf_as < co.mf_t
-        error = error | (err_alpha & used & (mf_as <= wf.f_max_prime * wf.m_sec))
+        # (the PNR alpha of the interpolants, see model._angle_data)
+        alpha_pnr = alpha22 + co.alpha_shift
         p = powers(mf)
         phi = phase_xas(mf, p, co.phase22) * co.inveta
         phi = phi + (fma(co.linb, mf, co.lina) + co.phiref22)
@@ -340,11 +360,7 @@ def stage_f2(prec, wf, extra, f, spline_values, inside, map_errors, kappa, st_al
         else:
             h = hm.mode_h(coefficients[(ell, emm)], mf_modes)
         twist = model.twist_factors(*angles[index], emm)
-        p_, c_ = model.twist_up(ell, emm, twist, extra.ylms[ell], h, 1.0)
-        if (ell, emm) == (2, 2):
-            pa_, ca_ = model.twist_up(ell, emm, twist, extra.ylms[ell], h_as, -1.0)
-            p_ = p_ + pa_
-            c_ = c_ + ca_
+        p_, c_ = model.twist_up(ell, emm, twist, extra.ylms[ell], h, 1.0, h_as if (ell, emm) == (2, 2) else None)
         if emm % 2:
             p_ = jnp.where(vanishing_odd, 0.0, p_)
             c_ = jnp.where(vanishing_odd, 0.0, c_)
@@ -481,7 +497,7 @@ def spline_point6(grid, x, k, y0, y1, m0, m1):
     return values, inside
 
 
-def stage_f2_pieces(prec, wf, extra, grid, f, x, k, map_errors, kappa, st_alpha, st_inside, *pieces, modes):
+def stage_f2_pieces(prec, wf, extra, grid, f, x, k, map_errors, kappa, *pieces, modes):
     """:func:`stage_f2` with the interpolants evaluated at the frequencies
     ``x`` of the modes (Hz, in the intervals ``k``) from ``pieces``: for
     each mode, the values and second derivatives of the interpolants
@@ -492,8 +508,7 @@ def stage_f2_pieces(prec, wf, extra, grid, f, x, k, map_errors, kappa, st_alpha,
         v, i = spline_point6(grid, x[m], k[m], y0, y1, m0, m1)
         values.append(v)
         inside.append(i)
-    return stage_f2(prec, wf, extra, f, jnp.stack(values), jnp.stack(inside), map_errors, kappa, st_alpha, st_inside,
-                    modes)
+    return stage_f2(prec, wf, extra, f, jnp.stack(values), jnp.stack(inside), map_errors, kappa, modes)
 
 
 # ---------------------------------------------------------------------------
@@ -671,20 +686,20 @@ def _compiled(dtype_name, modes, amp_scale, reference_mf=None):
         inside = (f >= splines.x0) & (f <= splines.x0 + (splines.n - 1.0) * splines.h)
         return jnp.stack(out, axis=-1), inside
 
-    def at_ref(splines, wf):
-        return spline_values(splines, wf.f_ref)
+    def at_ref(splines, wf, grid):
+        return spline_values(splines, node_x(grid, wf.f_ref))
 
     def e(prec, wf, values):
         return stage_e(prec, wf, values[0], values[1], modes)
 
-    def f1(prec, wf, f):
-        return jax.vmap(stage_f1, in_axes=(None, None, 0, None))(prec, wf, f, modes)
+    def f1(prec, wf, grid, f):
+        return jax.vmap(stage_f1, in_axes=(None, None, None, 0, None))(prec, wf, grid, f, modes)
 
-    def f2(prec, wf, extra, f, values, mapped, kappa_s, st_f):
+    def f2(prec, wf, extra, f, values, mapped, kappa_s):
         values, inside = values
         _, map_errors, _, _ = mapped
-        return jax.vmap(stage_f2, in_axes=(None, None, None, 0, 0, 0, 0, 0, 0, 0, None))(
-            prec, wf, extra, f, values, inside, map_errors, kappa_s, st_f[0], st_f[4], modes)
+        return jax.vmap(stage_f2, in_axes=(None, None, None, 0, 0, 0, 0, 0, None))(
+            prec, wf, extra, f, values, inside, map_errors, kappa_s, modes)
 
     def smooth(mapped, f):
         return smooth_amp_ratio(mapped[3], f) if (2, 2) in modes else mapped[3]
@@ -741,13 +756,12 @@ def reference(binary, frequencies, mode_array=None, scaled_strain=True, keep=Fal
     st_grid = _call(st.b2, sol, rotation, st_range, mf_grid)
     alpha, beta, err_grid = _call(st.d, prec, wf, mf_grid, st_grid).split()
     splines = _call(st.s, alpha, beta, grid)
-    at_ref = _call(st.at_ref, splines, wf)
+    at_ref = _call(st.at_ref, splines, wf, grid)
     prec_e, wf_e, extra, error_e = _call(st.e, prec, wf, at_ref).split()
-    mapped = _call(st.f1, prec_e, wf_e, f)
+    mapped = _call(st.f1, prec_e, wf_e, grid, f)
     values = _call(st.spline_values, splines, Dual(mapped.tree[0], mapped.tangents[:1]))
     kappa_s = _call(st.smooth, mapped, f)
-    st_f = _call(st.b2, sol, rotation, st_range, Dual(mapped.tree[2], mapped.tangents[2:3]))
-    h = _call(st.f2, prec_e, wf_e, extra, f, values, mapped, kappa_s, st_f)
+    h = _call(st.f2, prec_e, wf_e, extra, f, values, mapped, kappa_s)
     flags = _const((error_a.tree, ~ode.tree.active, summary.tree.failed, error_c.tree, summary.tree.incomplete,
                     err_grid.tree, error_e.tree, h.tree[1]))
     hp, hc, error = _call(st.assemble, h, flags).split()
@@ -756,6 +770,6 @@ def reference(binary, frequencies, mode_array=None, scaled_strain=True, keep=Fal
                    points=points, rotation=rotation, st_range=st_range, bank=bank, prec_c2=prec, wf_c2=wf, grid=grid,
                    error_c=error_c, mf_grid=mf_grid, st_grid=st_grid, alpha=alpha, beta=beta, err_grid=err_grid,
                    splines=splines, at_ref=at_ref, prec_e=prec_e, wf_e=wf_e, extra=extra, error_e=error_e,
-                   mapped=mapped, values=values, kappa_s=kappa_s, st_f=st_f, h=h, error=error, hp=hp, hc=hc)
+                   mapped=mapped, values=values, kappa_s=kappa_s, h=h, error=error, hp=hp, hc=hc)
         return (hp.tree, hc.tree), out
     return hp.tree, hc.tree

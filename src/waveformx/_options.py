@@ -84,11 +84,14 @@ class WaveformOptions:
     * ``mode_array``: LAL's ``ModeArray`` (``(l, m)`` pairs) or ``None`` for
       all modes. For IMRPhenomXPNR, the co-precessing modes.
     * ``extended_phase_grid``: interpolate the PNR angles of
-      IMRPhenomXPNR on a grid whose spacing grows like ``f^2`` (constant
-      steps of the precession phase) from LAL's spacing, up to ``1e-4`` in
-      ``M f`` (default ``False``), rather than on LAL's uniform grid: far
-      fewer points for light binaries, at the cost of a larger difference
-      from LAL.
+      IMRPhenomXPNR with splines of the unit vector of L and of ``gamma
+      +- alpha`` (which follow L passing close to J) on a grid whose
+      spacing grows like ``f^2`` (constant steps of the precession phase)
+      from LAL's spacing, up to ``1e-4`` in ``M f`` (default ``False``):
+      rather than with LAL's splines of ``alpha``, ``beta`` and ``gamma``
+      on such a grid from a quarter of LAL's spacing, which follow LAL's
+      uniform grid to ~1e-10. Fewer points, at the cost of a larger
+      difference from LAL.
     * ``reference_mf``: for every model, the
       reference frequency of the binary in units of the total mass,
       ``M f_ref`` (default ``None``:

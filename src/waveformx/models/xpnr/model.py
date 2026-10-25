@@ -22,6 +22,9 @@ numerical procedure:
   integration from the start of the grid of the PNR interpolants is not
   needed, and the angles evaluated from that solution rather than from
   LAL's splines through its samples;
+* LAL's splines of the PNR angles on nodes whose spacing grows like
+  ``f^2`` (:func:`.pnr.angle_interpolants`) rather than on LAL's uniform
+  grid, and the PNR ``alpha`` of the antisymmetric mode from them;
 * LAL's discrete switches of the angles made continuous (the end of the
   inspiral, the two-spin construction for every binary, the connection of
   the PNR ``beta``, the edge of the PNR transition region at ``q = 12``);
@@ -56,10 +59,10 @@ from ..._options import REFERENCE_MF, strain_scale
 from . import hm, pnr
 from . import pnr_angles as pa
 from ._math import (
-    MTSUN_SI, Struct, barrier, complex_, hz_to_mf, materialized, mf_to_hz, precision, precision_of, real,
+    MTSUN_SI, Struct, barrier, complex_, materialized, mf_to_hz, precision, precision_of, real,
 )
 from ._transforms import differentiable
-from .antisymmetric import antisymmetric_kappa, antisymmetric_waveform
+from .antisymmetric import antisymmetric_coefficients, antisymmetric_kappa, antisymmetric_waveform
 from .internals import errors as wf_errors
 from .internals import waveform_struct
 from .xas import h22, phif_ref, xas_setup
@@ -76,11 +79,14 @@ DEFAULT_MODES = ((2, 1), (2, 2), (3, 2), (3, 3), (4, 4))
 #: frequencies. Blocks of these sizes run about as fast as the whole batch.
 BATCH_BLOCK = 16
 JACOBIAN_BLOCK = 4
-#: Above this many frequencies, the polarizations are computed in a
-#: ``jax.lax.map`` over chunks of this many (:func:`_polarizations_of`),
-#: so that the arrays at the frequencies (each with a copy per tangent of a
-#: Jacobian) are those of a chunk.
+#: Above this many frequencies, the polarizations of a batch or their
+#: Jacobian are computed in a ``jax.lax.map`` over chunks of this many
+#: (:func:`_polarizations_of`), so that the arrays at the frequencies (each
+#: with a copy per binary and per tangent) are those of a chunk.
 FREQUENCY_CHUNK = 16384
+#: The chunks of the polarizations of one binary, larger: XLA's kernels
+#: of a chunk are slower per frequency the smaller the chunk.
+SINGLE_FREQUENCY_CHUNK = 1 << 19
 
 
 def lal_order(modes):
@@ -215,15 +221,19 @@ def twist_factors(alpha, beta, epsilon, mprime):
     return Struct(cos_k=[jnp.real(p) for p in powers], sin_k=[jnp.imag(p) for p in powers], c=c, s=s, eps=eps)
 
 
-def twist_up(ell, mprime, twist, ylm, h, symmetry):
+def twist_up(ell, mprime, twist, ylm, h, symmetry, h_anti=None):
     """``IMRPhenomXPHMTwistUp`` for ``h = h_{l,-m'}`` with
     ``PolarizationSymmetry`` ``symmetry`` (+1, or -1 for the antisymmetric
-    (2,2) mode): the contributions ``(h_+, h_x)`` in the J frame."""
+    (2,2) mode): the contributions ``(h_+, h_x)`` in the J frame. With
+    ``h_anti``, those of ``h_anti`` with the opposite symmetry are added
+    (the antisymmetric (2,2) mode): the terms are linear in the mode and the
+    symmetry flips the sign of half of them, so that both come from the
+    same sums."""
     d = wigner_d(ell, mprime, twist.c, twist.s)
     sigma = symmetry if ell % 2 == 0 else -symmetry
     # (h_+ and h_x stacked, behind a barrier: one kernel computes the terms
     # they share, rather than XLA copying them into a kernel for each)
-    re = im = 0.0
+    re_a = im_a = re_b = im_b = 0.0
     for index in range(2 * ell + 1):
         y = ylm[index]
         k = index - ell
@@ -232,10 +242,16 @@ def twist_up(ell, mprime, twist, ylm, h, symmetry):
         b = sigma * d[index] * y
         cos = twist.cos_k[abs(k)]
         sin = -twist.sin_k[abs(k)] if k < 0 else twist.sin_k[abs(k)]
-        total = a + b
-        re = re + total * jnp.stack([cos, sin])
-        im = im + jnp.stack([(b - a) * sin, (a - b) * cos])
-    hp, hc = materialized(twist.eps * h * (re + 1j * im))
+        cos_sin = jnp.stack([cos, sin])
+        re_a = re_a + a * cos_sin
+        re_b = re_b + b * cos_sin
+        im_a = im_a + jnp.stack([-a * sin, a * cos])
+        im_b = im_b + jnp.stack([b * sin, -b * cos])
+    if h_anti is None:
+        total = h * ((re_a + re_b) + 1j * (im_a + im_b))
+    else:
+        total = (h + h_anti) * (re_a + 1j * im_a) + (h - h_anti) * (re_b + 1j * im_b)
+    hp, hc = materialized(twist.eps * total)
     return hp, hc
 
 
@@ -266,16 +282,16 @@ def _mode_angles_pnr(prec, wf, splines, ell, emm, mf):
     return alpha - prec.alpha_offset, beta, -gamma - prec.epsilon_offset, map_error | ~inside
 
 
-def _prepare_pnr(prec, wf, grid, version, error, active=True, extra_mf=None, n_extra=None):
+def _prepare_pnr(prec, wf, grid, version, error, active=True):
     """The PNR angle interpolants (``IMRPhenomX_PNR_GeneratePNRAngleInterpolants``)
-    on ``grid`` (:func:`.pnr.interpolation_grid`), with the offsets at the
-    reference frequency and the remapped J frame (and the SpinTaylor
-    ``alpha`` at the first ``n_extra`` of ``extra_mf``, see
-    :func:`.pnr.angle_interpolants`)."""
-    splines = barrier(pnr.angle_interpolants(prec, wf, grid, version, active, extra_mf, n_extra))
+    on the band of ``grid`` (:func:`.pnr.interpolation_grid`), with the
+    offsets at the reference frequency and the remapped J frame."""
+    splines = barrier(pnr.angle_interpolants(prec, wf, grid, version, active))
     error = error | splines.error
     alpha_ref, beta_ref, gamma_ref, inside = pnr.spline_angles(splines, wf.f_ref)
     error = error | ~inside | ~jnp.isfinite(beta_ref)
+    # (the offset with which the angles on the grid were computed)
+    prec.alpha_offset_grid = prec.alpha_offset
     prec.alpha_offset = alpha_ref
     prec.epsilon_offset = -gamma_ref - prec.epsilon0
     prec = pnr.remap_theta_jsf(prec, wf, beta_ref)
@@ -315,14 +331,38 @@ WF_FIELDS = (
 )
 
 
-def _angle_data(prec, wf, splines, modes, frequencies, kappa=None):
+def _mode_setup(prec, wf, modes):
+    """The frequency-independent coefficients of the co-precessing modes
+    after the set-up of the precession: those of the antisymmetric (2,2)
+    mode (``co``, ``None`` without the (2,2) mode), of the (2,2) mode
+    (``xas22``) and of the higher modes (``coefficients``, in the order of
+    ``modes`` without the (2,2) mode), computed once rather than for every
+    chunk of the frequencies (:func:`_polarizations_of`)."""
+    wf_out = Struct(**{name: getattr(wf, name) for name in WF_FIELDS})
+    wf_out.hm_release = jnp.asarray(122019)
+    if (2, 2) in modes:
+        co = antisymmetric_coefficients(prec, wf, 330)
+        xas22 = Struct(amp=co.amp22, phase=co.phase22, linb=co.linb)
+    else:
+        co = None
+        xas = xas_setup(wf)
+        xas22 = Struct(amp=xas.amp, phase=xas.phase, linb=xas.linb)
+    higher = [mode for mode in modes if mode != (2, 2)]
+    coefficients = list(hm.modes_coefficients(barrier(wf_out), xas22.phase, higher))
+    return barrier(Struct(co=co, xas22=xas22, coefficients=coefficients, wf=wf_out))
+
+
+def _angle_data(prec, wf, splines, modes, frequencies, kappa=None, setup=None):
     """What the precession contributes to the waveform: for each
     co-precessing mode the Euler angles ``(alpha, beta, epsilon)`` at
     ``frequencies``, the antisymmetric part of the (2,2) mode, the line of
     sight in the J frame, the polarization angle, the waveform struct as the
-    set-up left it, and the error flag. ``kappa``: the amplitude ratio of the
-    antisymmetric mode, if computed already (of all the frequencies, when
-    ``frequencies`` are a chunk of them)."""
+    set-up left it, the coefficients of the modes (:func:`_mode_setup`, or
+    ``setup`` if computed already) and the error flag. ``kappa``: the
+    amplitude ratio of the antisymmetric mode, if computed already (of all
+    the frequencies, when ``frequencies`` are a chunk of them)."""
+    if setup is None:
+        setup = _mode_setup(prec, wf, modes)
     mf = wf.m_sec * frequencies
     mf_cut = wf.f_max_prime * wf.m_sec
     keep = mf <= mf_cut
@@ -330,8 +370,11 @@ def _angle_data(prec, wf, splines, modes, frequencies, kappa=None):
     vanishing_odd = (wf.q == 1.0) & (wf.chi1l == wf.chi2l)
     error = jnp.asarray(False)
     alphas, betas, epsilons = [], [], []
+    alpha22 = None
     for ell, emm in modes:
         alpha, beta, epsilon, err = _mode_angles_pnr(prec, wf, splines, ell, emm, mf)
+        if (ell, emm) == (2, 2):
+            alpha22 = alpha + prec.alpha_offset
         if emm % 2:
             err = err & ~vanishing_odd
         error = error | jnp.any(err & keep)
@@ -339,25 +382,25 @@ def _angle_data(prec, wf, splines, modes, frequencies, kappa=None):
         betas.append(beta)
         epsilons.append(epsilon)
     if (2, 2) in modes:
-        amp, phase, err, xas22 = antisymmetric_waveform(prec, wf, frequencies, 330, splines.st_extra, kappa)
+        # (the PNR alpha that it reads below its transition from the
+        # interpolants, as the (2,2) mode, rather than evaluated again)
+        amp, phase, err, _ = antisymmetric_waveform(prec, wf, frequencies, 330, alpha22, kappa, setup.co)
         error = error | err
         h_as = amp * jnp.exp(1j * phase)
     else:
         h_as = jnp.zeros(frequencies.shape, complex_())
-        xas = xas_setup(wf)
-        xas22 = Struct(amp=xas.amp, phase=xas.phase, linb=xas.linb)
-    wf_out = Struct(**{name: getattr(wf, name) for name in WF_FIELDS})
-    wf_out.hm_release = jnp.asarray(122019)
     return Struct(
-        wf=wf_out, alpha=jnp.stack(alphas), beta=jnp.stack(betas), epsilon=jnp.stack(epsilons), h_as=h_as,
-        theta_jn=prec.theta_jn, zeta=prec.zeta_polarization, error=error, xas22=xas22,
+        wf=setup.wf, alpha=jnp.stack(alphas), beta=jnp.stack(betas), epsilon=jnp.stack(epsilons), h_as=h_as,
+        theta_jn=prec.theta_jn, zeta=prec.zeta_polarization, error=error, xas22=setup.xas22,
+        coefficients=setup.coefficients,
     )
 
 
-def _coprecessing_modes(wf, modes, frequencies, xas22=None):
+def _coprecessing_modes(wf, modes, frequencies, xas22=None, coefficients=None):
     """The co-precessing modes ``h_{l,-m'}`` at ``frequencies`` (no cutoff).
     ``xas22`` are the amplitude, phase and time-shift coefficients of the
-    (2,2) mode if computed already (``data.xas22`` of :func:`_angle_data`)."""
+    (2,2) mode and ``coefficients`` those of the higher modes if computed
+    already (``data.xas22`` and ``data.coefficients`` of :func:`_angle_data`)."""
     wf = barrier(wf)
     mf = wf.m_sec * frequencies
     if xas22 is None:
@@ -367,7 +410,9 @@ def _coprecessing_modes(wf, modes, frequencies, xas22=None):
                      amp_prefactor=wf.amp0 * wf.amp_norm)
     phase22 = xas.phase
     higher = [mode for mode in modes if mode != (2, 2)]
-    coefficients = dict(zip(higher, hm.modes_coefficients(wf, phase22, higher)))
+    if coefficients is None:
+        coefficients = hm.modes_coefficients(wf, phase22, higher)
+    coefficients = dict(zip(higher, coefficients))
     out = []
     for ell, emm in modes:
         if (ell, emm) == (2, 2):
@@ -388,13 +433,10 @@ def _twist_polarizations(data, modes, frequencies):
     ylms = {ell: spherical_harmonics(data.theta_jn, ell) for ell in (2, 3, 4)}
     hp = jnp.zeros(frequencies.shape, complex_())
     hc = jnp.zeros(frequencies.shape, complex_())
-    for index, ((ell, emm), h) in enumerate(zip(modes, _coprecessing_modes(wf, modes, frequencies, data.xas22))):
+    for index, ((ell, emm), h) in enumerate(zip(modes, _coprecessing_modes(wf, modes, frequencies, data.xas22,
+                                                                                       data.coefficients))):
         twist = materialized(twist_factors(data.alpha[index], data.beta[index], data.epsilon[index], emm))
-        p, c = twist_up(ell, emm, twist, ylms[ell], h, 1.0)
-        if (ell, emm) == (2, 2):
-            pa_, ca_ = twist_up(ell, emm, twist, ylms[ell], data.h_as, -1.0)
-            p = p + pa_
-            c = c + ca_
+        p, c = twist_up(ell, emm, twist, ylms[ell], h, 1.0, data.h_as if (ell, emm) == (2, 2) else None)
         if emm % 2:
             p = jnp.where(vanishing_odd, 0.0, p)
             c = jnp.where(vanishing_odd, 0.0, c)
@@ -453,13 +495,7 @@ def _pipeline_330(setup, modes, frequencies, active=True, angles=True):
     error)``)."""
     prec, wf, grid, flags = setup
     prec, wf = barrier((pnr._copy(prec), wf))
-    # (the antisymmetric mode reads the SpinTaylor alpha at the frequencies
-    # below its transition at 0.85 fRING: evaluated with the grid)
-    extra_mf, n_extra = None, None
-    if (2, 2) in modes:
-        extra_mf = hz_to_mf(frequencies, wf.m_tot)
-        n_extra = jnp.sum(extra_mf < pnr.antisymmetric_points(wf)[0])
-    prec, splines, error = barrier(_prepare_pnr(prec, wf, grid, 330, flags.error, active, extra_mf, n_extra))
+    prec, splines, error = barrier(_prepare_pnr(prec, wf, grid, 330, flags.error, active))
     if not angles:
         return prec, wf, splines, error | flags.incomplete
     data = _angle_data(prec, wf, splines, modes, frequencies)
@@ -501,54 +537,57 @@ def _decide(binary, frequencies, delta_f, f_min, f_max, modes, mode_range_=None,
     return data
 
 
-def _polarizations_of(binary, frequencies, delta_f, f_min, f_max, modes, **options):
+def _polarizations_of(binary, frequencies, delta_f, f_min, f_max, modes, chunk=None, **options):
     """``(h_+, h_x, error)`` of :func:`_decide` (with ``options``) and
-    :func:`_twist_polarizations`; above :data:`FREQUENCY_CHUNK` frequencies
+    :func:`_twist_polarizations`; above ``chunk`` (default
+    :data:`FREQUENCY_CHUNK`) frequencies
     the set-up once and the rest in a ``jax.lax.map`` over chunks of the
     frequencies (the moving average of the antisymmetric amplitude, which
     reads all of them, before)."""
     n = frequencies.shape[0]
-    if n <= FREQUENCY_CHUNK:
+    if chunk is None:
+        chunk = FREQUENCY_CHUNK
+    if n <= chunk:
         data = _decide(binary, frequencies, delta_f, f_min, f_max, modes, **options)
         hp, hc = _twist_polarizations(data, modes, frequencies)
         return hp, hc, data.error
     prec, wf, splines, error = _decide(binary, frequencies, delta_f, f_min, f_max, modes, angles=False, **options)
+    setup = _mode_setup(prec, wf, modes)
     per_frequency = [frequencies]
     if (2, 2) in modes:
-        per_frequency += [antisymmetric_kappa(prec, wf, frequencies), *splines.st_extra]
-    n_chunks = -(-n // FREQUENCY_CHUNK)
+        per_frequency.append(antisymmetric_kappa(prec, wf, frequencies))
+    n_chunks = -(-n // chunk)
 
     def chunked(x):
         # (padded with the last frequency, whose results are dropped)
-        x = jnp.concatenate([x, jnp.broadcast_to(x[-1:], (n_chunks * FREQUENCY_CHUNK - n,))])
-        return x.reshape(n_chunks, FREQUENCY_CHUNK)
+        x = jnp.concatenate([x, jnp.broadcast_to(x[-1:], (n_chunks * chunk - n,))])
+        return x.reshape(n_chunks, chunk)
 
-    def chunk(xs):
-        f, kappa = xs[0], None
-        chunk_splines = pnr._copy(splines)
-        if (2, 2) in modes:
-            kappa = xs[1]
-            chunk_splines.st_extra = (xs[2], xs[3])
-        data = _angle_data(prec, wf, chunk_splines, modes, f, kappa)
+    def one_chunk(xs):
+        f = xs[0]
+        kappa = xs[1] if (2, 2) in modes else None
+        data = _angle_data(prec, wf, splines, modes, f, kappa, setup)
         hp, hc = _twist_polarizations(data, modes, f)
         return hp, hc, data.error
 
-    hp, hc, errors = jax.lax.map(chunk, [chunked(x) for x in per_frequency])
+    hp, hc, errors = jax.lax.map(one_chunk, [chunked(x) for x in per_frequency])
     return hp.reshape(-1)[:n], hc.reshape(-1)[:n], error | jnp.any(errors)
 
 
-def _polarizations(binary, frequencies, options):
+def _polarizations(binary, frequencies, options, single=False):
+    """The polarizations (the frequencies in the chunks of one binary with
+    ``single``)."""
     with precision(precision_of(binary)):
-        return _polarizations_in(binary, frequencies, options)
+        return _polarizations_in(binary, frequencies, options, SINGLE_FREQUENCY_CHUNK if single else None)
 
 
-def _polarizations_in(binary, frequencies, options):
+def _polarizations_in(binary, frequencies, options, chunk=None):
     pnr.clear_cache()
     frequencies = jnp.asarray(frequencies, dtype=real())
     modes = coprecessing_modes(options.mode_array)
     hp, hc, error = _polarizations_of(binary, frequencies, 0.0, frequencies[0], frequencies[-1], modes,
                                       phase_grid=options.extended_phase_grid, amp_scale=strain_scale(options),
-                                      reference_mf=options.reference_mf)
+                                      reference_mf=options.reference_mf, chunk=chunk)
     nan = jnp.asarray(jnp.nan + 1j * jnp.nan, complex_())
     return jnp.where(error, nan, hp), jnp.where(error, nan, hc)
 
@@ -566,13 +605,17 @@ def polarizations(binary, frequencies, options):
     zero).
 
     Under ``jax.vmap`` the binaries are computed :data:`BATCH_BLOCK` at a
-    time (:data:`JACOBIAN_BLOCK` for the derivatives). The
+    time (:data:`JACOBIAN_BLOCK` for the derivatives), and the frequencies
+    in chunks of :data:`FREQUENCY_CHUNK` (of :data:`SINGLE_FREQUENCY_CHUNK`
+    for the polarizations of one binary). The
     derivatives with respect to the binary come from forward-mode Jacobians
     (:func:`._transforms.differentiable`): ``jax.grad``, ``jax.jvp`` and
     ``jax.jacfwd`` all work."""
     if options not in _POLARIZATIONS:
-        _POLARIZATIONS[options] = differentiable(functools.partial(_polarizations, options=options),
-                                                 block=BATCH_BLOCK, jacobian_block=JACOBIAN_BLOCK)
+        _POLARIZATIONS[options] = differentiable(
+            functools.partial(_polarizations, options=options, single=True),
+            block=BATCH_BLOCK, jacobian_block=JACOBIAN_BLOCK,
+            lean=functools.partial(_polarizations, options=options))
     return _POLARIZATIONS[options](binary, frequencies)
 
 
@@ -633,7 +676,7 @@ def _jframe_modes_in(binary, frequencies, options, delta_f, f_min, f_max):
         data = _decide(binary, frequencies, delta_f, f_min, f_max, modes, mode_range_=key, check_reference=False,
                        phase_grid=options.extended_phase_grid, amp_scale=strain_scale(options),
                        reference_mf=options.reference_mf)
-        hs = dict(zip(modes, _coprecessing_modes(data.wf, modes, frequencies, data.xas22)))
+        hs = dict(zip(modes, _coprecessing_modes(data.wf, modes, frequencies, data.xas22, data.coefficients)))
         results.append((jmodes, data, hs))
     else:
         keys = list(groups)

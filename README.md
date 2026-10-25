@@ -114,8 +114,14 @@ The package has the same interface as the Python bindings of
     amplitude polynomial of the intermediate region crosses zero checks
     the polynomial itself (LALSimulation reads the wrong roots), which
     changes the higher modes of a few binaries slightly.
-  - A coarser grid for interpolating the precession angles
-    (`extended_phase_grid`) makes light binaries faster.
+  - It interpolates the precession angles with LALSimulation's splines,
+    but on a grid that is fine at low frequencies and coarser above,
+    rather than on LALSimulation's uniform grid: a few thousand points
+    rather than up to hundreds of thousands, so that long waveforms of
+    light binaries are fast. Other interpolants of the precession
+    angles, which follow the orbital angular momentum where it passes
+    close to the total one, on a coarser grid of that kind
+    (`extended_phase_grid`), remain an option.
   - Batches of binaries and long frequency grids are computed a part at a
     time, so that the memory a batch or a derivative needs does not grow
     with the batch or with the number of frequencies.

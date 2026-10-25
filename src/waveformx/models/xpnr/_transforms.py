@@ -290,18 +290,24 @@ def _blocked(single, block):
     return batched
 
 
-def differentiable(single, batched=None, block=None, jacobian_block=None):
+def differentiable(single, batched=None, block=None, jacobian_block=None, lean=None):
     """``f(binary, frequencies)`` computing ``single(binary, frequencies)``
     (``batched`` under ``jax.vmap``, default ``jax.vmap(single)``), with
     derivatives from forward-mode Jacobians (see the module docstring).
     With ``block`` (static), the binaries of a ``jax.vmap`` are computed
     ``block`` at a time, and those of the Jacobian ``jacobian_block`` (by
-    default ``block``) at a time."""
+    default ``block``) at a time. ``lean`` (default ``single``) is the same
+    function in less memory, for the batches and the Jacobians (whose
+    arrays have a copy per binary and per tangent)."""
     primal = single
+    if lean is not None:
+        single, fast = lean, single
+    else:
+        fast = single
     if batched is None:
         batched = _blocked(single, block)
         if block is not None:
-            primal = _vmappable(single, batched)
+            primal = _vmappable(fast, batched)
             batched = _blocked(single, block if jacobian_block is None else jacobian_block)
     jacobians = {}
 
@@ -322,7 +328,7 @@ def differentiable(single, batched=None, block=None, jacobian_block=None):
                                          for t, a in zip(t_leaves, active) if a])
             t_out = jax.tree_util.tree_map(lambda j: j @ direction.astype(j.dtype), jac)
         else:
-            out = single(binary, frequencies)
+            out = fast(binary, frequencies)
             t_out = jax.tree_util.tree_map(jnp.zeros_like, out)
         if not isinstance(t_frequencies, SymbolicZero):
             _, t_freq = jax.jvp(lambda f: single(binary, f), (frequencies,), (t_frequencies,))
