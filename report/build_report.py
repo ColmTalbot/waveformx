@@ -41,7 +41,7 @@ import make_figures  # noqa: E402
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 TEST_FILES = {
-    "test_quick.py": "The quick tier (<code>pytest</code>): IMRPhenomXPNR with its derivative, NRSur7dq4",
+    "test_quick.py": "The quick tier (<code>pytest</code>): every model once under <code>jit</code>, <code>vmap</code> and a derivative, against LAL; the conversions; the matches",
     "test_api.py": "The interface: options, arguments, errors, spherical harmonics",
     "test_xpnr_xas.py": "IMRPhenomXPNR's (2,2) mode without precession against <code>SimIMRPhenomXASFrequencySequence</code>",
     "test_xas.py": "IMRPhenomXAS against LAL through the public functions, float32 (binary neutron stars too), batches, LAL's errors, the QNM fits",
@@ -491,8 +491,11 @@ def xas_values(values):
 def crossmodel_values(values):
     """IMRPhenomXPNR against NRSur7dq4 on the benchmark binaries
     (``report/crossmodel.py``: ``crossmodel_points.json``, ``crossmodel.json``
-    and the checks of ``--thorough``, ``crossmodel_checks.json``)."""
+    and the checks of ``--thorough``, ``crossmodel_checks.json``; the
+    departure from LAL broken down by the model before the LAL break,
+    ``crossmodel_lal_faithful.json``)."""
     points, data, checks = load("crossmodel_points.json"), load("crossmodel.json"), load("crossmodel_checks.json")
+    faithful = load("crossmodel_lal_faithful.json")["records"]
     settings = points["settings"]
     values["cm_draws"] = str(settings["n_draws"])
     values["cm_valid"] = str(points["n_valid"])
@@ -533,7 +536,7 @@ def crossmodel_values(values):
         values[f"cm_{label}_ratio_max"] = f"{max(ratio):.1f}"
         values[f"cm_{label}_unopt_median"] = sci(float(np.median(
             [r["lal_xpnr_vs_lal_nrsur"]["unoptimised"] for r in group])))
-    values["cm_spintaylor"] = str(sum(r["lal_spintaylor"] for r in records))
+    values["cm_spintaylor"] = str(sum(r["lal_spintaylor"] for r in faithful))
     # the checks: the procedure against the thorough one, the gradient
     # optimisation, our NRSur7dq4 as the signal, the start of the surrogate
     by_key = {json.dumps(r["features"], sort_keys=True): r for r in checks["records"]}
@@ -551,10 +554,14 @@ def crossmodel_values(values):
     gradient = [(r["our_xpnr_vs_lal_nrsur_gradient"]["mismatch"], r["our_xpnr_vs_lal_nrsur"]["mismatch"]) for r in c]
     values["cm_gradient_n"] = str(len(gradient))
     values["cm_gradient_worst"] = sci(max(abs(g / n - 1) for g, n in gradient))
-    departure = [r["departure"] for r in c]
+    departure = [r["departure"] for r in faithful]
     values["cm_nofix_vs_lal"] = sci(max(r["default_without_fix_vs_lal"] for r in departure))
     values["cm_parity_fix_max"] = sci(max(r["parity_fix"] for r in departure))
     values["cm_lean_vs_default"] = sci(max(r["lean_vs_default"] for r in departure))
+    # today's model against the lean model of then, through their mismatches with LAL
+    then = {json.dumps(r["features"], sort_keys=True): r["our_xpnr_vs_lal_xpnr"] for r in faithful}
+    change = max(abs(r["our_xpnr_vs_lal_xpnr"] - then[json.dumps(r["features"], sort_keys=True)]) for r in records)
+    values["cm_vs_faithful"] = "exactly" if change == 0 else f"to {sci(change)}"
     for label in ("agree", "disagree"):
         mm = [r["our_xpnr_vs_lal_xpnr"] for r in records if r["label"] == label]
         values[f"cm_{label}_self_median"] = sci(float(np.median(mm)))

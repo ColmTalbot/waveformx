@@ -152,3 +152,27 @@ def test_qnm_fits():
         ring32, damp32 = core.qnm_22(np.float32(af))
         assert float(ring32) == pytest.approx(float(ring), rel=2e-6)
         assert float(damp32) == pytest.approx(float(damp), rel=2e-6)
+
+
+def test_reference_mf():
+    """Reference invariance with the mass-scaled reference (f_ref = 0 is
+    the first frequency: the converter takes it), and the converters under
+    jit, vmap, grad and in float32."""
+    from test_taylorf2 import reference_invariance
+    from waveformx.models.xas import reference
+
+    reference_invariance("IMRPhenomXAS", reference, CASES, f_min_keyword=True)
+    f = np.geomspace(20.0, 512.0, 64)
+    with pytest.raises(wf.InvalidParameterError, match="f_ref must be zero"):
+        wf.polarizations("IMRPhenomXAS", f, reference_mf=0.01, **keywords(CASES[1]))
+    binaries = [wf.Binary(*(jnp.asarray(v, jnp.float64) for v in wf.Binary(**keywords(c)))) for c in CASES[:4]]
+    stacked = jax.tree_util.tree_map(lambda *v: jnp.stack(v), *binaries)
+    out = jax.jit(jax.vmap(reference.to_mass_scaled_reference))(stacked)
+    for i, b in enumerate(binaries):
+        assert float(out.phi_ref[i]) == pytest.approx(float(reference.to_mass_scaled_reference(b).phi_ref), abs=1e-12)
+    assert np.isnan(float(reference.to_mass_scaled_reference(binaries[0]._replace(f_ref=0.0)).phi_ref))
+    grad = jax.grad(lambda m: reference.to_mass_scaled_reference(binaries[1]._replace(mass_1=m)).phi_ref)(36.0)
+    assert np.isfinite(float(grad))
+    single = reference.to_mass_scaled_reference(wf.Binary(*(jnp.asarray(v, jnp.float32) for v in binaries[1])))
+    assert single.phi_ref.dtype == jnp.float32
+    assert np.cos(float(single.phi_ref) - float(out.phi_ref[1])) == pytest.approx(1.0, abs=1e-10)

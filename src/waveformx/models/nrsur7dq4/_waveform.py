@@ -12,7 +12,9 @@ Conventions (as LAL's):
   (``z`` along the principal axis of the radiation, ``x`` from the lighter
   to the heavier black hole) and the spins are given in it. ``f_ref = 0``
   selects the start of the surrogate (LAL's ``f_ref = f_min = 0``; the
-  drivers of :mod:`._driver` replace ``f_ref = 0`` by ``f_min``).
+  drivers of :mod:`._driver` replace ``f_ref = 0`` by ``f_min``). With the
+  mass-scaled reference (``reference_mf``, ``WaveformOptions``) the
+  reference is ``pi reference_mf`` for every mass, ``f_ref`` zero.
 * If ``mass_1 < mass_2`` the labels are swapped, the in-plane spins rotated
   by pi and the odd-``m`` modes negated.
 * The modes are in units of the strain at the binary's luminosity distance,
@@ -25,11 +27,10 @@ Conventions (as LAL's):
 * The waveform is evaluated in the precision of the binary's parameters
   (:func:`precision`): float32 if they are float32, else float64. The
   binary and the times are converted to it, and the data must be of it.
-  Nothing passes through SI units: the masses stay in solar masses (LAL's
-  ``m * MSUN_SI / MSUN_SI`` changes them by rounding only) and the
-  amplitude is one constant times the total mass over the distance in
-  Mpc, so that no intermediate, nor its derivatives, leaves the range of
-  float32.
+  Nothing passes through SI units: the masses stay in solar masses (LAL
+  converts them to kg and back) and the amplitude is one constant times
+  the total mass over the distance in Mpc, so that no intermediate, nor
+  its derivatives, leaves the range of float32.
 """
 
 from __future__ import annotations
@@ -49,7 +50,6 @@ from ._frames import coorbital_to_coprecessing, coprecessing_to_inertial
 from ._spline import evaluate, locate, second_derivatives
 
 __all__ = [
-    "MSUN_SI",
     "MTSUN_SI",
     "C_SI",
     "PC_SI",
@@ -68,7 +68,6 @@ __all__ = [
 ]
 
 # LAL's constants (lal 7.x, LALConstants.h)
-MSUN_SI = 1.988409870698050731911960804878414216e30
 MTSUN_SI = 4.925490947641266978197229498498379006e-6
 C_SI = 299792458.0
 PC_SI = 3.085677581491367278913937957796471611e16
@@ -124,10 +123,17 @@ def labelled(binary) -> Labelled:
     return Labelled(switched, mass_a / mass_b, chi_a, chi_b, m_tot_sec)
 
 
-def omega_ref(binary, labels: Labelled):
+def omega_ref(binary, labels: Labelled, reference_mf=None):
     """The dimensionless orbital reference frequency ``(M f_ref) pi``
-    (``get_dimless_omega``)."""
-    return (labels.m_tot_sec * jnp.asarray(binary.f_ref)) * jnp.pi
+    (``get_dimless_omega``); with the mass-scaled reference
+    ``reference_mf`` (``WaveformOptions.reference_mf``), ``pi
+    reference_mf`` whatever the mass, NaN where ``f_ref`` is not zero (with
+    a zero derivative with respect to it)."""
+    f_ref = jnp.asarray(binary.f_ref)
+    if reference_mf is not None:
+        scaled = jnp.full_like(labels.m_tot_sec, jnp.pi * reference_mf)
+        return jnp.where(jax.lax.stop_gradient(f_ref) == 0.0, scaled, jnp.nan)
+    return (labels.m_tot_sec * f_ref) * jnp.pi
 
 
 def active_modes(mode_array) -> Tuple[np.ndarray, Tuple[int, ...]]:
@@ -208,18 +214,20 @@ def _coorbital_dynamics(data: NRSurData, states, chi_a0, chi_b0):
     return quat, phase, rotate(chi_a), rotate(chi_b)
 
 
-def inertial_modes(data: NRSurData, binary, mode_array=None):
+def inertial_modes(data: NRSurData, binary, mode_array=None, reference_mf=None):
     """``PrecessingNRSur_core``: the inertial-frame modes on the coorbital
     times (real and imaginary parts, each ``(n_modes, n_coorb)``,
     dimensionless, in the labelled
     frame: without the sign of the odd modes of a label switch), the
     labelled binary and whether the evaluation is valid (false where LAL
     would fail to find the reference time). ``binary.f_ref = 0`` starts the
-    dynamics at the beginning of the surrogate."""
+    dynamics at the beginning of the surrogate, unless ``reference_mf`` (the
+    mass-scaled reference, :func:`omega_ref`) is given."""
     binary = as_precision(binary, data.dtype)
     labels = labelled(binary)
     omegas = reference_omegas(data, labels.q, labels.chi_a, labels.chi_b)
-    states, valid = integrate(data, labels.q, labels.chi_a, labels.chi_b, omega_ref(binary, labels), omegas)
+    states, valid = integrate(data, labels.q, labels.chi_a, labels.chi_b, omega_ref(binary, labels, reference_mf),
+                              omegas)
     quat, phase, chi_a, chi_b = _coorbital_dynamics(data, states, labels.chi_a, labels.chi_b)
     re, im = _coorbital_modes(data, labels.q, chi_a, chi_b)
     mask, _ = active_modes(mode_array)
@@ -272,32 +280,32 @@ def polarizations_from_modes(binary, h, labels: Labelled, mode_array=None, scale
     return hp * a0, hc * a0
 
 
-def polarizations_at_dimensionless(data: NRSurData, binary, tau, mode_array=None, scale=STRAIN_SCALE):
+def polarizations_at_dimensionless(data: NRSurData, binary, tau, mode_array=None, scale=STRAIN_SCALE, reference_mf=None):
     """``(h_+, h_x)`` at the times ``tau`` in units of the total mass,
     multiplied by ``scale``."""
     binary = as_precision(binary, data.dtype)
-    h, labels, valid = inertial_modes(data, binary, mode_array)
+    h, labels, valid = inertial_modes(data, binary, mode_array, reference_mf)
     hp, hc = polarizations_from_modes(binary, h, labels, mode_array, scale)
     out = _resample(data, jnp.stack([hp, hc], axis=-1), jnp.asarray(tau, data.dtype))
     out = jnp.where(valid, out, jnp.nan)
     return out[:, 0], out[:, 1]
 
 
-def polarizations_at(data: NRSurData, binary, times, mode_array=None, scale=STRAIN_SCALE):
+def polarizations_at(data: NRSurData, binary, times, mode_array=None, scale=STRAIN_SCALE, reference_mf=None):
     """``(h_+, h_x)`` at ``times`` (s, relative to the peak), multiplied by
     ``scale``."""
     binary = as_precision(binary, data.dtype)
     tau = jnp.asarray(times, data.dtype) / labelled(binary).m_tot_sec
-    return polarizations_at_dimensionless(data, binary, tau, mode_array, scale)
+    return polarizations_at_dimensionless(data, binary, tau, mode_array, scale, reference_mf)
 
 
-def modes_at_dimensionless(data: NRSurData, binary, tau, mode_array=None, scale=STRAIN_SCALE):
+def modes_at_dimensionless(data: NRSurData, binary, tau, mode_array=None, scale=STRAIN_SCALE, reference_mf=None):
     """The inertial modes ``{(l, m): h_lm}`` (complex, scaled to the
     distance and multiplied by ``scale``, with LAL's signs) at the times
     ``tau`` in units of the total mass, for the ``ell`` of
     :func:`output_ells`."""
     binary = as_precision(binary, data.dtype)
-    (re, im), labels, valid = inertial_modes(data, binary, mode_array)
+    (re, im), labels, valid = inertial_modes(data, binary, mode_array, reference_mf)
     ells = output_ells(mode_array)
     keep = [i for i, (ell, _) in enumerate(MODES) if ell in ells]
     factor = (_mode_signs(labels) * _amplitude(binary, labels, scale))[np.array(keep, dtype=int), None]
@@ -308,9 +316,9 @@ def modes_at_dimensionless(data: NRSurData, binary, tau, mode_array=None, scale=
     return {MODES[i]: out[:, k] + 1j * out[:, n + k] for k, i in enumerate(keep)}
 
 
-def modes_at(data: NRSurData, binary, times, mode_array=None, scale=STRAIN_SCALE):
+def modes_at(data: NRSurData, binary, times, mode_array=None, scale=STRAIN_SCALE, reference_mf=None):
     """The inertial modes at ``times`` (s, relative to the peak), multiplied
     by ``scale``."""
     binary = as_precision(binary, data.dtype)
     tau = jnp.asarray(times, data.dtype) / labelled(binary).m_tot_sec
-    return modes_at_dimensionless(data, binary, tau, mode_array, scale)
+    return modes_at_dimensionless(data, binary, tau, mode_array, scale, reference_mf)

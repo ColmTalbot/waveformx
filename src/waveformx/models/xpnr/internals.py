@@ -22,7 +22,7 @@ import jax.numpy as jnp
 from ._generated import qnm as _qnm
 from ._generated import utilities as _utilities
 from ._math import (
-    MPC_SI, MRSUN_SI, MTSUN_SI, PI, POWERS_OF_LALPI, FencedModule, Struct, fenced, fma, fnms, hz_to_mf, mass_unit,
+    MPC_SI, MRSUN_SI, MTSUN_SI, PI, POWERS_OF_LALPI, FencedModule, Struct, fenced, fma, fnms, hz_to_mf,
 )
 
 qnm = FencedModule(_qnm)
@@ -38,8 +38,8 @@ F_CUT_DEF_HIGH_SPIN = 0.33
 def waveform_struct(m1_si_in, m2_si_in, chi1l_in, chi2l_in, delta_f, f_ref, phi0, f_min, f_max, distance_mpc,
                     inclination, amp_scale=1.0):
     """``IMRPhenomXSetWaveformVariables`` for the default model versions
-    (BBH, GR), with the masses in kg (in :func:`._math.mass_unit`) as LAL
-    receives them and the distance in Mpc (LAL's is in m, whose square, in
+    (BBH, GR), with the masses in solar masses (LAL's are in kg)
+    and the distance in Mpc (LAL's is in m, whose square, in
     the derivative of the amplitude, is beyond the range of float32).
     ``delta_f = 0`` denotes a frequency sequence, ``f_ref = 0`` selects
     ``f_min`` and ``f_max = 0`` the default cutoff; the strain is multiplied
@@ -48,8 +48,8 @@ def waveform_struct(m1_si_in, m2_si_in, chi1l_in, chi2l_in, delta_f, f_ref, phi0
     ``delta_f``, ``f_min`` and ``f_max`` may be Python floats or traced
     values; the bodies are ordered heavier first as LAL orders them.
     """
-    m1_in = m1_si_in / mass_unit()
-    m2_in = m2_si_in / mass_unit()
+    m1_in = m1_si_in
+    m2_in = m2_si_in
     mass_ratio = jnp.where(m1_in > m2_in, m1_in / m2_in, m2_in / m1_in)
     swap = m1_in < m2_in
     m1 = jnp.where(swap, m2_in, m1_in)
@@ -67,8 +67,8 @@ def waveform_struct(m1_si_in, m2_si_in, chi1l_in, chi2l_in, delta_f, f_ref, phi0
     m_sec = m_tot * MTSUN_SI
     chi_eff = utilities.chi_eff(eta, chi1l, chi2l)
     dchi = utilities.dchi(chi1l, chi2l)
-    m1_si = m1 * mass_unit()
-    m2_si = m2 * mass_unit()
+    m1_si = m1
+    m2_si = m2
     m1 = m1 / m_tot
     m2 = m2 / m_tot
 

@@ -25,6 +25,12 @@ numerical procedure:
 * LAL's discrete switches of the angles made continuous (the end of the
   inspiral, the two-spin construction for every binary, the connection of
   the PNR ``beta``, the edge of the PNR transition region at ``q = 12``);
+* no opening angle where the in-plane spins vanish (no arctan window of
+  the PNR ``beta`` within ``[0, pi]``, the single-spin ``beta`` without
+  the perturbed MSA roots, the in-plane spin of the PNR fits not kept off
+  zero), the small angles taken as ``atan2`` of components rather than
+  ``acos`` of cosines, and the limit of the grid of the PNR interpolants
+  at equal masses, so that the waveform is continuous there;
 * exact derivatives in the higher modes where LAL takes finite
   differences, and no emulation of LAL's arithmetic (masses in kg,
   single-precision storage, the roots of GSL's companion matrix).
@@ -50,8 +56,7 @@ from ..._options import REFERENCE_MF, strain_scale
 from . import hm, pnr
 from . import pnr_angles as pa
 from ._math import (
-    MTSUN_SI, Struct, barrier, complex_, hz_to_mf, mass_unit, materialized, mf_to_hz, precision, precision_of, real,
-    safe_sqrt, tiny,
+    MTSUN_SI, Struct, barrier, complex_, hz_to_mf, materialized, mf_to_hz, precision, precision_of, real,
 )
 from ._transforms import differentiable
 from .antisymmetric import antisymmetric_kappa, antisymmetric_waveform
@@ -131,12 +136,12 @@ def setup_waveform(binary, delta_f, f_min, f_max, amp_scale=1.0, reference_mf=No
         binary, reference_mf = to_canonical(binary, reference_mf), REFERENCE_MF
     m1, m2, chi1, chi2 = ordered_binary(binary)
     wf = waveform_struct(
-        m1 * mass_unit(), m2 * mass_unit(), chi1[2], chi2[2], delta_f, reference_frequency(binary, reference_mf),
+        m1, m2, chi1[2], chi2[2], delta_f, reference_frequency(binary, reference_mf),
         jnp.asarray(binary.phi_ref, dtype=real()), f_min, f_max,
         jnp.asarray(binary.luminosity_distance, dtype=real()),
         jnp.asarray(binary.inclination, dtype=real()), amp_scale,
     )
-    return wf, m1 * mass_unit(), m2 * mass_unit(), [chi1[0], chi1[1], chi1[2]], [chi2[0], chi2[1], chi2[2]]
+    return wf, m1, m2, [chi1[0], chi1[1], chi1[2]], [chi2[0], chi2[1], chi2[2]]
 
 
 # ---------------------------------------------------------------------------
@@ -154,9 +159,12 @@ SQRT30 = 30.0 ** 0.5
 SQRT70 = 70.0 ** 0.5
 
 
-def half_angles(cos_beta):
-    """``cos(beta / 2)`` and ``sin(beta / 2)`` from ``cos(beta)``."""
-    return safe_sqrt(jnp.abs(1.0 + cos_beta) / 2.0, tiny()), safe_sqrt(jnp.abs(1.0 - cos_beta) / 2.0, tiny())
+def half_angles(beta):
+    """``cos(beta / 2)`` and ``sin(beta / 2)``: from ``beta`` itself, not
+    LAL's ``sqrt((1 -+ cos(beta)) / 2)``, which loses ``beta`` below ~1e-8
+    (``cos(beta)`` rounds to 1) and with it the derivatives for small
+    in-plane spins."""
+    return jnp.cos(0.5 * beta), jnp.sin(0.5 * beta)
 
 
 def wigner_d(ell, mprime, c, s):
@@ -189,7 +197,7 @@ def spherical_harmonics(theta, ell):
     return [jnp.real(spin_weighted_spherical_harmonic(theta, 0.0, ell, m)) for m in range(-ell, ell + 1)]
 
 
-def twist_factors(alpha, cos_beta, epsilon, mprime):
+def twist_factors(alpha, beta, epsilon, mprime):
     """The factors shared by the modes with the same ``m'``: the powers of
     ``exp(i alpha)``, of the half angles and ``exp(-i m' epsilon) / 2``."""
     e1 = jnp.exp(1j * alpha)
@@ -197,7 +205,7 @@ def twist_factors(alpha, cos_beta, epsilon, mprime):
     e3 = e1 * e2
     e4 = e1 * e3
     powers = [jnp.ones_like(e1), e1, e2, e3, e4]
-    cb, sb = half_angles(cos_beta)
+    cb, sb = half_angles(beta)
     c = [jnp.ones_like(cb)]
     s = [jnp.ones_like(sb)]
     for _ in range(1, 9):
@@ -255,7 +263,7 @@ def _mode_angles_pnr(prec, wf, splines, ell, emm, mf):
         mf_mapped, map_error = pnr.frequency_map(prec, mf, ell, emm, low, high, wf.f_ring, mf_rd_lm)
     f_mapped = mf_to_hz(mf_mapped, wf.m_tot)
     alpha, beta, gamma, inside = pnr.spline_angles(splines, f_mapped)
-    return alpha - prec.alpha_offset, jnp.cos(beta), -gamma - prec.epsilon_offset, map_error | ~inside
+    return alpha - prec.alpha_offset, beta, -gamma - prec.epsilon_offset, map_error | ~inside
 
 
 def _prepare_pnr(prec, wf, grid, version, error, active=True, extra_mf=None, n_extra=None):
@@ -309,7 +317,7 @@ WF_FIELDS = (
 
 def _angle_data(prec, wf, splines, modes, frequencies, kappa=None):
     """What the precession contributes to the waveform: for each
-    co-precessing mode the Euler angles ``(alpha, cos(beta), epsilon)`` at
+    co-precessing mode the Euler angles ``(alpha, beta, epsilon)`` at
     ``frequencies``, the antisymmetric part of the (2,2) mode, the line of
     sight in the J frame, the polarization angle, the waveform struct as the
     set-up left it, and the error flag. ``kappa``: the amplitude ratio of the
@@ -321,14 +329,14 @@ def _angle_data(prec, wf, splines, modes, frequencies, kappa=None):
     # LAL skips the odd modes where they vanish
     vanishing_odd = (wf.q == 1.0) & (wf.chi1l == wf.chi2l)
     error = jnp.asarray(False)
-    alphas, cos_betas, epsilons = [], [], []
+    alphas, betas, epsilons = [], [], []
     for ell, emm in modes:
-        alpha, cos_beta, epsilon, err = _mode_angles_pnr(prec, wf, splines, ell, emm, mf)
+        alpha, beta, epsilon, err = _mode_angles_pnr(prec, wf, splines, ell, emm, mf)
         if emm % 2:
             err = err & ~vanishing_odd
         error = error | jnp.any(err & keep)
         alphas.append(alpha)
-        cos_betas.append(cos_beta)
+        betas.append(beta)
         epsilons.append(epsilon)
     if (2, 2) in modes:
         amp, phase, err, xas22 = antisymmetric_waveform(prec, wf, frequencies, 330, splines.st_extra, kappa)
@@ -341,7 +349,7 @@ def _angle_data(prec, wf, splines, modes, frequencies, kappa=None):
     wf_out = Struct(**{name: getattr(wf, name) for name in WF_FIELDS})
     wf_out.hm_release = jnp.asarray(122019)
     return Struct(
-        wf=wf_out, alpha=jnp.stack(alphas), cos_beta=jnp.stack(cos_betas), epsilon=jnp.stack(epsilons), h_as=h_as,
+        wf=wf_out, alpha=jnp.stack(alphas), beta=jnp.stack(betas), epsilon=jnp.stack(epsilons), h_as=h_as,
         theta_jn=prec.theta_jn, zeta=prec.zeta_polarization, error=error, xas22=xas22,
     )
 
@@ -381,7 +389,7 @@ def _twist_polarizations(data, modes, frequencies):
     hp = jnp.zeros(frequencies.shape, complex_())
     hc = jnp.zeros(frequencies.shape, complex_())
     for index, ((ell, emm), h) in enumerate(zip(modes, _coprecessing_modes(wf, modes, frequencies, data.xas22))):
-        twist = materialized(twist_factors(data.alpha[index], data.cos_beta[index], data.epsilon[index], emm))
+        twist = materialized(twist_factors(data.alpha[index], data.beta[index], data.epsilon[index], emm))
         p, c = twist_up(ell, emm, twist, ylms[ell], h, 1.0)
         if (ell, emm) == (2, 2):
             pa_, ca_ = twist_up(ell, emm, twist, ylms[ell], data.h_as, -1.0)
@@ -416,7 +424,7 @@ def _twist_jframe(data, modes, jmodes, frequencies, hs):
     negative = [zero for _ in jmodes]
     for (index, (ell, emm)), h in zip(selected, hs):
         h_as = data.h_as if (ell, emm) == (2, 2) else jnp.zeros_like(h)
-        cb, sb = half_angles(data.cos_beta[index])
+        cb, sb = half_angles(data.beta[index])
         c = [jnp.ones_like(cb)]
         s = [jnp.ones_like(sb)]
         for _ in range(1, 9):

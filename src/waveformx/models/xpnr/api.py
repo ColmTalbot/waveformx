@@ -24,7 +24,7 @@ import numpy as np
 from ...exceptions import InvalidParameterError, ModelError
 from ..._results import FrequencyModes
 from . import model, pnr
-from ._math import MSUN_SI, MTSUN_SI
+from ._math import MTSUN_SI
 
 __all__ = ["MODEL", "XPNRModel"]
 
@@ -113,7 +113,7 @@ class XPNRModel:
         m1, m2 = float(binary.mass_1), float(binary.mass_2)
         chi1 = np.asarray(binary.spin_1, dtype=float)
         chi2 = np.asarray(binary.spin_2, dtype=float)
-        if m1 * MSUN_SI <= m2 * MSUN_SI:
+        if m1 <= m2:
             m1, m2, chi1, chi2 = m2, m1, chi2, chi1
         eta = m1 * m2 / (m1 + m2) ** 2
         delta = np.sqrt(max(1.0 - 4.0 * eta, 0.0))

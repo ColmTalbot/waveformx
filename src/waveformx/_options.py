@@ -89,8 +89,7 @@ class WaveformOptions:
       ``M f`` (default ``False``), rather than on LAL's uniform grid: far
       fewer points for light binaries, at the cost of a larger difference
       from LAL.
-    * ``reference_mf``: for the models that take it (IMRPhenomXPNR,
-      TaylorF2 and IMRPhenomD; the others refuse it in their checks), the
+    * ``reference_mf``: for every model, the
       reference frequency of the binary in units of the total mass,
       ``M f_ref`` (default ``None``:
       LAL's convention, ``Binary.f_ref`` in Hz). The spins, the
@@ -100,7 +99,10 @@ class WaveformOptions:
       works for every mode array and every binary, whether ``f_ref`` lies
       inside the frequencies or not. ``Binary.f_ref`` must then be zero (the
       waveform is NaN otherwise, and its derivative with respect to it
-      zero). Whatever ``reference_mf`` is, the model first carries the
+      zero). For the aligned-spin models only the reference phase moves
+      with it; for NRSur7dq4 the reference is the orbital frequency ``pi
+      reference_mf`` of the surrogate, which must lie inside it (for
+      ``REFERENCE_MF`` it does for every binary of its range). Whatever ``reference_mf`` is, IMRPhenomXPNR first carries the
       binary to :data:`REFERENCE_MF` and takes everything that depends on
       the reference there (the aligned spins of the co-precessing modes,
       J, the PNR fits, the offsets of the angles, the phase alignment and
@@ -108,8 +110,8 @@ class WaveformOptions:
       references gives the same waveform; other values cost an
       integration between the two references (and a compilation each, as
       the option is static). :func:`waveformx.to_mass_scaled_reference` and
-      :func:`waveformx.to_physical_reference` convert binaries between
-      the two conventions.
+      :func:`waveformx.to_physical_reference` (with ``approximant``)
+      convert binaries between the two conventions.
     * ``scaled_strain``: whether the models return the strain multiplied by
       ``1e21`` (default ``True``), which keeps the strain, its square and
       its derivatives within the range of float32; ``False`` gives the

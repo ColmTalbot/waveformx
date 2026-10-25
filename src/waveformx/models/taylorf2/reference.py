@@ -23,10 +23,11 @@ binary neutron stars.
 
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
+import numpy as np
 
 from ..._options import REFERENCE_MF
-from ..xas.core import reduce
 from ..xpnr._math import MTSUN_SI, precision, precision_of
 from . import core, pn
 
@@ -40,12 +41,14 @@ def phase(m1, m2, chi1, chi2, mf):
     return core.phase_mf(v, logs, mf)
 
 
-def converters(phase_of, zero_is):
+def converters(phase_of, zero_is, period=2.0 * np.pi):
     """``(to_mass_scaled_reference, to_physical_reference)`` of a model
     whose phase is ``phase_of(m1, m2, chi1, chi2, mf)`` and for which
     ``f_ref = 0`` means ``zero_is``: ``"coalescence"`` (no reference phase)
     or ``"f_min"`` (the first frequency, which the converters then take as
-    an argument)."""
+    an argument). The change of the phase is reduced modulo ``period``:
+    ``2 pi`` (``phi_ref`` modulo ``pi``) leaves the (2,2) mode unchanged,
+    ``4 pi`` (``phi_ref`` modulo ``2 pi``) every mode."""
 
     def phase_at(binary, f, f_min):
         m1, m2 = binary.mass_1, binary.mass_2
@@ -67,7 +70,9 @@ def converters(phase_of, zero_is):
 
     def shifted(binary, phi_from, phi_to, f_ref):
         dtype = precision_of(binary)
-        phi = jnp.asarray(binary.phi_ref, jnp.float64) + 0.5 * reduce(phi_to - phi_from)
+        change = phi_to - phi_from
+        turns = jax.lax.stop_gradient(jnp.round(change / period))
+        phi = jnp.asarray(binary.phi_ref, jnp.float64) + 0.5 * (change - turns * period)
         return binary._replace(phi_ref=phi.astype(dtype), f_ref=jnp.asarray(f_ref, dtype))
 
     def as_float64(binary):

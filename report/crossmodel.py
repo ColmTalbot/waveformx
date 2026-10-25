@@ -8,12 +8,14 @@
 The signal is NRSur7dq4's ``h_+`` (LAL's ``SimInspiralFD``, or ours through
 :func:`waveformx.simulate_fd`) of the whole surrogate (``f_min = 0``; LAL
 tapers its start): conditioned from a frequency near the band, its first
-cycles are tapered and filtered inside the band, which changes the mismatch
-from 20 Hz by ``~1e-4`` from 10 Hz and ``~3e-3`` from 20 Hz. The template IMRPhenomXPNR (LAL's
-``SimInspiralChooseFDWaveformSequence`` or our lean model, ``lean=True``) at
-the same binary, with the same reference frequency (20 Hz) and LAL's frame
-conventions (our model and LAL's are also compared directly: the larger
-mismatch of the two polarizations, maximised over time and phase), on 20-1024 Hz in steps of 1/8 Hz with the aLIGO design PSD. The
+cycles are tapered and filtered inside the band, which changes the
+mismatch from 20 Hz by ``~1e-4`` from 10 Hz and ``~3e-3`` from 20 Hz. The
+template is IMRPhenomXPNR (LAL's ``SimInspiralChooseFDWaveformSequence``,
+or ours, :func:`waveformx.polarizations_function`) at the same binary,
+with the same reference frequency (20 Hz) and LAL's frame conventions, on
+20-1024 Hz in steps of 1/8 Hz with the aLIGO design PSD; our model and
+LAL's are also compared directly (the larger mismatch of the two
+polarizations, maximised over time and phase). The
 mismatch is maximised over time and the antenna patterns of the template
 (:func:`waveformx.match.polarization_mismatch`) and optimised over the
 parameters that the two models define differently
@@ -34,10 +36,10 @@ that procedure: Nelder-Mead to tighter tolerances,
 the gradient optimisation of :func:`waveformx.match.optimize` (L-BFGS-B
 through our model) from the same starts, our NRSur7dq4 as the signal, and
 the floor from the start of the surrogate (the whole surrogate against
-the surrogate conditioned from 10 Hz), and where our model departs from
-LAL's (our default model without the parity fix against LAL, the fix, and
-the lean model against the default one): about 7 minutes on 16
-processes.
+the surrogate conditioned from 10 Hz): about 7 minutes on 16 processes.
+``report/data/crossmodel_lal_faithful.json`` keeps its output for the model
+before the break with LAL (tag ``lal-faithful``), which also broke our
+model's departure from LAL down into the parity fix and the rest.
 
 The benchmark binaries (``report/data/crossmodel_points.json``) are chosen
 once with ``--select``: draws in NRSur7dq4's range (``q <= 4``, ``|chi| <=
@@ -147,45 +149,23 @@ def lal_xpnr(keywords):
     return lal_sequence(keywords, FREQUENCIES)
 
 
-_LEAN = None
+_MODEL = None
 
 
-def lean_function():
-    global _LEAN
-    if _LEAN is None:
-        _LEAN = __import__("jax").jit(wf.polarizations_function("IMRPhenomXPNR"))
-    return _LEAN
+def model_function():
+    global _MODEL
+    if _MODEL is None:
+        _MODEL = __import__("jax").jit(wf.polarizations_function("IMRPhenomXPNR"))
+    return _MODEL
 
 
-_DEFAULT = None
-
-
-def default_function():
-    global _DEFAULT
-    if _DEFAULT is None:
-        _DEFAULT = __import__("jax").jit(wf.polarizations_function("IMRPhenomXPNR"))
-    return _DEFAULT
-
-
-_VARIANTS = {}
-
-
-def _variant(name):
-    """Our default IMRPhenomXPNR with (``"fixed"``) and without
-    (``"nofix"``) the parity fix."""
-    if name not in _VARIANTS:
-        _VARIANTS[name] = __import__("jax").jit(
-            wf.polarizations_function("IMRPhenomXPNR", pnr_parity_fix=name == "fixed"))
-    return _VARIANTS[name]
-
-
-def lean_binary(keywords, x=None):
+def model_binary(keywords, x=None):
     binary = wf.Binary(*(jnp.asarray(keywords[k], jnp.float64) for k in wf.Binary._fields))
     return binary if x is None else wf.match.with_conventions(binary, conventions(x))
 
 
 def our_xpnr(keywords):
-    return lean_function()(lean_binary(keywords), jnp.asarray(FREQUENCIES))
+    return model_function()(model_binary(keywords), jnp.asarray(FREQUENCIES))
 
 
 def optimised(signal, template, keywords, thorough=False):
@@ -217,7 +197,7 @@ def optimised(signal, template, keywords, thorough=False):
                 starts=[int(i) for i in np.argsort(grid)[:keep]], evaluations=count[0])
 
 
-def _lean_objective(x, signal, binary, psd_):
+def _model_objective(x, signal, binary, psd_):
     f = wf.polarizations_function("IMRPhenomXPNR")
     frequencies = jnp.asarray(FREQUENCIES)
     hp, hc = f(wf.match.with_conventions(binary, conventions(x)), frequencies)
@@ -225,10 +205,10 @@ def _lean_objective(x, signal, binary, psd_):
 
 
 def gradient_optimised(signal, keywords, starts):
-    """Our lean model with :func:`waveformx.match.optimize` (L-BFGS-B with
+    """Our model with :func:`waveformx.match.optimize` (L-BFGS-B with
     the gradient through the model) from ``starts``."""
     setup()
-    result = wf.match.optimize(_lean_objective, starts, (jnp.asarray(signal), lean_binary(keywords), _PSD))
+    result = wf.match.optimize(_model_objective, starts, (jnp.asarray(signal), model_binary(keywords), _PSD))
     return dict(mismatch=result.fun, shifts=[float(v) for v in result.x])
 
 
@@ -354,10 +334,6 @@ def _measure_one(point, thorough):
     # our NRSur7dq4 against LAL's (no optimisation)
     record["nrsur_ours_vs_lal"] = float(1 - wf.match.match(jnp.asarray(lal_signal), jnp.asarray(our_signal),
                                                            jnp.asarray(FREQUENCIES), _PSD))
-    # whether LAL used the SpinTaylor angles: our default model, which
-    # follows LAL's, is NaN where LAL would switch to other angles
-    record["lal_spintaylor"] = bool(np.all(np.isfinite(np.asarray(
-        default_function()(lean_binary(keywords), jnp.asarray(FREQUENCIES))[0]))))
     record["lal_xpnr_vs_lal_nrsur"] = optimised(lal_signal, lal_xpnr, keywords, thorough)
     record["our_xpnr_vs_lal_nrsur"] = optimised(lal_signal, our_xpnr, keywords, thorough)
     # our model against LAL's at the same binary, in the same conventions:
@@ -375,18 +351,6 @@ def _measure_one(point, thorough):
         record["our_xpnr_vs_our_nrsur"] = optimised(our_signal, our_xpnr, keywords, thorough)
         starts = STARTS[record["our_xpnr_vs_lal_nrsur"]["starts"]]
         record["our_xpnr_vs_lal_nrsur_gradient"] = gradient_optimised(lal_signal, keywords, starts)
-        # where our model departs from LAL's: our default model without the
-        # parity fix (LAL 6.2.0's), the fix, and the lean model against the
-        # default one with it
-        def larger(x, y):
-            return max(float(wf.match.mismatch(jnp.asarray(a), jnp.asarray(b), frequencies, _PSD))
-                       for a, b in zip(x, y))
-
-        binary = lean_binary(keywords)
-        nofix = _variant("nofix")(binary, frequencies)
-        fixed = _variant("fixed")(binary, frequencies)
-        record["departure"] = dict(default_without_fix_vs_lal=larger(nofix, lal_xpnr(keywords)),
-                                   parity_fix=larger(fixed, nofix), lean_vs_default=larger(our_xpnr(keywords), fixed))
     record["seconds"] = time.perf_counter() - start
     return record
 

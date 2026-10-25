@@ -21,7 +21,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from .._generated import dop853
-from .._math import C_SI, MTSUN_SI, PI, g_si, mass_unit, precision
+from .._math import MTSUN_SI, PI, precision
 from ..spintaylor import dynamics, trajectory
 from ..spintaylor import lean as st_lean
 from ..spintaylor.angles import _du_per_step
@@ -81,8 +81,8 @@ def setup(x):
     k_ref, info)`` with ``info`` the :data:`SETUP_FIELDS`."""
     m1, m2, chi1, chi2, f_ref, f_low, f_cut = _unpack_inputs(x)
     m_tot = m1 + m2
-    msec = m_tot / mass_unit() * MTSUN_SI
-    pi_gm = PI * m_tot * (g_si() / C_SI) / (C_SI * C_SI)
+    msec = m_tot * MTSUN_SI
+    pi_gm = PI * m_tot * MTSUN_SI
     dt_fine = 0.5 / f_cut / msec
     y_ref = st_lean._initial_state(m1, m2, chi1, chi2, f_ref, msec)
     c = dynamics.coefficients(m1, m2, f_ref, f_cut)
@@ -143,7 +143,7 @@ def finish(last, omega_first, x):
     ``M omega`` at the end (``solution``'s last lines)."""
     m1, m2 = x[0], x[1]
     m_tot = m1 + m2
-    pi_gm = PI * m_tot * (g_si() / C_SI) / (C_SI * C_SI)
+    pi_gm = PI * m_tot * MTSUN_SI
     norm1 = (m1 / m_tot) ** 2
     norm2 = (m2 / m_tot) ** 2
     s1 = jnp.stack([last[5] / norm1, last[6] / norm1, last[7] / norm1])

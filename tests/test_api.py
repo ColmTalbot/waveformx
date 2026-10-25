@@ -107,3 +107,28 @@ def test_spin_weighted_spherical_harmonics(lal, ell):
         ours = complex(wf.spin_weighted_spherical_harmonic(theta, phi, ell, m))
         theirs = lal_module.SpinWeightedSphericalHarmonic(theta, phi, -2, ell, m)
         assert abs(ours - theirs) < 1e-14 * max(1.0, abs(theirs)), (ell, m)
+
+
+def test_reference_converters():
+    """The converters dispatch to each model's (IMRPhenomXPNR's by
+    default), and refuse unknown approximants."""
+    import jax.numpy as jnp
+
+    from waveformx.models.xas import reference as xas_reference
+    from waveformx.models.xpnr import reference as xpnr_reference
+
+    binary = wf.Binary(*(jnp.asarray(v, jnp.float64) for v in wf.Binary(36.0, 29.0, (0.0, 0.0, 0.3),
+                                                                          (0.0, 0.0, -0.4), 500.0, 1.0, 1.2, 30.0)))
+    for name in ("IMRPhenomXAS", "IMRPhenomXHM"):
+        ours = wf.to_mass_scaled_reference(binary, 0.01, approximant=name, f_min=20.0)
+        assert float(ours.phi_ref) == float(xas_reference.to_mass_scaled_reference(binary, 0.01, 20.0).phi_ref)
+        back = wf.to_physical_reference(ours, 30.0, 0.01, approximant=name)
+        assert float(back.phi_ref) == pytest.approx(1.2, abs=1e-9)
+    assert float(wf.to_mass_scaled_reference(binary).phi_ref) == float(
+        xpnr_reference.to_mass_scaled_reference(binary).phi_ref)
+    # aligned spins: IMRPhenomXPNR's converters move phi_ref as IMRPhenomXAS's
+    xpnr = float(wf.to_mass_scaled_reference(binary, 0.01).phi_ref)
+    xas = float(wf.to_mass_scaled_reference(binary, 0.01, approximant="IMRPhenomXAS").phi_ref)
+    assert np.cos(xpnr - xas) == pytest.approx(1.0, abs=1e-8)
+    with pytest.raises(wf.UnknownApproximantError):
+        wf.to_mass_scaled_reference(binary, approximant="SEOBNRv4_ROM")

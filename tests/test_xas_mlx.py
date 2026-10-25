@@ -197,3 +197,56 @@ def test_nan_where_lal_fails():
                    wf.Binary(1500.0, 1.0, (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), 400.0, 0.4, 0.0, 20.0)):
         hp, hc = xas_mlx.polarizations(binary, f)
         assert np.all(np.isnan(np.asarray(hp))) and np.all(np.isnan(np.asarray(hc)))
+
+
+def test_reference_mf():
+    """The mass-scaled reference: against the JAX model (float64) with it,
+    the Jacobian (the masses through ``reference_mf / M``, nothing for
+    ``f_ref``) and ``mx.grad``, NaN for a non-zero ``f_ref``, and the
+    converters against JAX's (to float32's rounding of the phase between
+    the references)."""
+    from waveformx.models.xas import model as xas_model
+    from waveformx.models.xas import reference
+
+    options = wf.WaveformOptions(reference_mf=0.01)
+
+    def scaled(p, f):
+        b = wf.Binary(p[0], p[1], p[2:5], p[5:8], p[8], p[9], p[10], p[11])
+        return jnp.stack(xas_model.polarizations(b, f, options))
+
+    for name in ("generic", "heavy", "light", "bns"):
+        binary = BINARIES[name]._replace(f_ref=0.0)
+        f = frequencies_for(binary, 500)
+        p = np.float32(vector(binary)).astype(np.float64)
+        expected = np.asarray(scaled(jnp.asarray(p), jnp.asarray(f)))
+        out = xas_mlx.polarizations(binary, f, reference_mf=0.01)
+        for h, a in zip(out, expected):
+            assert mismatch(h, a) < 1e-6, name
+        jac = np.asarray(jax.jacfwd(scaled)(jnp.asarray(p), jnp.asarray(f)))
+        (_, _), (jp, jc) = xas_mlx.polarizations_and_jacobian(binary, f, reference_mf=0.01)
+        ours = np.stack([np.asarray(jp, np.complex128), np.asarray(jc, np.complex128)])
+        for k in range(12):
+            norm = np.linalg.norm(jac[..., k])
+            error = np.linalg.norm(ours[..., k] - jac[..., k])
+            assert (error == 0) if norm == 0 else (error < 1e-2 * norm), (name, k, error, norm)
+        target = [mx.array(x.astype(np.complex64)) for x in expected]
+
+        def loss_mlx(m1):
+            hp, hc = xas_mlx.polarizations(binary._replace(mass_1=m1), f, reference_mf=0.01)
+            return mx.sum(mx.real(hp * mx.conj(target[0]) + hc * mx.conj(target[1])))
+
+        grad = float(mx.grad(loss_mlx)(mx.array(np.float32(binary.mass_1))))
+        product = np.sum(jac[:, :, 0] * np.conj(expected)).real
+        assert grad == pytest.approx(product, rel=1e-2, abs=1e-3 * np.abs(jac[:, :, 0]).sum() * np.abs(expected).max())
+        bad = xas_mlx.polarizations(binary._replace(f_ref=20.0), f, reference_mf=0.01)[0]
+        assert np.all(np.isnan(np.asarray(bad)))
+        given = binary._replace(f_ref=30.0)
+        ours = xas_mlx.to_mass_scaled_reference(given, 0.01, f_min=20.0)
+        theirs = reference.to_mass_scaled_reference(wf.Binary(*(jnp.asarray(np.float32(v), jnp.float64)
+                                                                for v in given)), 0.01, f_min=20.0)
+        assert abs(np.sin(float(ours.phi_ref) - float(theirs.phi_ref))) < 2e-3
+        back = xas_mlx.to_physical_reference(ours, 30.0, 0.01)
+        assert abs(np.sin(float(back.phi_ref) - float(given.phi_ref))) < 2e-3
+        grad = mx.grad(lambda x: xas_mlx.to_mass_scaled_reference(given._replace(mass_1=x), 0.01, f_min=20.0).phi_ref)(
+            mx.array(np.float32(given.mass_1)))
+        assert np.isfinite(float(grad))

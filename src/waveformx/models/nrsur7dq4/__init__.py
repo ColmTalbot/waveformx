@@ -28,7 +28,11 @@ evaluates the waveform at ``times`` (s, relative to the peak), works under
 ``jax.jit``, ``jax.vmap`` and ``jax.grad`` with respect to every parameter
 of the binary, and starts the dynamics at the start of the surrogate where
 ``binary.f_ref = 0`` (``td_polarizations`` replaces ``f_ref = 0`` by
-``f_min``, as LAL). It is evaluated in float32 if the binary's parameters
+``f_min``, as LAL). With the option ``reference_mf`` the binary is given
+where the orbital frequency is ``pi reference_mf / M`` (``f_ref`` zero), a
+reference of the same point of the inspiral for every mass, which needs no
+search on the host; :mod:`.reference` converts binaries between the two
+conventions with the surrogate's dynamics. It is evaluated in float32 if the binary's parameters
 are float32 (with float32 data, :func:`load` with ``dtype``), else in
 float64.
 
@@ -59,7 +63,7 @@ class NRSur7dq4Model:
         reference and starting frequencies, the mode array)."""
         from .. import check_reference_mf
 
-        check_reference_mf(binary, options, "NRSur7dq4", supported=False)
+        check_reference_mf(binary, options, "NRSur7dq4")
         _driver.setup(binary, float(delta_t), float(f_min), options)
 
     @staticmethod
@@ -85,19 +89,24 @@ class NRSur7dq4Model:
     def polarizations_at(binary, times, options, data: Optional[NRSurData] = None):
         """``(h_+, h_x)`` at ``times`` (s, relative to the peak; zero outside
         the surrogate), pure and differentiable. ``binary.f_ref = 0`` starts
-        the dynamics at the start of the surrogate. No checks are made:
+        the dynamics at the start of the surrogate (with
+        ``options.reference_mf``, the binary is given at the orbital
+        frequency ``pi reference_mf`` and ``f_ref`` must be zero: NaN
+        otherwise, with a zero derivative). No checks are made:
         where LAL would fail to find the reference time the result is
         NaN. The precision is that of the binary's parameters (float32 or
         float64); the times, and ``data`` if given, are converted to it."""
         data = _data_for(binary, data)
-        return _waveform.polarizations_at(data, binary, times, options.mode_array, _waveform.strain_scale(options))
+        return _waveform.polarizations_at(data, binary, times, options.mode_array, _waveform.strain_scale(options),
+                                          options.reference_mf)
 
     @staticmethod
     def modes_at(binary, times, options, data: Optional[NRSurData] = None):
         """The inertial modes ``{(l, m): h_lm}`` at ``times``, as
         :meth:`polarizations_at`."""
         data = _data_for(binary, data)
-        return _waveform.modes_at(data, binary, times, options.mode_array, _waveform.strain_scale(options))
+        return _waveform.modes_at(data, binary, times, options.mode_array, _waveform.strain_scale(options),
+                                  options.reference_mf)
 
 
 def _data_for(binary, data: Optional[NRSurData]) -> NRSurData:

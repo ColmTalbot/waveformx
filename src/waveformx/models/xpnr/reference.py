@@ -57,7 +57,7 @@ import jax.numpy as jnp
 from ..._binary import Binary
 from ..._options import REFERENCE_MF
 from ._generated import dop853
-from ._math import MTSUN_SI, PI, mass_unit, powers, precision, precision_of, real
+from ._math import MTSUN_SI, PI, powers, precision, precision_of, real
 from .internals import waveform_struct
 from .phase22 import phase_22
 from .spintaylor import dynamics
@@ -108,7 +108,7 @@ def orbital_phase(binary, mf_from, mf_to):
     m1, m2, chi1, chi2 = (jnp.where(keep, m1, m2), jnp.where(keep, m2, m1), jnp.where(keep, chi1, chi2),
                           jnp.where(keep, chi2, chi1))
     m_sec = (m1 + m2) * MTSUN_SI
-    wf = waveform_struct(m1 * mass_unit(), m2 * mass_unit(), chi1, chi2, 0.0, mf_from / m_sec, 0.0, mf_from / m_sec,
+    wf = waveform_struct(m1, m2, chi1, chi2, 0.0, mf_from / m_sec, 0.0, mf_from / m_sec,
                          mf_to / m_sec, 1.0, 0.0)
     xas = xas_setup(wf)
 

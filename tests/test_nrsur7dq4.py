@@ -142,7 +142,7 @@ def test_rk4_start_nodes(lal):
     from waveformx.models.nrsur7dq4 import _data, _driver
 
     binary = wf._binary.binary_from_keywords(BINARY)
-    _, _, _, chi_a, chi_b, q, m_tot_sec = _driver._host_labels(_driver._intrinsic(binary))
+    _, chi_a, chi_b, q, m_tot_sec = _driver._host_labels(_driver._intrinsic(binary))
     omegas = np.asarray(_driver._omegas(_data.default_data(), q, chi_a, chi_b))
     for node, fraction in ((0, 0.3), (1, 0.4), (1, 0.6), (2, 0.5), (3, 0.5)):
         omega = omegas[node] + fraction * (omegas[node + 1] - omegas[node])
@@ -337,3 +337,67 @@ def test_polarizations_at_matches_td_polarizations():
     # zero outside the surrogate
     hp, hc = function(binary, jnp.array([-10.0, 1.0]))
     assert np.all(np.asarray(hp) == 0) and np.all(np.asarray(hc) == 0)
+
+
+REFERENCE_CASES = [
+    # (mass_1, mass_2, spin_1, spin_2, inclination, phi_ref, f_ref)
+    (40.0, 25.0, (0.0, 0.0, 0.5), (0.0, 0.0, -0.3), 0.7, 1.1, 20.0),
+    (25.0, 40.0, (0.0, 0.0, 0.5), (0.0, 0.0, -0.3), 0.7, 1.1, 20.0),
+    (40.0, 25.0, (0.4, 0.2, 0.3), (-0.3, 0.5, 0.1), 0.7, 1.1, 20.0),
+    (25.0, 40.0, (0.4, 0.2, 0.3), (-0.3, 0.5, 0.1), 2.0, 4.0, 25.0),
+    (60.0, 15.0, (0.6, -0.3, 0.2), (0.1, 0.5, -0.4), 1.3, 0.3, 25.0),
+]
+
+
+@pytest.mark.parametrize("case", REFERENCE_CASES)
+def test_reference_mf(case):
+    """A binary converted to the mass-scaled reference with the surrogate's
+    dynamics gives the same waveform (up to the rotation of the
+    polarization basis and the difference of the two integrations), and
+    back; the public functions with ``reference_mf``."""
+    import jax
+
+    from waveformx.models.nrsur7dq4 import MODEL, reference
+
+    m1, m2, s1, s2, inclination, phi, f_ref = case
+    binary = wf.Binary(*(jnp.asarray(v, jnp.float64) for v in wf.Binary(m1, m2, s1, s2, 400.0, inclination, phi,
+                                                                          f_ref)))
+    mass = (m1 + m2) * 4.925490947641267e-06
+    times = np.linspace(-3000 * mass, 80 * mass, 4000)
+    options = wf.WaveformOptions(reference_mf=0.01)
+    function = jax.jit(lambda b, o: MODEL.polarizations_at(b, times, o), static_argnums=1)
+    scaled, psi = reference.to_mass_scaled_reference(binary, 0.01, return_angle=True)
+    assert float(scaled.f_ref) == 0.0
+    h = np.asarray(function(binary, wf.WaveformOptions()))
+    g = np.asarray(function(scaled, options))
+    h, g = h[0] + 1j * h[1], (g[0] + 1j * g[1]) * np.exp(2j * float(psi))
+    # (the surrogate's integrations from two references differ by up to
+    # ~1e-2 radians of orbital phase: its own dependence on the reference)
+    assert np.max(np.abs(h - g)) < 2e-2 * np.max(np.abs(h))
+    assert 1 - np.vdot(h, g).real / (np.linalg.norm(h) * np.linalg.norm(g)) < 1e-4
+    # (the round trip integrates twice: the same difference turns the
+    # frame by up to ~1e-2 radians)
+    back = reference.to_physical_reference(scaled, f_ref, 0.01)
+    assert float(back.f_ref) == f_ref
+    for a, b in ((back.spin_1, binary.spin_1), (back.spin_2, binary.spin_2)):
+        np.testing.assert_allclose(np.asarray(a), np.asarray(b), atol=1e-2)
+    assert float(back.inclination) == pytest.approx(inclination, abs=1e-2)
+    assert np.cos(float(back.phi_ref) - phi) == pytest.approx(1.0, abs=1e-4)
+    # the public function on LAL's grid, with f_ref below f_min allowed
+    keywords = dict(zip(wf.Binary._fields, (np.asarray(v) for v in scaled)))
+    out = wf.td_polarizations("NRSur7dq4", 1 / 4096, 30.0, reference_mf=0.01, **keywords)
+    assert np.all(np.isfinite(np.asarray(out.hplus)))
+
+
+def test_reference_mf_errors():
+    from waveformx.models.nrsur7dq4 import reference
+
+    keywords = dict(mass_1=60.0, mass_2=15.0, spin_1=(0.0, 0.0, 0.8), spin_2=(0.0, 0.0, 0.8), f_ref=0.0)
+    with pytest.raises(wf.InvalidParameterError, match="f_ref must be zero"):
+        wf.td_polarizations("NRSur7dq4", 1 / 4096, 20.0, reference_mf=0.01, **dict(keywords, f_ref=20.0))
+    with pytest.raises(wf.InvalidParameterError, match="before the start of NRSur7dq4"):
+        wf.td_polarizations("NRSur7dq4", 1 / 4096, 20.0, reference_mf=0.005, **keywords)
+    wf.td_polarizations("NRSur7dq4", 1 / 4096, 20.0, reference_mf=0.01, **keywords)
+    # a reference outside the surrogate: NaN
+    binary = wf.Binary(*(jnp.asarray(v, jnp.float64) for v in wf.Binary(**dict(keywords, f_ref=12.0))))
+    assert np.isnan(float(reference.to_mass_scaled_reference(binary).phi_ref))

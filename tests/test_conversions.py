@@ -41,6 +41,10 @@ NRSUR = dict(mass_1=40.0, mass_2=20.0, spin_1=(0.4, -0.3, 0.2), spin_2=(0.1, 0.5
 TD_TOLERANCE = 5e-12
 #: the frequency-domain conversions, given LAL's model
 FD_TOLERANCE = 1e-13
+#: with ``f_ref = 0`` LAL's model starts at the start frequency of the plan,
+#: which the bounds in solar masses move by rounding (4e-16), and LAL's
+#: IMRPhenomXPNR changes by ~6e-7 for that shift of ``f_min``
+TD_TOLERANCE_FREF_FMIN = 1e-5
 
 
 def binary_of(keywords):
@@ -111,21 +115,26 @@ class LALModel:
 # ---------------------------------------------------------------------------
 
 
-def test_bounds_are_lals_bit_for_bit(lal):
+def test_bounds_are_lals_to_rounding(lal):
+    """The bounds in solar masses are LAL's (in kg) to rounding."""
     lal_module, lalsim = lal
     rng = np.random.default_rng(1)
+
+    def close(ours, theirs):
+        return abs(ours - theirs) <= 4e-15 * abs(theirs)
+
     for _ in range(300):
         m1, m2 = rng.uniform(1.0, 200.0, 2)
         s1, s2 = rng.uniform(-1.0, 1.0, 2)
         f = rng.uniform(5.0, 100.0)
         kg1, kg2 = m1 * lal_module.MSUN_SI, m2 * lal_module.MSUN_SI
         s = lalsim.SimInspiralFinalBlackHoleSpinBound(s1, s2)
-        assert c.chirp_time_bound(f, m1, m2, s1, s2) == lalsim.SimInspiralChirpTimeBound(f, kg1, kg2, s1, s2)
-        assert c.merge_time_bound(m1, m2) == lalsim.SimInspiralMergeTimeBound(kg1, kg2)
+        assert close(c.chirp_time_bound(f, m1, m2, s1, s2), lalsim.SimInspiralChirpTimeBound(f, kg1, kg2, s1, s2))
+        assert close(c.merge_time_bound(m1, m2), lalsim.SimInspiralMergeTimeBound(kg1, kg2))
         assert c.final_black_hole_spin_bound(s1, s2) == s
-        assert c.ringdown_time_bound_kg(kg1 + kg2, s) == lalsim.SimInspiralRingdownTimeBound(kg1 + kg2, s)
-        assert c.chirp_start_frequency_bound(f / 10, m1, m2) == lalsim.SimInspiralChirpStartFrequencyBound(
-            f / 10, kg1, kg2)
+        assert close(c.ringdown_time_bound(m1 + m2, s), lalsim.SimInspiralRingdownTimeBound(kg1 + kg2, s))
+        assert close(c.chirp_start_frequency_bound(f / 10, m1, m2),
+                     lalsim.SimInspiralChirpStartFrequencyBound(f / 10, kg1, kg2))
 
 
 def test_traced_bounds_agree_with_the_host():
@@ -187,7 +196,7 @@ def test_high_pass_filter_of_a_part_of_a_buffer():
 TD_CASES = [
     ("4096 Hz from 20 Hz", XPNR, 1 / 4096, 20.0, None, TD_TOLERANCE),
     ("2048 Hz from 15 Hz", XPNR, 1 / 2048, 15.0, None, TD_TOLERANCE),
-    ("1024 Hz from 25 Hz, f_ref = 0", dict(XPNR, f_ref=0.0), 1 / 1024, 25.0, None, TD_TOLERANCE),
+    ("1024 Hz from 25 Hz, f_ref = 0", dict(XPNR, f_ref=0.0), 1 / 1024, 25.0, None, TD_TOLERANCE_FREF_FMIN),
     ("light, 4096 Hz", dict(XPNR, mass_1=12.0, mass_2=8.0, f_ref=25.0), 1 / 4096, 20.0, None, TD_TOLERANCE),
     ("heavy, 8192 Hz from 10 Hz, (2,2) mode", dict(XPNR, mass_1=80.0, mass_2=50.0, f_ref=10.0), 1 / 8192, 10.0,
      ((2, 2), (2, -2)), 1e-10),

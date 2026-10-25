@@ -19,11 +19,20 @@
   Python control flow on traced values, so that `jax.jit`, `jax.vmap` and
   `jax.grad` (with respect to the binary's parameters) work. Run
   the model's `tests/test_transforms_<model>.py` after changing it.
-- **Tests**: `pytest` runs the quick tier (`tests/test_quick.py` and a few
-  fast files, about a minute); `pytest tests` runs everything (an hour or
-  more; `WAVEFORMX_SLOW=1` adds the random-binary suites). Compiled code is
+- **Tests**: `pytest` runs the quick tier (`tests/test_quick.py` and
+  `tests/test_api.py`); `pytest tests` runs everything (an hour or more;
+  `WAVEFORMX_SLOW=1` adds the random-binary suites). Compiled code is
   cached across runs in `~/.cache/waveformx/jax` (`WAVEFORMX_TEST_CACHE`
   moves it, empty turns it off): time compilation with the cache off.
+- **The quick tier's budget** is a minute with the cache off and about
+  20 s with it (`conftest.py` warns beyond 90 s). It compiles each model
+  once, as one function (values and derivatives for a batch of binaries),
+  in a process of its own so that they compile in parallel. Keep it that
+  way: put new checks in that function's batch or in the per-model files,
+  not in new compilations; the (2,+-2) modes plus at most one higher mode;
+  no SpinTaylor evolution below 20 solar masses from below 30 Hz. The
+  IMRPhenomXPNR derivative is its critical path (~15 s of tracing even
+  with the cache).
 - **MLX tests** (`tests/test_nrsur7dq4_mlx.py`, `tests/test_xpnr_mlx.py`,
   `tests/test_xas_mlx.py`, `tests/test_xhm_mlx.py`) are skipped without MLX: run them with a Python
   that has it (`MLX_PYTHON` in `report/measure_all.sh`). The MLX

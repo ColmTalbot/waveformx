@@ -54,7 +54,7 @@ import numpy as np  # noqa: E402
 import waveformx as wf  # noqa: E402
 from waveformx.models.xas import core  # noqa: E402
 from waveformx.models.xpnr import xas as lal_xas  # noqa: E402
-from waveformx.models.xpnr._math import mass_unit, precision, precision_of, real  # noqa: E402
+from waveformx.models.xpnr._math import precision, precision_of, real  # noqa: E402
 from waveformx.models.xpnr.internals import waveform_struct  # noqa: E402
 
 try:
@@ -238,7 +238,7 @@ def lal_faithful(b, f, options=OPTIONS):
     implementation before this one."""
     with precision(precision_of(b)):
         f = jnp.asarray(f, real())
-        w = waveform_struct(b.mass_1 * mass_unit(), b.mass_2 * mass_unit(), b.spin_1[2], b.spin_2[2], 0.0, b.f_ref,
+        w = waveform_struct(b.mass_1, b.mass_2, b.spin_1[2], b.spin_2[2], 0.0, b.f_ref,
                             b.phi_ref, f[0], f[-1], b.luminosity_distance, b.inclination, 1e21)
         s = lal_xas.xas_setup(w)
         h = lal_xas.h22(w.m_sec * f, w, s, lal_xas.phif_ref(w, s))

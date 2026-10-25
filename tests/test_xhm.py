@@ -217,3 +217,29 @@ def test_batch_and_errors():
     binary = wf.Binary(2000.0, 1.0, (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), 400.0, 0.4, 0.0, 20.0)
     hp, _ = function(binary, jnp.asarray(f))
     assert np.all(np.isnan(np.asarray(hp)))
+
+
+def test_reference_mf():
+    """Reference invariance of every mode with the mass-scaled reference
+    (IMRPhenomXAS's converters: ``phi_ref`` modulo ``2 pi``, the odd modes
+    turning by half-turns), and the modes on LAL's grid with it."""
+    from test_taylorf2 import reference_invariance
+    from waveformx.models.xas import reference as xas_reference
+
+    reference_invariance("IMRPhenomXHM", xas_reference, CASES, f_min_keyword=True)
+    for case in CASES[:3] + CASES[5:6]:
+        f = grid(case)
+        k = keywords(case)
+        binary = wf.Binary(*(jnp.asarray(v, jnp.float64) for v in wf.Binary(**k)))
+        scaled = xas_reference.to_mass_scaled_reference(binary, 0.01, f_min=case[7])
+        ks = {n: np.asarray(v) for n, v in scaled._asdict().items()}
+        ours = wf.modes("IMRPhenomXHM", f, reference_mf=0.01, **ks).modes
+        theirs = wf.modes("IMRPhenomXHM", f, **k).modes
+        for mode in theirs:
+            assert compare(ours[mode], theirs[mode])[0] < 1e-9, (case, mode)
+        lal_grid = wf.choose_fd_modes("IMRPhenomXHM", 1.0 / 8.0, case[7], 512.0, **k).modes
+        scaled_grid = wf.choose_fd_modes("IMRPhenomXHM", 1.0 / 8.0, case[7], 512.0, reference_mf=0.01, **ks).modes
+        for mode in lal_grid:
+            assert compare(scaled_grid[mode], lal_grid[mode])[0] < 1e-9, (case, mode)
+    with pytest.raises(wf.InvalidParameterError, match="f_ref must be zero"):
+        wf.polarizations("IMRPhenomXHM", grid(CASES[0]), reference_mf=0.01, **keywords(CASES[0]))

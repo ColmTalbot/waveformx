@@ -27,7 +27,7 @@ waveform structs):
 ``C2`` the rest of the set-up of version 330, up to the grid of the PNR
        interpolants
 ``D``  per grid point: the PNR ``alpha`` and ``beta`` (``uniform_angles``)
-``S``  (by hand) the interpolants: :func:`..pnr._geometric_interpolants`
+``S``  (by hand) the interpolants: :func:`..pnr._lal_interpolants`
 ``E``  the offsets at the reference frequency, the remapped J frame and the
        coefficients of the modes and of the antisymmetric mode
 ``F1`` per frequency: the frequencies at which each mode reads the angles,
@@ -48,8 +48,7 @@ import numpy as np
 from .. import hm, model, pnr
 from .. import pnr_angles as pa
 from .._math import (
-    MTSUN_SI, PI, Struct, fma, hz_to_mf, mf_to_hz, powers, precision, real, safe_div, safe_sqrt,
-    tiny,
+    MTSUN_SI, PI, Struct, fma, hz_to_mf, mf_to_hz, powers, precision, real, safe_div,
 )
 from ..amp22 import amp_ansatz
 from ..antisymmetric import _kappa_function, antisymmetric_coefficients, smooth_amp_ratio
@@ -67,8 +66,8 @@ BINARY_FIELDS = ("mass_1", "mass_2", "spin_1", "spin_2", "luminosity_distance", 
 #: The groups of points at which the set-up reads the SpinTaylor angles
 #: (:func:`..pnr.st_bank`), and their sizes.
 BANK_GROUPS = (("euler", 4), ("alpha", 4), ("beta", 3), ("antisymmetric", 4))
-#: The interpolants of the smooth PNR angles (:func:`..pnr._geometric_interpolants`).
-SPLINES = ("u", "v", "w", "gamma", "unwrapped")
+#: The interpolants of the PNR angles (:func:`..pnr._lal_interpolants`).
+SPLINES = ("alpha", "beta", "gamma")
 
 
 def binary_leaves(binary):
@@ -183,7 +182,7 @@ def _with_bank(prec, points, values, st_range):
 
 def stage_c2(prec, wf, points, values, st_range, modes):
     """The rest of ``model._spintaylor_setup`` with the SpinTaylor angles at the
-    bank's points ``values`` (``(alpha, dalpha, cosbeta, dcosbeta,
+    bank's points ``values`` (``(alpha, dalpha, beta, dbeta,
     inside)``, each of shape ``(15,)``): returns ``(prec, wf, grid,
     error)`` with ``grid = (i_start, n, delta_f)`` of the PNR interpolants."""
     pnr.clear_cache()
@@ -223,13 +222,8 @@ def grid_point(prec, wf, mf, st_values):
 def spline_tail(values):
     """``(alpha, beta, gamma)`` of :func:`..pnr.spline_angles` from the
     values of the interpolants (:data:`SPLINES`) at a point."""
-    u, v, w, g, unwrapped = values
-    a = st_angles.small_atan2(v, u)
-    b = st_angles._atan2(safe_sqrt(u * u + v * v, tiny()), w)
-    d = pnr._wrap(a - unwrapped)
-    weight = pa._ramp(w / safe_sqrt(u * u + v * v + w * w, tiny()), pnr.HEMISPHERE_SOFT)
-    gamma = fma(weight, g - d, (1.0 - weight) * (g + d))
-    return a, b, gamma
+    alpha, beta, gamma = values
+    return alpha, beta, gamma
 
 
 def stage_e(prec, wf, at_ref, inside_ref, modes):
@@ -319,7 +313,7 @@ def stage_f2(prec, wf, extra, f, spline_values, inside, map_errors, kappa, st_al
         if emm % 2:
             err = err & ~vanishing_odd
         error = error | (err & keep)
-        angles.append((a - prec.alpha_offset, jnp.cos(b), -g - prec.epsilon_offset))
+        angles.append((a - prec.alpha_offset, b, -g - prec.epsilon_offset))
     h_as = None
     if (2, 2) in modes:
         co = extra.co
@@ -391,7 +385,7 @@ def st_point_angles(st_range, rotation, mf, y0, dense, t0, h, x, node):
     """:func:`..spintaylor.lean.angles` at one point ``mf`` in its step
     (``y0``, ``dense``, ``t0``, ``h``) at ``x`` (:func:`st_newton`), with
     ``node`` the continuous ``alpha`` of the node before it: ``(alpha,
-    dalpha, cosbeta, dcosbeta, inside)``."""
+    dalpha, beta, dbeta, inside)``."""
     from ..spintaylor import trajectory
     from ..spintaylor.angles import _rotate, small_atan2, small_square
 
@@ -415,7 +409,8 @@ def st_point_angles(st_range, rotation, mf, y0, dense, t0, h, x, node):
     big = r2 > small_square()
     dalpha_dt = jnp.where(big, lx * dly - ly * dlx, 0.0) / jnp.where(big, r2, 1.0)
     inside = (mf >= first_mf) & (mf <= last_mf)
-    return alpha, safe_div(dalpha_dt, dmf_dt), lz, safe_div(dlz, dmf_dt), inside
+    beta, dbeta_dt = st_angles.polar_angle(lx, ly, lz, dlx, dly, dlz)
+    return alpha, safe_div(dalpha_dt, dmf_dt), beta, safe_div(dbeta_dt, dmf_dt), inside
 
 
 def st_node_raw(rotation, lnhat):
@@ -431,18 +426,11 @@ def grid_point_mf(grid, wf, k):
     return grid_frequencies(k, grid, wf.m_tot)
 
 
-def uvw(alpha, beta):
-    """The unit vector of the smooth interpolants."""
-    sin_beta = jnp.sin(beta)
-    return jnp.stack([sin_beta * jnp.cos(alpha), sin_beta * jnp.sin(alpha), jnp.cos(beta)])
-
-
 def boole_interval(grid, i, here, after):
-    """The increments of ``gamma`` and of the unwrapped ``alpha`` over the
-    interval ``[i, i + 1]`` (``i`` real) of the grid (``boole`` of
-    :func:`..pnr._geometric_interpolants`): ``here`` and ``after`` are
-    ``(u, v, w)``, their second derivatives and ``atan2(v, u)`` at both
-    ends (7 each). Zero beyond the grid."""
+    """The increment of ``gamma`` over the interval ``[i, i + 1]`` (``i``
+    real) of the grid (``boole`` of :func:`..pnr._lal_interpolants`):
+    ``here`` and ``after`` are ``alpha``, ``beta`` and their second
+    derivatives at both ends (4 each). Zero beyond the grid."""
     i_start, n, h = grid[0], grid[1], grid[2]
     x0 = i_start * h
 
@@ -453,27 +441,16 @@ def boole_interval(grid, i, here, after):
     t2 = frequencies(i + 1.0)
     points = jnp.stack([t2, fma(3.0, t1, t2) / 4.0, (t1 + t2) / 2.0, t1, fma(3.0, t2, t1) / 4.0])
     dx = points - (x0 + i * h)
-
-    def piece(k):
-        y0, y1 = here[k], after[k]
-        m0, m1 = here[3 + k], after[3 + k]
-        b = (y1 - y0) / h - h * (m1 + 2.0 * m0) / 6.0
-        value = y0 + dx * (b + dx * (m0 / 2.0 + dx * (m1 - m0) / (6.0 * h)))
-        return value, b + dx * (m0 + (m1 - m0) / (2.0 * h) * dx)
-
-    def boole_sum(f):
-        return 1.0 / 90.0 * (t2 - t1) * fma(7.0, f[0], fma(32.0, f[1], fma(12.0, f[2], fma(7.0, f[3], 32.0 * f[4]))))
-
-    (ux, du), (vx, dv), (wx, _) = piece(0), piece(1), piece(2)
-    r = safe_sqrt(ux * ux + vx * vx + wx * wx, tiny())
-    twist = ux * dv - vx * du
-    north = boole_sum(safe_div(twist, r * (r + wx)))
-    south = boole_sum(safe_div(twist, r * (r - wx)))
-    d_alpha = pnr._wrap(after[6] - here[6])
-    weight = pa._ramp(wx[2] / r[2], pnr.HEMISPHERE_SOFT)
-    d_gamma = fma(weight, north - d_alpha, (1.0 - weight) * (d_alpha - south))
+    y0, y1, m0, m1 = here[0], after[0], here[2], after[2]
+    yb0, yb1, mb0, mb1 = here[1], after[1], here[3], after[3]
+    b = (y1 - y0) / h - h * (m1 + 2.0 * m0) / 6.0
+    dalpha = b + dx * (m0 + (m1 - m0) / (2.0 * h) * dx)
+    bb = (yb1 - yb0) / h - h * (mb1 + 2.0 * mb0) / 6.0
+    beta_x = yb0 + dx * (bb + dx * (mb0 / 2.0 + dx * (mb1 - mb0) / (6.0 * h)))
+    f = -dalpha * jnp.cos(beta_x)
+    total_f = fma(7.0, f[0], fma(32.0, f[1], fma(12.0, f[2], fma(7.0, f[3], 32.0 * f[4]))))
     used = i + 1.0 < n
-    return jnp.where(used, d_gamma, 0.0), jnp.where(used, d_alpha, 0.0)
+    return (jnp.where(used, 1.0 / 90.0 * (t2 - t1) * total_f, 0.0),)
 
 
 def spline_point(grid, x, k, ends, curvatures):
@@ -507,7 +484,7 @@ def spline_point6(grid, x, k, y0, y1, m0, m1):
 def stage_f2_pieces(prec, wf, extra, grid, f, x, k, map_errors, kappa, st_alpha, st_inside, *pieces, modes):
     """:func:`stage_f2` with the interpolants evaluated at the frequencies
     ``x`` of the modes (Hz, in the intervals ``k``) from ``pieces``: for
-    each mode, the values and second derivatives of the five interpolants
+    each mode, the values and second derivatives of the interpolants
     at both ends of its interval (``y0``, ``y1``, ``m0``, ``m1``)."""
     values, inside = [], []
     for m in range(len(modes)):
@@ -685,8 +662,8 @@ def _compiled(dtype_name, modes, amp_scale, reference_mf=None):
     def s(alpha, beta, grid):
         i_start, n, h = grid[0], grid[1], grid[2]
         pad = pnr.PNR_GRID_CAPACITY - alpha.shape[0]
-        return pnr._geometric_interpolants(pnr._unit_vector(jnp.pad(alpha, (0, pad)), jnp.pad(beta, (0, pad))),
-                                           i_start, n, h, n, jnp.asarray(False))
+        return pnr._lal_interpolants(jnp.pad(alpha, (0, pad)), jnp.pad(beta, (0, pad)), i_start, n, h, n,
+                                     jnp.asarray(False))
 
     def spline_values(splines, f):
         out = [pnr._spline_at(getattr(splines, name), getattr(splines, "m_" + name), splines.n, splines.x0,

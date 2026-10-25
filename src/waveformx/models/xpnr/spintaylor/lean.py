@@ -40,10 +40,10 @@ import jax
 import jax.numpy as jnp
 
 from .._generated import dop853
-from .._math import C_SI, MTSUN_SI, PI, Struct, g_si, integer, isolated_step, mass_unit, real, safe_div
+from .._math import MTSUN_SI, PI, Struct, integer, isolated_step, real, safe_div
 from .._transforms import while_loop
 from . import dynamics, trajectory
-from .angles import _du_per_step, _refined, small_atan2, small_square, _rotate
+from .angles import _du_per_step, _refined, polar_angle, small_atan2, small_square, _rotate
 
 __all__ = ["solution", "context", "angles", "CAPACITY"]
 
@@ -150,7 +150,7 @@ def _integrate(c, y_ref, k_ref, du_back, n_back, du_fwd, beyond, active):
 
 def solution(m1, m2, chi1, chi2, f_ref, f_low, f_cut, active=True):
     """The SpinTaylor solution from ``f_low - 0.5 Hz`` through ``f_ref`` to
-    the end of the inspiral, for masses in :func:`.._math.mass_unit`
+    the end of the inspiral, for masses in solar masses
     (heavier first) and the spins ``chi1``, ``chi2`` (3-vectors in the L
     frame at ``f_ref``); ``f_cut`` (Hz) bounds the frequency. Returns a
     :class:`~.._math.Struct` with what :func:`context` and :func:`angles`
@@ -159,8 +159,8 @@ def solution(m1, m2, chi1, chi2, f_ref, f_low, f_cut, active=True):
     (the capacity was exceeded). Where ``active`` (traced) is false, no
     steps are taken."""
     m_tot = m1 + m2
-    msec = m_tot / mass_unit() * MTSUN_SI
-    pi_gm = PI * m_tot * (g_si() / C_SI) / (C_SI * C_SI)
+    msec = m_tot * MTSUN_SI
+    pi_gm = PI * m_tot * MTSUN_SI
     # LAL's fine sampling of the end of the inspiral
     dt_fine = 0.5 / f_cut / msec
     y_ref = _initial_state(m1, m2, chi1, chi2, f_ref, msec)
@@ -355,11 +355,10 @@ def _time_at_omega(sol, omega):
 
 def angles(sol, rotation, mf, mf_scale, ctx):
     """The SpinTaylor ``alpha`` (continuous, on the branch of the first
-    step) and ``cos(beta)`` and their derivatives at ``mf``: the time at
-    which ``M omega = mf / mf_scale`` on the dense output, one Newton step
-    with derivatives (those of the root), and LNhat in the J frame there.
-    Returns ``(alpha, dalpha, cosbeta, dcosbeta, inside)`` as
-    :func:`.angles.spline`."""
+    step) and ``beta`` and their derivatives at ``mf``: the time at which
+    ``M omega = mf / mf_scale`` on the dense output, one Newton step with
+    derivatives (those of the root), and LNhat in the J frame there.
+    Returns ``(alpha, dalpha, beta, dbeta, inside)``."""
     omega = mf / mf_scale
     r, t = _time_at_omega(sol, omega)
     y0 = sol.rows[r, 1:5]
@@ -385,4 +384,5 @@ def angles(sol, rotation, mf, mf_scale, ctx):
     big = r2 > small_square()
     dalpha_dt = jnp.where(big, lx * dly - ly * dlx, 0.0) / jnp.where(big, r2, 1.0)
     inside = (mf >= ctx.first_mf) & (mf <= ctx.last_mf)
-    return alpha, safe_div(dalpha_dt, dmf_dt), lz, safe_div(dlz, dmf_dt), inside
+    beta, dbeta_dt = polar_angle(lx, ly, lz, dlx, dly, dlz)
+    return alpha, safe_div(dalpha_dt, dmf_dt), beta, safe_div(dbeta_dt, dmf_dt), inside
