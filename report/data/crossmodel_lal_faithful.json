@@ -1,0 +1,2900 @@
+{
+ "description": "report/crossmodel.py --thorough with the model before the LAL break (tag lal-faithful, commit a07f6f6), when IMRPhenomXPNR still had LAL's default model and the parity-fix option: our lean model against LAL 6.2.0 broken down into the parity fix and the rest, and whether LAL kept the SpinTaylor angles (our LAL replica was NaN where it would not). Kept fixed: the current model has no such variants.",
+ "settings": {
+  "delta_f": 0.125,
+  "f_low": 20.0,
+  "f_max": 1024.0,
+  "f_ref": 20.0,
+  "starts": [
+   [
+    0.0,
+    0.0
+   ],
+   [
+    0.0,
+    1.5707963267948966
+   ],
+   [
+    0.0,
+    3.141592653589793
+   ],
+   [
+    0.0,
+    4.71238898038469
+   ],
+   [
+    1.5707963267948966,
+    0.0
+   ],
+   [
+    1.5707963267948966,
+    1.5707963267948966
+   ],
+   [
+    1.5707963267948966,
+    3.141592653589793
+   ],
+   [
+    1.5707963267948966,
+    4.71238898038469
+   ],
+   [
+    3.141592653589793,
+    0.0
+   ],
+   [
+    3.141592653589793,
+    1.5707963267948966
+   ],
+   [
+    3.141592653589793,
+    3.141592653589793
+   ],
+   [
+    3.141592653589793,
+    4.71238898038469
+   ],
+   [
+    4.71238898038469,
+    0.0
+   ],
+   [
+    4.71238898038469,
+    1.5707963267948966
+   ],
+   [
+    4.71238898038469,
+    3.141592653589793
+   ],
+   [
+    4.71238898038469,
+    4.71238898038469
+   ]
+  ],
+  "keep": 3,
+  "tolerances": {
+   "xatol": 0.0001,
+   "fatol": 1e-09,
+   "maxfev": 400
+  },
+  "points": "crossmodel_points.json",
+  "workers": 16
+ },
+ "environment": {
+  "machine": "arm64 Darwin 25.6.0",
+  "cpu": "Apple M2 Ultra",
+  "cpus": 24,
+  "python": "3.12.15",
+  "jax": "0.11.2",
+  "jaxlib": "0.11.2",
+  "backend": "cpu",
+  "xla_flags": "",
+  "waveformx_commit": "a2e2b36",
+  "lalsimulation": "6.2.0",
+  "lal": "7.7.0",
+  "waveformrs": "0.1.0"
+ },
+ "seconds": 402.93616683315486,
+ "records": [
+  {
+   "label": "agree",
+   "features": {
+    "q": 1.531070378081603,
+    "total_mass": 129.70309960749853,
+    "chi_eff": -0.14021098230882653,
+    "chi_p": 0.3363410501012256,
+    "cos_inclination": -0.5427554755704612
+   },
+   "selection": 0.0009470353729923442,
+   "nrsur_ours_vs_lal": 0.0,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.0009470353729923442,
+    "shifts": [
+     5.13809462494509,
+     1.3118945887425635
+    ],
+    "unoptimised": 0.02091540803528591,
+    "starts": [
+     13,
+     14,
+     12
+    ],
+    "evaluations": 566
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.001668934108526865,
+    "shifts": [
+     5.031775391110517,
+     1.3734940350076417
+    ],
+    "unoptimised": 0.018572471314129757,
+    "starts": [
+     13,
+     12,
+     14
+    ],
+    "evaluations": 221
+   },
+   "our_xpnr_vs_lal_xpnr": 0.0034381162671431875,
+   "nrsur_conditioning": 1.670131612874215e-05,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.001668934108526865,
+    "shifts": [
+     5.031775391110517,
+     1.3734940350076417
+    ],
+    "unoptimised": 0.018572471314129757,
+    "starts": [
+     13,
+     12,
+     14
+    ],
+    "evaluations": 221
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.0016689341061358887,
+    "shifts": [
+     5.031777344078571,
+     1.3734713227217714
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 3.7547742692822794e-13,
+    "parity_fix": 0.003436789754242997,
+    "lean_vs_default": 2.2624202511423164e-10
+   },
+   "seconds": 300.67203387478366
+  },
+  {
+   "label": "agree",
+   "features": {
+    "q": 3.777045497731303,
+    "total_mass": 191.55318449004318,
+    "chi_eff": -0.04701814356067329,
+    "chi_p": 0.07565007300050482,
+    "cos_inclination": 0.7524777225315582
+   },
+   "selection": 0.0003725389034539006,
+   "nrsur_ours_vs_lal": 3.3306690738754696e-16,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.0003725389034539006,
+    "shifts": [
+     -0.037892324449632496,
+     5.91212300579495
+    ],
+    "unoptimised": 0.0005083157673243521,
+    "starts": [
+     0,
+     3,
+     1
+    ],
+    "evaluations": 433
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.00023950682576234783,
+    "shifts": [
+     -0.0716869117742047,
+     3.8684015681960626
+    ],
+    "unoptimised": 0.0008555142930817272,
+    "starts": [
+     3,
+     2,
+     1
+    ],
+    "evaluations": 244
+   },
+   "our_xpnr_vs_lal_xpnr": 0.0006121917284126477,
+   "nrsur_conditioning": 2.8489404036657895e-05,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.00023950682576234783,
+    "shifts": [
+     -0.0716869117742047,
+     3.8684015681960626
+    ],
+    "unoptimised": 0.0008555142930819493,
+    "starts": [
+     3,
+     2,
+     1
+    ],
+    "evaluations": 244
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.0002395068256372257,
+    "shifts": [
+     -0.07168498377598737,
+     3.868409460797318
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 8.97393270804514e-13,
+    "parity_fix": 0.0006177678711788426,
+    "lean_vs_default": 1.5131534814027958e-07
+   },
+   "seconds": 301.81940745795146
+  },
+  {
+   "label": "agree",
+   "features": {
+    "q": 1.4868624049733838,
+    "total_mass": 188.12787853569978,
+    "chi_eff": -0.3277947180653433,
+    "chi_p": 0.48764167568532163,
+    "cos_inclination": 0.7966007914263864
+   },
+   "selection": 0.0007657985526792199,
+   "nrsur_ours_vs_lal": 1.1102230246251565e-16,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.0007657985526792199,
+    "shifts": [
+     4.876814134474678,
+     -0.6079626823695436
+    ],
+    "unoptimised": 0.012547582594608864,
+    "starts": [
+     12,
+     15,
+     13
+    ],
+    "evaluations": 271
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.0007527164674631104,
+    "shifts": [
+     4.877652261182613,
+     -0.616248168896243
+    ],
+    "unoptimised": 0.01050338756793312,
+    "starts": [
+     12,
+     13,
+     15
+    ],
+    "evaluations": 203
+   },
+   "our_xpnr_vs_lal_xpnr": 0.003132647571721492,
+   "nrsur_conditioning": 0.00010420692471035942,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.0007527164674625553,
+    "shifts": [
+     4.877652261182613,
+     -0.616248168896243
+    ],
+    "unoptimised": 0.010503387567933453,
+    "starts": [
+     12,
+     13,
+     15
+    ],
+    "evaluations": 203
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.0007527164627201266,
+    "shifts": [
+     4.877669102440666,
+     -0.6162345453437493
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 2.1724844145865063e-12,
+    "parity_fix": 0.0031314564361915043,
+    "lean_vs_default": 1.3601516579697659e-09
+   },
+   "seconds": 285.1661546253599
+  },
+  {
+   "label": "agree",
+   "features": {
+    "q": 1.9947902586669082,
+    "total_mass": 110.91929716185301,
+    "chi_eff": 0.25403560479123205,
+    "chi_p": 0.10649878375467271,
+    "cos_inclination": 0.9167376620595049
+   },
+   "selection": 0.0002609187151940695,
+   "nrsur_ours_vs_lal": 2.220446049250313e-16,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.0002609187151940695,
+    "shifts": [
+     2.054870116410547,
+     4.748942357929659
+    ],
+    "unoptimised": 0.013620216385153094,
+    "starts": [
+     6,
+     5,
+     7
+    ],
+    "evaluations": 267
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.00018460129356667743,
+    "shifts": [
+     2.0297262643489358,
+     -2.177832664526973
+    ],
+    "unoptimised": 0.01402424179030426,
+    "starts": [
+     6,
+     7,
+     4
+    ],
+    "evaluations": 236
+   },
+   "our_xpnr_vs_lal_xpnr": 0.00032362084272419267,
+   "nrsur_conditioning": 9.889223259174074e-07,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.00018460129356689947,
+    "shifts": [
+     2.0297262643489358,
+     -2.177832664526973
+    ],
+    "unoptimised": 0.014024241790303926,
+    "starts": [
+     6,
+     7,
+     4
+    ],
+    "evaluations": 236
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.0001846012934068053,
+    "shifts": [
+     2.0297294351782953,
+     4.105383918354278
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 7.286393710614902e-12,
+    "parity_fix": 0.0003227760810149416,
+    "lean_vs_default": 1.6835580707308395e-09
+   },
+   "seconds": 277.73415487492457
+  },
+  {
+   "label": "agree",
+   "features": {
+    "q": 3.944130927440717,
+    "total_mass": 134.31332199417795,
+    "chi_eff": 0.05885464098843586,
+    "chi_p": 0.08770623771624843,
+    "cos_inclination": -0.906212787403452
+   },
+   "selection": 0.00036106541381975,
+   "nrsur_ours_vs_lal": -2.220446049250313e-16,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.00036106541381975,
+    "shifts": [
+     2.280896971638531,
+     3.5893854872290443
+    ],
+    "unoptimised": 0.06698633604055382,
+    "starts": [
+     6,
+     5,
+     11
+    ],
+    "evaluations": 560
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.0005273948305547504,
+    "shifts": [
+     2.379195994600134,
+     4.115234485487223
+    ],
+    "unoptimised": 0.06745346366442151,
+    "starts": [
+     6,
+     5,
+     11
+    ],
+    "evaluations": 252
+   },
+   "our_xpnr_vs_lal_xpnr": 0.00010077765817628759,
+   "nrsur_conditioning": 3.7829417228407713e-05,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.0005273948305548615,
+    "shifts": [
+     2.379195994600134,
+     4.115234485487223
+    ],
+    "unoptimised": 0.0674534636644214,
+    "starts": [
+     6,
+     5,
+     11
+    ],
+    "evaluations": 252
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.0005273948300295039,
+    "shifts": [
+     2.379191824916009,
+     4.115205143258071
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 1.163735774412089e-12,
+    "parity_fix": 0.00010055991182500446,
+    "lean_vs_default": 7.010717228972396e-09
+   },
+   "seconds": 327.6706573329866
+  },
+  {
+   "label": "agree",
+   "features": {
+    "q": 1.034289753140694,
+    "total_mass": 182.36207959295962,
+    "chi_eff": -0.05390985125748734,
+    "chi_p": 0.7165660032016774,
+    "cos_inclination": -0.807942352033774
+   },
+   "selection": 0.0005775112393413551,
+   "nrsur_ours_vs_lal": 0.0,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.0005775112393413551,
+    "shifts": [
+     -0.0058244451653081,
+     0.9392340154777403
+    ],
+    "unoptimised": 0.0020967077549477464,
+    "starts": [
+     1,
+     11,
+     2
+    ],
+    "evaluations": 789
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.0007961355084026289,
+    "shifts": [
+     0.33124696256086283,
+     -0.4038898874066262
+    ],
+    "unoptimised": 0.0013834249667713516,
+    "starts": [
+     11,
+     0,
+     2
+    ],
+    "evaluations": 191
+   },
+   "our_xpnr_vs_lal_xpnr": 0.00018671848706974803,
+   "nrsur_conditioning": 0.00010232806727294985,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.0007961355084027399,
+    "shifts": [
+     0.33124696256086283,
+     -0.4038898874066262
+    ],
+    "unoptimised": 0.0013834249667712406,
+    "starts": [
+     11,
+     0,
+     2
+    ],
+    "evaluations": 191
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.0007961354998619052,
+    "shifts": [
+     0.3312516838290454,
+     -0.40385202135697107
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 1.3807399668053222e-11,
+    "parity_fix": 0.00018613174214787698,
+    "lean_vs_default": 3.212930699270089e-09
+   },
+   "seconds": 293.79764629201964
+  },
+  {
+   "label": "agree",
+   "features": {
+    "q": 2.664926271986368,
+    "total_mass": 178.1220107447787,
+    "chi_eff": 0.2645865904868888,
+    "chi_p": 0.44361430656528456,
+    "cos_inclination": -0.8021427910919753
+   },
+   "selection": 0.0009240029119877979,
+   "nrsur_ours_vs_lal": 0.0,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.0009240029119877979,
+    "shifts": [
+     4.022251620451851,
+     2.6083806666837264
+    ],
+    "unoptimised": 0.019694485690800567,
+    "starts": [
+     13,
+     10,
+     0
+    ],
+    "evaluations": 765
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.005445750343731404,
+    "shifts": [
+     4.627283318249428,
+     1.3771789959174812
+    ],
+    "unoptimised": 0.01903296153083922,
+    "starts": [
+     13,
+     10,
+     0
+    ],
+    "evaluations": 210
+   },
+   "our_xpnr_vs_lal_xpnr": 0.00018430893522103364,
+   "nrsur_conditioning": 1.6688196185055126e-05,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.005445750343731626,
+    "shifts": [
+     4.627283318249428,
+     1.3771789959174812
+    ],
+    "unoptimised": 0.01903296153083922,
+    "starts": [
+     13,
+     10,
+     0
+    ],
+    "evaluations": 210
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.0054457503295779475,
+    "shifts": [
+     4.627321148422117,
+     1.3771558900885998
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 1.381673664369032e-10,
+    "parity_fix": 0.00018425302527691478,
+    "lean_vs_default": 6.545419761749827e-11
+   },
+   "seconds": 314.1876197080128
+  },
+  {
+   "label": "agree",
+   "features": {
+    "q": 1.193139798856126,
+    "total_mass": 194.24148129167793,
+    "chi_eff": 0.05835710076444931,
+    "chi_p": 0.06771451534247591,
+    "cos_inclination": 0.82519093112711
+   },
+   "selection": 6.516603926887132e-05,
+   "nrsur_ours_vs_lal": 1.1102230246251565e-16,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 6.516603926887132e-05,
+    "shifts": [
+     -0.05471613675385924,
+     5.140245978646071
+    ],
+    "unoptimised": 7.850893257999036e-05,
+    "starts": [
+     3,
+     0,
+     2
+    ],
+    "evaluations": 254
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 6.7924739884484e-05,
+    "shifts": [
+     -0.06389439906048117,
+     3.4806309816054872
+    ],
+    "unoptimised": 0.00013455566948505915,
+    "starts": [
+     2,
+     1,
+     0
+    ],
+    "evaluations": 215
+   },
+   "our_xpnr_vs_lal_xpnr": 3.3872306622884096e-05,
+   "nrsur_conditioning": 6.477521000824993e-05,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 6.792473988481706e-05,
+    "shifts": [
+     -0.06389439906048117,
+     3.4806309816054872
+    ],
+    "unoptimised": 0.00013455566948472608,
+    "starts": [
+     2,
+     1,
+     0
+    ],
+    "evaluations": 215
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 6.792473983008307e-05,
+    "shifts": [
+     -0.06389779379600351,
+     3.4806496988467646
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 4.182976187649956e-11,
+    "parity_fix": 3.387339330473971e-05,
+    "lean_vs_default": 2.067035431707609e-11
+   },
+   "seconds": 285.3183872080408
+  },
+  {
+   "label": "agree",
+   "features": {
+    "q": 3.0826752134730437,
+    "total_mass": 158.7194999411227,
+    "chi_eff": -0.4928608904589109,
+    "chi_p": 0.1761399867163256,
+    "cos_inclination": -0.8165193109773177
+   },
+   "selection": 0.0009216329976385884,
+   "nrsur_ours_vs_lal": 1.1102230246251565e-16,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.0009216329976385884,
+    "shifts": [
+     -0.34802679144804527,
+     0.5699777688981744
+    ],
+    "unoptimised": 0.0044543938652364945,
+    "starts": [
+     0,
+     3,
+     1
+    ],
+    "evaluations": 235
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.0005772136733714905,
+    "shifts": [
+     -0.35706375898002574,
+     0.7539459634213871
+    ],
+    "unoptimised": 0.006392302177620213,
+    "starts": [
+     3,
+     1,
+     0
+    ],
+    "evaluations": 211
+   },
+   "our_xpnr_vs_lal_xpnr": 0.0009463792500917778,
+   "nrsur_conditioning": 9.92015536394053e-06,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.0005772136733716016,
+    "shifts": [
+     -0.35706375898002574,
+     0.7539459634213871
+    ],
+    "unoptimised": 0.006392302177620435,
+    "starts": [
+     3,
+     1,
+     0
+    ],
+    "evaluations": 211
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.0005772136715722631,
+    "shifts": [
+     -0.3570609255264196,
+     0.7539594662408424
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 4.375388940047742e-13,
+    "parity_fix": 0.0009451868968629595,
+    "lean_vs_default": 9.596106131937177e-10
+   },
+   "seconds": 283.42813399992883
+  },
+  {
+   "label": "agree",
+   "features": {
+    "q": 1.81755144535028,
+    "total_mass": 124.80773650427457,
+    "chi_eff": -0.3873752766949977,
+    "chi_p": 0.5691090068079517,
+    "cos_inclination": 0.617401926265237
+   },
+   "selection": 0.000986483937930993,
+   "nrsur_ours_vs_lal": 0.0,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.000986483937930993,
+    "shifts": [
+     4.22090659513781,
+     1.7804839945760969
+    ],
+    "unoptimised": 0.05793197506398473,
+    "starts": [
+     14,
+     13,
+     12
+    ],
+    "evaluations": 432
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.0016853992554827224,
+    "shifts": [
+     4.133318213947221,
+     1.0139480882633676
+    ],
+    "unoptimised": 0.06478417219180588,
+    "starts": [
+     14,
+     12,
+     9
+    ],
+    "evaluations": 256
+   },
+   "our_xpnr_vs_lal_xpnr": 0.006644076834941504,
+   "nrsur_conditioning": 5.7557655025686216e-05,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.0016853992554823893,
+    "shifts": [
+     4.133318213947221,
+     1.0139480882633676
+    ],
+    "unoptimised": 0.06478417219180543,
+    "starts": [
+     14,
+     12,
+     9
+    ],
+    "evaluations": 256
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.001685399248979369,
+    "shifts": [
+     4.133313258574314,
+     1.0139372985371642
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 8.212763802362133e-12,
+    "parity_fix": 0.006639694870386514,
+    "lean_vs_default": 3.127568382055301e-08
+   },
+   "seconds": 338.01388124981895
+  },
+  {
+   "label": "agree",
+   "features": {
+    "q": 2.153113276489014,
+    "total_mass": 140.4671507872168,
+    "chi_eff": 0.3274974494185095,
+    "chi_p": 0.04687547091512753,
+    "cos_inclination": -0.970828972928272
+   },
+   "selection": 0.0003475371972915253,
+   "nrsur_ours_vs_lal": 2.220446049250313e-16,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.0003475371972915253,
+    "shifts": [
+     2.2823620421088595,
+     -0.6656538331898408
+    ],
+    "unoptimised": 0.008034859799487926,
+    "starts": [
+     5,
+     6,
+     4
+    ],
+    "evaluations": 677
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.00030924598493242694,
+    "shifts": [
+     2.268456757320784,
+     -1.0007934499120605
+    ],
+    "unoptimised": 0.007690707216001624,
+    "starts": [
+     5,
+     6,
+     4
+    ],
+    "evaluations": 259
+   },
+   "our_xpnr_vs_lal_xpnr": 7.634435831682662e-05,
+   "nrsur_conditioning": 3.287810645202782e-05,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.00030924598493242694,
+    "shifts": [
+     2.268456757320784,
+     -1.0007934499120605
+    ],
+    "unoptimised": 0.007690707216001291,
+    "starts": [
+     5,
+     6,
+     4
+    ],
+    "evaluations": 259
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.0003092459848837992,
+    "shifts": [
+     2.2684522172840174,
+     5.28240173320117
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 1.1441181335669626e-11,
+    "parity_fix": 7.631507641070456e-05,
+    "lean_vs_default": 7.416178782193583e-12
+   },
+   "seconds": 309.3569184578955
+  },
+  {
+   "label": "agree",
+   "features": {
+    "q": 3.374051240070894,
+    "total_mass": 189.67478192501204,
+    "chi_eff": -0.040704355356364304,
+    "chi_p": 0.05169392361901947,
+    "cos_inclination": -0.5148419346000322
+   },
+   "selection": 0.00038274524173909086,
+   "nrsur_ours_vs_lal": 2.220446049250313e-16,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.00038274524173909086,
+    "shifts": [
+     -0.012210964448024697,
+     3.7194724199943603
+    ],
+    "unoptimised": 0.0006279718358129793,
+    "starts": [
+     2,
+     3,
+     0
+    ],
+    "evaluations": 247
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.0003950231912486224,
+    "shifts": [
+     -0.013911435908311388,
+     4.197100130277525
+    ],
+    "unoptimised": 0.00040122516128870966,
+    "starts": [
+     0,
+     3,
+     2
+    ],
+    "evaluations": 214
+   },
+   "our_xpnr_vs_lal_xpnr": 0.0003257817851459732,
+   "nrsur_conditioning": 8.629780537106058e-05,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.0003950231912487334,
+    "shifts": [
+     -0.013911435908311388,
+     4.197100130277525
+    ],
+    "unoptimised": 0.00040122516128870966,
+    "starts": [
+     0,
+     3,
+     2
+    ],
+    "evaluations": 214
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.00039502319111495154,
+    "shifts": [
+     -0.013911350420383458,
+     4.197077842447409
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 2.8765878568037806e-12,
+    "parity_fix": 0.0003257635934451608,
+    "lean_vs_default": 1.9042989407580535e-11
+   },
+   "seconds": 287.3116939589381
+  },
+  {
+   "label": "agree",
+   "features": {
+    "q": 2.4995493657269416,
+    "total_mass": 151.81086925865742,
+    "chi_eff": -0.03704327049962938,
+    "chi_p": 0.18171341623363613,
+    "cos_inclination": 0.30155979684578105
+   },
+   "selection": 0.0008964353753573295,
+   "nrsur_ours_vs_lal": 0.0,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.0008964353753573295,
+    "shifts": [
+     3.3598365939867847,
+     2.020167106462565
+    ],
+    "unoptimised": 0.15947591247992898,
+    "starts": [
+     10,
+     9,
+     11
+    ],
+    "evaluations": 658
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.0011072918383141506,
+    "shifts": [
+     3.3816482215692076,
+     1.0945425755647828
+    ],
+    "unoptimised": 0.1665904815691468,
+    "starts": [
+     10,
+     9,
+     11
+    ],
+    "evaluations": 244
+   },
+   "our_xpnr_vs_lal_xpnr": 0.0014242681903090526,
+   "nrsur_conditioning": 1.2053038007553418e-05,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.0011072918383143726,
+    "shifts": [
+     3.3816482215692076,
+     1.0945425755647828
+    ],
+    "unoptimised": 0.16659048156914713,
+    "starts": [
+     10,
+     9,
+     11
+    ],
+    "evaluations": 244
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.0011072918337579063,
+    "shifts": [
+     3.3816557836587458,
+     1.0945370386995992
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 1.4116674496023052e-10,
+    "parity_fix": 0.0014242066560510303,
+    "lean_vs_default": 2.084101780042147e-09
+   },
+   "seconds": 330.8752623749897
+  },
+  {
+   "label": "agree",
+   "features": {
+    "q": 1.3285986174998101,
+    "total_mass": 180.78114374276805,
+    "chi_eff": 0.2410893249428627,
+    "chi_p": 0.5519309273239978,
+    "cos_inclination": 0.560386488904719
+   },
+   "selection": 0.000994051407355645,
+   "nrsur_ours_vs_lal": 0.0,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.000994051407355645,
+    "shifts": [
+     2.0905507099940555,
+     4.334303234210693
+    ],
+    "unoptimised": 0.016856128279279292,
+    "starts": [
+     7,
+     4,
+     10
+    ],
+    "evaluations": 800
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.0032192115519478204,
+    "shifts": [
+     1.7652245769128403,
+     -0.7866605811356104
+    ],
+    "unoptimised": 0.018699758174685166,
+    "starts": [
+     7,
+     4,
+     6
+    ],
+    "evaluations": 216
+   },
+   "our_xpnr_vs_lal_xpnr": 0.0018927182063854797,
+   "nrsur_conditioning": 5.096630901424426e-05,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.0032192115519481534,
+    "shifts": [
+     1.7652245769128403,
+     -0.7866605811356104
+    ],
+    "unoptimised": 0.018699758174685388,
+    "starts": [
+     7,
+     4,
+     6
+    ],
+    "evaluations": 216
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.0032192115483341555,
+    "shifts": [
+     1.7652230786121925,
+     5.496560737933593
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 1.840594343605062e-11,
+    "parity_fix": 0.001893917925274713,
+    "lean_vs_default": 1.0652805304545154e-09
+   },
+   "seconds": 301.0020280829631
+  },
+  {
+   "label": "agree",
+   "features": {
+    "q": 1.7003869791161355,
+    "total_mass": 195.05596228425483,
+    "chi_eff": -0.42475158234351357,
+    "chi_p": 0.45969487005655296,
+    "cos_inclination": -0.9665226225507801
+   },
+   "selection": 0.0007025468324111106,
+   "nrsur_ours_vs_lal": -2.220446049250313e-16,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.0007025468324111106,
+    "shifts": [
+     4.823306073699907,
+     2.410571476730581
+    ],
+    "unoptimised": 0.008381982189346382,
+    "starts": [
+     14,
+     1,
+     11
+    ],
+    "evaluations": 895
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.00040345487444537476,
+    "shifts": [
+     -1.6993835508138093,
+     2.1087261430314017
+    ],
+    "unoptimised": 0.011845024820129058,
+    "starts": [
+     13,
+     14,
+     1
+    ],
+    "evaluations": 213
+   },
+   "our_xpnr_vs_lal_xpnr": 0.0010692332118303893,
+   "nrsur_conditioning": 0.00011996823967175274,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.00040345487444526373,
+    "shifts": [
+     -1.6993835508138093,
+     2.1087261430314017
+    ],
+    "unoptimised": 0.011845024820128947,
+    "starts": [
+     13,
+     14,
+     1
+    ],
+    "evaluations": 213
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.00040345487289861204,
+    "shifts": [
+     -1.6993622702750653,
+     2.1087436164701874
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 5.288214310894546e-12,
+    "parity_fix": 0.0010767247021341575,
+    "lean_vs_default": 7.978938121322443e-08
+   },
+   "seconds": 308.40064433403313
+  },
+  {
+   "label": "agree",
+   "features": {
+    "q": 1.9085470857138926,
+    "total_mass": 122.30959114132406,
+    "chi_eff": 0.4214936725845288,
+    "chi_p": 0.42384383982404455,
+    "cos_inclination": -0.8382758780616979
+   },
+   "selection": 0.0007690283267377529,
+   "nrsur_ours_vs_lal": -2.220446049250313e-16,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.0007690283267377529,
+    "shifts": [
+     0.6634917688097743,
+     5.026858228180772
+    ],
+    "unoptimised": 0.0042645413498377804,
+    "starts": [
+     0,
+     7,
+     3
+    ],
+    "evaluations": 259
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.0055655850543249175,
+    "shifts": [
+     0.5103540586040402,
+     -0.4209264431839408
+    ],
+    "unoptimised": 0.006395750138347367,
+    "starts": [
+     0,
+     7,
+     1
+    ],
+    "evaluations": 211
+   },
+   "our_xpnr_vs_lal_xpnr": 0.002013456996772689,
+   "nrsur_conditioning": 2.009382448864283e-05,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.0055655850543249175,
+    "shifts": [
+     0.5103540586040402,
+     -0.4209264431839408
+    ],
+    "unoptimised": 0.006395750138347589,
+    "starts": [
+     0,
+     7,
+     1
+    ],
+    "evaluations": 211
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.005565585052394573,
+    "shifts": [
+     0.5103274620212503,
+     -0.42089472696951974
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 3.572497853099321e-11,
+    "parity_fix": 0.002029961888612597,
+    "lean_vs_default": 7.835457849214578e-08
+   },
+   "seconds": 284.9373421249911
+  },
+  {
+   "label": "agree",
+   "features": {
+    "q": 1.1551442587821408,
+    "total_mass": 144.65446279502106,
+    "chi_eff": 0.04247803150488254,
+    "chi_p": 0.03898664347468266,
+    "cos_inclination": -0.1423918144897293
+   },
+   "selection": 0.00047514019866523594,
+   "nrsur_ours_vs_lal": 4.440892098500626e-16,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.00047514019866523594,
+    "shifts": [
+     3.9988647341688663,
+     1.6122064590454097
+    ],
+    "unoptimised": 0.017949109178751144,
+    "starts": [
+     13,
+     14,
+     12
+    ],
+    "evaluations": 491
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.00047761148914682305,
+    "shifts": [
+     4.000428647336268,
+     2.076832356567924
+    ],
+    "unoptimised": 0.01909067871377934,
+    "starts": [
+     13,
+     14,
+     9
+    ],
+    "evaluations": 278
+   },
+   "our_xpnr_vs_lal_xpnr": 0.0003970996573479102,
+   "nrsur_conditioning": 2.75210772454626e-05,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.00047761148914671203,
+    "shifts": [
+     4.000428647336268,
+     2.076832356567924
+    ],
+    "unoptimised": 0.01909067871377934,
+    "starts": [
+     13,
+     14,
+     9
+    ],
+    "evaluations": 278
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.00047761148914127194,
+    "shifts": [
+     4.000428373688182,
+     2.0768561575772972
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 2.099653784171096e-11,
+    "parity_fix": 0.0003962497239772267,
+    "lean_vs_default": 4.5101015144766166e-09
+   },
+   "seconds": 56.17167312465608
+  },
+  {
+   "label": "agree",
+   "features": {
+    "q": 1.284431070555223,
+    "total_mass": 127.1433823082749,
+    "chi_eff": 0.25834331983019904,
+    "chi_p": 0.40887361432935126,
+    "cos_inclination": 0.9702423660228365
+   },
+   "selection": 0.00047612989718137655,
+   "nrsur_ours_vs_lal": -2.220446049250313e-16,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.00047612989718137655,
+    "shifts": [
+     3.484141670247626,
+     3.1439047491095327
+    ],
+    "unoptimised": 0.0008676874789257383,
+    "starts": [
+     10,
+     13,
+     7
+    ],
+    "evaluations": 909
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.0004535619023018356,
+    "shifts": [
+     -0.541262854742366,
+     1.0330526264961588
+    ],
+    "unoptimised": 0.0010552402583192677,
+    "starts": [
+     13,
+     4,
+     0
+    ],
+    "evaluations": 223
+   },
+   "our_xpnr_vs_lal_xpnr": 0.0001288248777885359,
+   "nrsur_conditioning": 1.1264368858787677e-05,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.0004535619023020576,
+    "shifts": [
+     -0.541262854742366,
+     1.0330526264961588
+    ],
+    "unoptimised": 0.0010552402583193787,
+    "starts": [
+     13,
+     4,
+     0
+    ],
+    "evaluations": 223
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.0004535619022575377,
+    "shifts": [
+     -0.5412228779475556,
+     1.0330288689794394
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 3.3306690738754696e-16,
+    "parity_fix": 0.00012915381805866932,
+    "lean_vs_default": 2.736258108981815e-09
+   },
+   "seconds": 59.817274916917086
+  },
+  {
+   "label": "agree",
+   "features": {
+    "q": 3.419410388408812,
+    "total_mass": 120.24920570152968,
+    "chi_eff": 0.03581415830762048,
+    "chi_p": 0.03367784653430131,
+    "cos_inclination": 0.5414868260005881
+   },
+   "selection": 0.0003352639018725512,
+   "nrsur_ours_vs_lal": -2.220446049250313e-16,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.0003352639018725512,
+    "shifts": [
+     5.242582617580377,
+     7.9839747441009195
+    ],
+    "unoptimised": 0.06891357008375854,
+    "starts": [
+     12,
+     15,
+     13
+    ],
+    "evaluations": 295
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.0002938413423181352,
+    "shifts": [
+     5.226321946192116,
+     7.5637278200391425
+    ],
+    "unoptimised": 0.06882510004630704,
+    "starts": [
+     12,
+     15,
+     13
+    ],
+    "evaluations": 283
+   },
+   "our_xpnr_vs_lal_xpnr": 1.8869518264019725e-05,
+   "nrsur_conditioning": 2.831872843755967e-05,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.0002938413423182462,
+    "shifts": [
+     5.226321946192116,
+     7.5637278200391425
+    ],
+    "unoptimised": 0.06882510004630438,
+    "starts": [
+     12,
+     15,
+     13
+    ],
+    "evaluations": 283
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.00029384134226773106,
+    "shifts": [
+     5.226322869027951,
+     7.563759365210066
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 8.13360490070636e-12,
+    "parity_fix": 1.887496455499349e-05,
+    "lean_vs_default": 5.635492072997295e-13
+   },
+   "seconds": 60.06953008379787
+  },
+  {
+   "label": "agree",
+   "features": {
+    "q": 1.4465499090438982,
+    "total_mass": 173.83866248238758,
+    "chi_eff": -0.04472243109668208,
+    "chi_p": 0.28797586948389947,
+    "cos_inclination": -0.8301901038346738
+   },
+   "selection": 0.0009508165381519884,
+   "nrsur_ours_vs_lal": 2.220446049250313e-16,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.0009508165381519884,
+    "shifts": [
+     1.001114784424779,
+     4.8043323359566
+    ],
+    "unoptimised": 0.007064375692852343,
+    "starts": [
+     7,
+     6,
+     5
+    ],
+    "evaluations": 762
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.000679383404985745,
+    "shifts": [
+     0.9676214285964474,
+     4.61327524592121
+    ],
+    "unoptimised": 0.007324944170128522,
+    "starts": [
+     4,
+     7,
+     6
+    ],
+    "evaluations": 209
+   },
+   "our_xpnr_vs_lal_xpnr": 0.002734406346818985,
+   "nrsur_conditioning": 2.1441408243227933e-05,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.000679383404985745,
+    "shifts": [
+     0.9676214285964474,
+     4.61327524592121
+    ],
+    "unoptimised": 0.007324944170128078,
+    "starts": [
+     4,
+     7,
+     6
+    ],
+    "evaluations": 209
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.0006793834018088418,
+    "shifts": [
+     0.9676433480973691,
+     4.613270638317968
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 2.355449169044732e-12,
+    "parity_fix": 0.002733290974929359,
+    "lean_vs_default": 2.043435420873152e-10
+   },
+   "seconds": 52.595835958607495
+  },
+  {
+   "label": "disagree",
+   "features": {
+    "q": 1.8813731987898312,
+    "total_mass": 127.3565307532845,
+    "chi_eff": 0.07098559840471738,
+    "chi_p": 0.7408942491157977,
+    "cos_inclination": -0.6976279301562588
+   },
+   "selection": 0.02110669682391697,
+   "nrsur_ours_vs_lal": 0.0,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.02110669682391697,
+    "shifts": [
+     2.067250912048066,
+     4.78176936306808
+    ],
+    "unoptimised": 0.05777306033216634,
+    "starts": [
+     10,
+     7,
+     13
+    ],
+    "evaluations": 775
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.015968013495819222,
+    "shifts": [
+     1.7735511630136078,
+     4.39081450210435
+    ],
+    "unoptimised": 0.03938589059474884,
+    "starts": [
+     7,
+     0,
+     4
+    ],
+    "evaluations": 212
+   },
+   "our_xpnr_vs_lal_xpnr": 0.014297200254088094,
+   "nrsur_conditioning": 1.318760486734849e-05,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.015968013495819333,
+    "shifts": [
+     1.7735511630136078,
+     4.39081450210435
+    ],
+    "unoptimised": 0.03938589059474884,
+    "starts": [
+     7,
+     0,
+     4
+    ],
+    "evaluations": 212
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.0159680134520237,
+    "shifts": [
+     1.773573188378289,
+     4.390815080326987
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 7.825406989070416e-12,
+    "parity_fix": 0.014277982873164508,
+    "lean_vs_default": 9.567846959157578e-09
+   },
+   "seconds": 69.82220254186541
+  },
+  {
+   "label": "disagree",
+   "features": {
+    "q": 3.815200617972918,
+    "total_mass": 187.55060820453343,
+    "chi_eff": 0.36363690247225805,
+    "chi_p": 0.2233166881394633,
+    "cos_inclination": 0.5636933724427706
+   },
+   "selection": 0.012446798710198825,
+   "nrsur_ours_vs_lal": 1.1102230246251565e-16,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.012446798710198825,
+    "shifts": [
+     4.411616708114289,
+     2.139997541222577
+    ],
+    "unoptimised": 0.15976429819560223,
+    "starts": [
+     13,
+     14,
+     12
+    ],
+    "evaluations": 355
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.01274761629380683,
+    "shifts": [
+     4.443783072974504,
+     1.4265647072241725
+    ],
+    "unoptimised": 0.14654402863915017,
+    "starts": [
+     14,
+     13,
+     12
+    ],
+    "evaluations": 226
+   },
+   "our_xpnr_vs_lal_xpnr": 0.00274175603465332,
+   "nrsur_conditioning": 8.842652248730598e-05,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.012747616293807051,
+    "shifts": [
+     4.443783072974504,
+     1.4265647072241725
+    ],
+    "unoptimised": 0.14654402863914973,
+    "starts": [
+     14,
+     13,
+     12
+    ],
+    "evaluations": 226
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.012747616283650953,
+    "shifts": [
+     4.4437953652660935,
+     1.4265430802867143
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 2.368150120446444e-11,
+    "parity_fix": 0.002811011857372092,
+    "lean_vs_default": 1.8843039052418575e-06
+   },
+   "seconds": 47.02211304102093
+  },
+  {
+   "label": "disagree",
+   "features": {
+    "q": 3.982221581366451,
+    "total_mass": 143.53915958181406,
+    "chi_eff": -0.22135661434309614,
+    "chi_p": 0.6492273328189241,
+    "cos_inclination": 0.45645073319861335
+   },
+   "selection": 0.05144228267481643,
+   "nrsur_ours_vs_lal": -2.220446049250313e-16,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.05144228267481643,
+    "shifts": [
+     3.2724703953748366,
+     2.794151184897869
+    ],
+    "unoptimised": 0.3629180066151436,
+    "starts": [
+     10,
+     9,
+     11
+    ],
+    "evaluations": 464
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.04535345283165837,
+    "shifts": [
+     2.6854207674327064,
+     4.075501721844171
+    ],
+    "unoptimised": 0.29181555586876196,
+    "starts": [
+     10,
+     11,
+     15
+    ],
+    "evaluations": 230
+   },
+   "our_xpnr_vs_lal_xpnr": 0.06463710491281971,
+   "nrsur_conditioning": 5.5339310548907505e-05,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.04535345283165859,
+    "shifts": [
+     2.6854207674327064,
+     4.075501721844171
+    ],
+    "unoptimised": 0.2918155558687615,
+    "starts": [
+     10,
+     11,
+     15
+    ],
+    "evaluations": 230
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.04535345273437352,
+    "shifts": [
+     2.6854120834509763,
+     4.0755364309190885
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 2.220446049250313e-16,
+    "parity_fix": 0.06464744446191872,
+    "lean_vs_default": 1.0766826319397182e-09
+   },
+   "seconds": 66.59911183314398
+  },
+  {
+   "label": "disagree",
+   "features": {
+    "q": 3.125068381389673,
+    "total_mass": 193.20626489494484,
+    "chi_eff": 0.4103808914533455,
+    "chi_p": 0.6698582941621158,
+    "cos_inclination": -0.27611079159852236
+   },
+   "selection": 0.05848866590940238,
+   "nrsur_ours_vs_lal": 0.0,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.05848866590940238,
+    "shifts": [
+     5.293897240206054,
+     1.6329274339556061
+    ],
+    "unoptimised": 0.07520218771783327,
+    "starts": [
+     0,
+     13,
+     14
+    ],
+    "evaluations": 721
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.03341010308541936,
+    "shifts": [
+     5.413103573490743,
+     0.5486363287637348
+    ],
+    "unoptimised": 0.09334438203042039,
+    "starts": [
+     13,
+     0,
+     15
+    ],
+    "evaluations": 207
+   },
+   "our_xpnr_vs_lal_xpnr": 0.03447446380984143,
+   "nrsur_conditioning": 0.00021716311517283593,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.03341010308541925,
+    "shifts": [
+     5.413103573490743,
+     0.5486363287637348
+    ],
+    "unoptimised": 0.09334438203042073,
+    "starts": [
+     13,
+     0,
+     15
+    ],
+    "evaluations": 207
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.03341010305402636,
+    "shifts": [
+     5.413093139539806,
+     0.5486593566671385
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 4.050650925790933e-10,
+    "parity_fix": 0.034146472326467725,
+    "lean_vs_default": 8.608611793414767e-06
+   },
+   "seconds": 58.11820062529296
+  },
+  {
+   "label": "disagree",
+   "features": {
+    "q": 3.6718108844767774,
+    "total_mass": 179.29769929210158,
+    "chi_eff": -0.5340879721930527,
+    "chi_p": 0.2716558316489018,
+    "cos_inclination": -0.043873073458207616
+   },
+   "selection": 0.011542158990686668,
+   "nrsur_ours_vs_lal": 0.0,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.011542158990686668,
+    "shifts": [
+     4.137968711970185,
+     0.2287885683356367
+    ],
+    "unoptimised": 0.20624852169184804,
+    "starts": [
+     8,
+     14,
+     12
+    ],
+    "evaluations": 508
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.008777937483229636,
+    "shifts": [
+     4.153385009145117,
+     -2.448718146106685
+    ],
+    "unoptimised": 0.16276823929478834,
+    "starts": [
+     8,
+     15,
+     14
+    ],
+    "evaluations": 238
+   },
+   "our_xpnr_vs_lal_xpnr": 0.008927758652226947,
+   "nrsur_conditioning": 5.029900711384094e-05,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.008777937483229525,
+    "shifts": [
+     4.153385009145117,
+     -2.448718146106685
+    ],
+    "unoptimised": 0.16276823929478879,
+    "starts": [
+     8,
+     15,
+     14
+    ],
+    "evaluations": 238
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.00877793747948341,
+    "shifts": [
+     4.153380894651551,
+     3.834449558323388
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 1.2106649016629945e-11,
+    "parity_fix": 0.008925997423620546,
+    "lean_vs_default": 8.939905482563404e-10
+   },
+   "seconds": 45.64045024989173
+  },
+  {
+   "label": "disagree",
+   "features": {
+    "q": 3.619910655518972,
+    "total_mass": 132.93145609818134,
+    "chi_eff": 0.4203985951933237,
+    "chi_p": 0.45193704767765563,
+    "cos_inclination": -0.8827331573713016
+   },
+   "selection": 0.037927624396792425,
+   "nrsur_ours_vs_lal": 0.0,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.037927624396792425,
+    "shifts": [
+     3.0141254496809533,
+     2.0938409241499967
+    ],
+    "unoptimised": 0.16398777660830588,
+    "starts": [
+     9,
+     8,
+     10
+    ],
+    "evaluations": 750
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.02469638643616301,
+    "shifts": [
+     2.8418028121775425,
+     2.0637639821097276
+    ],
+    "unoptimised": 0.15728875862738423,
+    "starts": [
+     9,
+     8,
+     15
+    ],
+    "evaluations": 202
+   },
+   "our_xpnr_vs_lal_xpnr": 0.025517383108911718,
+   "nrsur_conditioning": 6.24231385000229e-05,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.024696386436162232,
+    "shifts": [
+     2.8418028121775425,
+     2.0637639821097276
+    ],
+    "unoptimised": 0.15728875862738434,
+    "starts": [
+     9,
+     8,
+     15
+    ],
+    "evaluations": 202
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.0246963864168519,
+    "shifts": [
+     2.8418335798927914,
+     2.0637584351803775
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 1.0776657344280238e-10,
+    "parity_fix": 0.02551760176907425,
+    "lean_vs_default": 2.7260083079738706e-11
+   },
+   "seconds": 58.57312475005165
+  },
+  {
+   "label": "disagree",
+   "features": {
+    "q": 1.9814602890009174,
+    "total_mass": 126.88946402571698,
+    "chi_eff": 0.13208307826357626,
+    "chi_p": 0.6374094559289153,
+    "cos_inclination": 0.7573948414466722
+   },
+   "selection": 0.025439446456953285,
+   "nrsur_ours_vs_lal": 2.220446049250313e-16,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.025439446456953285,
+    "shifts": [
+     2.38538312430919,
+     3.1756142693135656
+    ],
+    "unoptimised": 0.08998572416153461,
+    "starts": [
+     9,
+     6,
+     10
+    ],
+    "evaluations": 671
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.02299253854232597,
+    "shifts": [
+     3.360804790339122,
+     1.7380831638764598
+    ],
+    "unoptimised": 0.06041713196765963,
+    "starts": [
+     9,
+     12,
+     14
+    ],
+    "evaluations": 211
+   },
+   "our_xpnr_vs_lal_xpnr": 0.015720390925578087,
+   "nrsur_conditioning": 6.84237019581424e-05,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.022992538542325858,
+    "shifts": [
+     3.360804790339122,
+     1.7380831638764598
+    ],
+    "unoptimised": 0.06041713196765941,
+    "starts": [
+     9,
+     12,
+     14
+    ],
+    "evaluations": 211
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.022992538528144424,
+    "shifts": [
+     3.3607821685303993,
+     1.7380709248375918
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 1.367539415042529e-11,
+    "parity_fix": 0.015748796108321694,
+    "lean_vs_default": 6.521155472283269e-07
+   },
+   "seconds": 58.06700154207647
+  },
+  {
+   "label": "disagree",
+   "features": {
+    "q": 2.667942502088759,
+    "total_mass": 140.5002174010512,
+    "chi_eff": -0.04457591143670427,
+    "chi_p": 0.22798837550802056,
+    "cos_inclination": 0.03299300724939299
+   },
+   "selection": 0.010250631163004953,
+   "nrsur_ours_vs_lal": -2.220446049250313e-16,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.010250631163004953,
+    "shifts": [
+     4.632271580668572,
+     1.8216573599315316
+    ],
+    "unoptimised": 0.15973340342256181,
+    "starts": [
+     13,
+     15,
+     14
+    ],
+    "evaluations": 287
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.0060702719137349925,
+    "shifts": [
+     4.571342153047578,
+     1.912961579363324
+    ],
+    "unoptimised": 0.1652000574250343,
+    "starts": [
+     13,
+     15,
+     14
+    ],
+    "evaluations": 224
+   },
+   "our_xpnr_vs_lal_xpnr": 0.0034302670758268317,
+   "nrsur_conditioning": 3.6286011119157635e-05,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.0060702719137347705,
+    "shifts": [
+     4.571342153047578,
+     1.912961579363324
+    ],
+    "unoptimised": 0.16520005742503496,
+    "starts": [
+     13,
+     15,
+     14
+    ],
+    "evaluations": 224
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.006070271907192115,
+    "shifts": [
+     4.571344285305372,
+     1.913003239564993
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 4.848343948538059e-12,
+    "parity_fix": 0.0033856395871257883,
+    "lean_vs_default": 3.0365290593081795e-07
+   },
+   "seconds": 49.07296408293769
+  },
+  {
+   "label": "disagree",
+   "features": {
+    "q": 2.4551462871027185,
+    "total_mass": 177.28041085602072,
+    "chi_eff": -0.15764341997226167,
+    "chi_p": 0.5380499772920783,
+    "cos_inclination": 0.082313365554359
+   },
+   "selection": 0.013031881491376462,
+   "nrsur_ours_vs_lal": 0.0,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.013031881491376462,
+    "shifts": [
+     0.049063229311534694,
+     6.357489193042194
+    ],
+    "unoptimised": 0.014306447297146252,
+    "starts": [
+     0,
+     2,
+     3
+    ],
+    "evaluations": 878
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.009110696321266043,
+    "shifts": [
+     0.01530335508844765,
+     0.1643830718120297
+    ],
+    "unoptimised": 0.012168846373645015,
+    "starts": [
+     0,
+     2,
+     13
+    ],
+    "evaluations": 192
+   },
+   "our_xpnr_vs_lal_xpnr": 0.00524599401156578,
+   "nrsur_conditioning": 0.0001616285374148596,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.009110696321265932,
+    "shifts": [
+     0.01530335508844765,
+     0.1643830718120297
+    ],
+    "unoptimised": 0.012168846373644904,
+    "starts": [
+     0,
+     2,
+     13
+    ],
+    "evaluations": 192
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.009110696121980344,
+    "shifts": [
+     0.015277613468426241,
+     0.16440926700483863
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 2.518951713881279e-11,
+    "parity_fix": 0.005243174327325906,
+    "lean_vs_default": 1.4865669806241044e-09
+   },
+   "seconds": 59.30639737518504
+  },
+  {
+   "label": "disagree",
+   "features": {
+    "q": 3.171593129127915,
+    "total_mass": 124.50658996461138,
+    "chi_eff": 0.5038551145400597,
+    "chi_p": 0.5444629031859749,
+    "cos_inclination": 0.19980523071958223
+   },
+   "selection": 0.05437399171935775,
+   "nrsur_ours_vs_lal": 2.220446049250313e-16,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.05437399171935775,
+    "shifts": [
+     -0.30337579586602037,
+     0.3278477204489717
+    ],
+    "unoptimised": 0.06532149552576083,
+    "starts": [
+     0,
+     13,
+     2
+    ],
+    "evaluations": 559
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.05144994202951281,
+    "shifts": [
+     -0.29913222599553385,
+     0.40395437623856056
+    ],
+    "unoptimised": 0.06293294388251969,
+    "starts": [
+     0,
+     13,
+     2
+    ],
+    "evaluations": 196
+   },
+   "our_xpnr_vs_lal_xpnr": 0.013367485061983375,
+   "nrsur_conditioning": 4.718645247059339e-05,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.05144994202951303,
+    "shifts": [
+     -0.29913222599553385,
+     0.40395437623856056
+    ],
+    "unoptimised": 0.06293294388251924,
+    "starts": [
+     0,
+     13,
+     2
+    ],
+    "evaluations": 196
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.05144994190506191,
+    "shifts": [
+     -0.29910274668228887,
+     0.40391397491668085
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 5.859734919511084e-11,
+    "parity_fix": 0.013361550385047272,
+    "lean_vs_default": 1.4227484079754049e-08
+   },
+   "seconds": 51.41109716612846
+  },
+  {
+   "label": "disagree",
+   "features": {
+    "q": 3.125445430919267,
+    "total_mass": 145.32044448049623,
+    "chi_eff": -0.2408482077406753,
+    "chi_p": 0.5286822301436214,
+    "cos_inclination": -0.7330436699116486
+   },
+   "selection": 0.01091404634322879,
+   "nrsur_ours_vs_lal": -4.440892098500626e-16,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.01091404634322879,
+    "shifts": [
+     3.033385696399595,
+     3.616799681298507
+    ],
+    "unoptimised": 0.13578116804204665,
+    "starts": [
+     10,
+     9,
+     8
+    ],
+    "evaluations": 780
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.010638690397034689,
+    "shifts": [
+     3.021415631724355,
+     3.6086352789625424
+    ],
+    "unoptimised": 0.13625248756503083,
+    "starts": [
+     10,
+     9,
+     12
+    ],
+    "evaluations": 209
+   },
+   "our_xpnr_vs_lal_xpnr": 0.024827524441316973,
+   "nrsur_conditioning": 1.2763423093087312e-05,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.010638690397034578,
+    "shifts": [
+     3.021415631724355,
+     3.6086352789625424
+    ],
+    "unoptimised": 0.13625248756503094,
+    "starts": [
+     10,
+     9,
+     12
+    ],
+    "evaluations": 209
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.01063869032818654,
+    "shifts": [
+     3.0214465437527798,
+     3.6086211266114088
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 2.220446049250313e-16,
+    "parity_fix": 0.02482678726646681,
+    "lean_vs_default": 7.33897387306115e-11
+   },
+   "seconds": 47.86049125017598
+  },
+  {
+   "label": "disagree",
+   "features": {
+    "q": 2.8482096405314867,
+    "total_mass": 192.4393604524476,
+    "chi_eff": 0.11321371383363905,
+    "chi_p": 0.7441986867733078,
+    "cos_inclination": 0.7951202485621012
+   },
+   "selection": 0.018443484300165958,
+   "nrsur_ours_vs_lal": -4.440892098500626e-16,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.018443484300165958,
+    "shifts": [
+     2.9868837059589612,
+     3.3633111905693136
+    ],
+    "unoptimised": 0.08203566879534974,
+    "starts": [
+     10,
+     12,
+     11
+    ],
+    "evaluations": 662
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.022828897719600727,
+    "shifts": [
+     3.1403650759590382,
+     2.759505649315261
+    ],
+    "unoptimised": 0.07566313035198402,
+    "starts": [
+     12,
+     10,
+     7
+    ],
+    "evaluations": 211
+   },
+   "our_xpnr_vs_lal_xpnr": 0.018619838936189348,
+   "nrsur_conditioning": 5.192441912216239e-06,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.022828897719600616,
+    "shifts": [
+     3.1403650759590382,
+     2.759505649315261
+    ],
+    "unoptimised": 0.07566313035198335,
+    "starts": [
+     12,
+     10,
+     7
+    ],
+    "evaluations": 211
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.022828897701756556,
+    "shifts": [
+     3.1403190254712787,
+     2.759541434482032
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 2.9655111699611325e-10,
+    "parity_fix": 0.01861597955275962,
+    "lean_vs_default": 2.7034778860013375e-09
+   },
+   "seconds": 50.10381395788863
+  },
+  {
+   "label": "disagree",
+   "features": {
+    "q": 3.9933809141406873,
+    "total_mass": 165.25298853898147,
+    "chi_eff": 0.3018040747569545,
+    "chi_p": 0.7283547201936754,
+    "cos_inclination": -0.9327223848370068
+   },
+   "selection": 0.022928581525127556,
+   "nrsur_ours_vs_lal": 3.3306690738754696e-16,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.022928581525127556,
+    "shifts": [
+     0.1431848534167036,
+     4.874704731317908
+    ],
+    "unoptimised": 0.12930540194008466,
+    "starts": [
+     3,
+     6,
+     12
+    ],
+    "evaluations": 1216
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.03171179457671769,
+    "shifts": [
+     3.3285588599752227,
+     2.930114958422598
+    ],
+    "unoptimised": 0.09723259876887058,
+    "starts": [
+     10,
+     13,
+     14
+    ],
+    "evaluations": 215
+   },
+   "our_xpnr_vs_lal_xpnr": 0.017918798567666427,
+   "nrsur_conditioning": 5.192493081374039e-05,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.0317117945767178,
+    "shifts": [
+     3.3285588599752227,
+     2.930114958422598
+    ],
+    "unoptimised": 0.09723259876887058,
+    "starts": [
+     10,
+     13,
+     14
+    ],
+    "evaluations": 215
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.031711794571153806,
+    "shifts": [
+     3.32855025015565,
+     2.93011035250306
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 1.329758525514535e-11,
+    "parity_fix": 0.017864487473230328,
+    "lean_vs_default": 2.7057193630053433e-07
+   },
+   "seconds": 61.57653941679746
+  },
+  {
+   "label": "disagree",
+   "features": {
+    "q": 3.4435375163753394,
+    "total_mass": 123.02859586183305,
+    "chi_eff": 0.027635734888728045,
+    "chi_p": 0.3661970144690908,
+    "cos_inclination": 0.6790519651344773
+   },
+   "selection": 0.010973563519539709,
+   "nrsur_ours_vs_lal": 0.0,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.010973563519539709,
+    "shifts": [
+     4.505634780900376,
+     2.026449467221236
+    ],
+    "unoptimised": 0.08934004401119111,
+    "starts": [
+     13,
+     11,
+     14
+    ],
+    "evaluations": 746
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.011030958391255452,
+    "shifts": [
+     4.425666690601457,
+     1.9997776722538454
+    ],
+    "unoptimised": 0.126535884826814,
+    "starts": [
+     13,
+     14,
+     12
+    ],
+    "evaluations": 216
+   },
+   "our_xpnr_vs_lal_xpnr": 0.011661193068680964,
+   "nrsur_conditioning": 3.168812779807961e-05,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.011030958391255563,
+    "shifts": [
+     4.425666690601457,
+     1.9997776722538454
+    ],
+    "unoptimised": 0.12653588482681266,
+    "starts": [
+     13,
+     14,
+     12
+    ],
+    "evaluations": 216
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.011030958366098131,
+    "shifts": [
+     4.425685511039021,
+     1.999794048152064
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 1.8549606295437115e-12,
+    "parity_fix": 0.011660247764669451,
+    "lean_vs_default": 6.204659008801627e-11
+   },
+   "seconds": 52.175103165674955
+  },
+  {
+   "label": "disagree",
+   "features": {
+    "q": 2.400427396180228,
+    "total_mass": 183.76822729227436,
+    "chi_eff": 0.1467435274325082,
+    "chi_p": 0.229013002444955,
+    "cos_inclination": 0.09666896217215384
+   },
+   "selection": 0.01823536555593608,
+   "nrsur_ours_vs_lal": 2.220446049250313e-16,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.01823536555593608,
+    "shifts": [
+     1.51611791400902,
+     1.992459815066348
+    ],
+    "unoptimised": 0.18054373371577337,
+    "starts": [
+     5,
+     7,
+     4
+    ],
+    "evaluations": 1080
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.02081165424769671,
+    "shifts": [
+     1.4500148934009829,
+     1.7955028188540116
+    ],
+    "unoptimised": 0.1462148999454017,
+    "starts": [
+     5,
+     7,
+     3
+    ],
+    "evaluations": 194
+   },
+   "our_xpnr_vs_lal_xpnr": 0.01356040517649515,
+   "nrsur_conditioning": 3.903570259033984e-05,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.02081165424769671,
+    "shifts": [
+     1.4500148934009829,
+     1.7955028188540116
+    ],
+    "unoptimised": 0.14621489994540215,
+    "starts": [
+     5,
+     7,
+     3
+    ],
+    "evaluations": 194
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.02081165422948561,
+    "shifts": [
+     1.4500117795378495,
+     1.795543818888249
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 4.042473022991544e-10,
+    "parity_fix": 0.013560560372378294,
+    "lean_vs_default": 2.9408453450230354e-10
+   },
+   "seconds": 55.27599354228005
+  },
+  {
+   "label": "disagree",
+   "features": {
+    "q": 2.7702065755572196,
+    "total_mass": 126.93472365703758,
+    "chi_eff": -0.3264168700917383,
+    "chi_p": 0.5820765221352064,
+    "cos_inclination": 0.17481702614555644
+   },
+   "selection": 0.01904699013153366,
+   "nrsur_ours_vs_lal": 3.3306690738754696e-16,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.01904699013153366,
+    "shifts": [
+     5.120687452801735,
+     4.996050312605947
+    ],
+    "unoptimised": 0.14359456004791848,
+    "starts": [
+     15,
+     13,
+     2
+    ],
+    "evaluations": 461
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.004308058684360017,
+    "shifts": [
+     4.977885833408128,
+     1.5919263828224612
+    ],
+    "unoptimised": 0.12112284173666943,
+    "starts": [
+     13,
+     15,
+     2
+    ],
+    "evaluations": 211
+   },
+   "our_xpnr_vs_lal_xpnr": 0.008707535754837736,
+   "nrsur_conditioning": 7.162344755173855e-06,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.0043080586843597946,
+    "shifts": [
+     4.977885833408128,
+     1.5919263828224612
+    ],
+    "unoptimised": 0.12112284173666843,
+    "starts": [
+     13,
+     15,
+     2
+    ],
+    "evaluations": 211
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.004308058539275406,
+    "shifts": [
+     4.977866392209599,
+     1.5919567160428416
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 3.440803197918285e-12,
+    "parity_fix": 0.008944984716497406,
+    "lean_vs_default": 4.335457021831246e-06
+   },
+   "seconds": 39.625453792046756
+  },
+  {
+   "label": "disagree",
+   "features": {
+    "q": 3.8291623111325364,
+    "total_mass": 181.03182228547928,
+    "chi_eff": 0.1981494438267676,
+    "chi_p": 0.5088911482096521,
+    "cos_inclination": 0.5509734274743436
+   },
+   "selection": 0.01588065555066831,
+   "nrsur_ours_vs_lal": 0.0,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.01588065555066831,
+    "shifts": [
+     3.861363685812824,
+     3.6917549503239786
+    ],
+    "unoptimised": 0.08984543724537142,
+    "starts": [
+     11,
+     13,
+     14
+    ],
+    "evaluations": 891
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.016092476184663917,
+    "shifts": [
+     3.35744523537878,
+     4.227598370374731
+    ],
+    "unoptimised": 0.08401365888022805,
+    "starts": [
+     11,
+     13,
+     12
+    ],
+    "evaluations": 262
+   },
+   "our_xpnr_vs_lal_xpnr": 0.018547729268654445,
+   "nrsur_conditioning": 1.7113655675804473e-05,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.016092476184663473,
+    "shifts": [
+     3.35744523537878,
+     4.227598370374731
+    ],
+    "unoptimised": 0.08401365888022794,
+    "starts": [
+     11,
+     13,
+     12
+    ],
+    "evaluations": 262
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.01609247617831633,
+    "shifts": [
+     3.3574309780192433,
+     4.227616818127383
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 1.0604561673233093e-10,
+    "parity_fix": 0.01854855382953302,
+    "lean_vs_default": 7.208944552417051e-11
+   },
+   "seconds": 54.92106400011107
+  },
+  {
+   "label": "disagree",
+   "features": {
+    "q": 3.820402767592366,
+    "total_mass": 130.98746089497217,
+    "chi_eff": 0.1150548038098781,
+    "chi_p": 0.7068529772486702,
+    "cos_inclination": -0.40858914469118174
+   },
+   "selection": 0.0960185069493974,
+   "nrsur_ours_vs_lal": -4.440892098500626e-16,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.0960185069493974,
+    "shifts": [
+     0.6280225822563809,
+     -0.5124871663672822
+    ],
+    "unoptimised": 0.16548668855124649,
+    "starts": [
+     0,
+     5,
+     2
+    ],
+    "evaluations": 897
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.08635816898428694,
+    "shifts": [
+     5.278281955228209,
+     1.0512042258118153
+    ],
+    "unoptimised": 0.20813407163503794,
+    "starts": [
+     13,
+     15,
+     10
+    ],
+    "evaluations": 209
+   },
+   "our_xpnr_vs_lal_xpnr": 0.028545364018812025,
+   "nrsur_conditioning": 4.081399540833974e-05,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.08635816898428694,
+    "shifts": [
+     5.278281955228209,
+     1.0512042258118153
+    ],
+    "unoptimised": 0.2081340716350334,
+    "starts": [
+     13,
+     15,
+     10
+    ],
+    "evaluations": 209
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.08635816851379807,
+    "shifts": [
+     5.278317943553935,
+     1.0511847883415908
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 6.366440707950005e-11,
+    "parity_fix": 0.028536773860309284,
+    "lean_vs_default": 4.713688217528045e-09
+   },
+   "seconds": 52.55300562502816
+  },
+  {
+   "label": "disagree",
+   "features": {
+    "q": 3.534500939002428,
+    "total_mass": 199.40815845118223,
+    "chi_eff": -0.060774831231694804,
+    "chi_p": 0.19125092032266144,
+    "cos_inclination": -0.026497220101189742
+   },
+   "selection": 0.017978413610486244,
+   "nrsur_ours_vs_lal": 0.0,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.017978413610486244,
+    "shifts": [
+     -0.4308096459416467,
+     -0.11740484135446705
+    ],
+    "unoptimised": 0.05894779803745087,
+    "starts": [
+     0,
+     2,
+     3
+    ],
+    "evaluations": 742
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.007291938998679082,
+    "shifts": [
+     -0.48686926358158467,
+     6.46989828679761
+    ],
+    "unoptimised": 0.05905264586497572,
+    "starts": [
+     0,
+     2,
+     3
+    ],
+    "evaluations": 216
+   },
+   "our_xpnr_vs_lal_xpnr": 0.01610698652595388,
+   "nrsur_conditioning": 4.3329445233109e-05,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.007291938998679415,
+    "shifts": [
+     -0.48686926358158467,
+     6.46989828679761
+    ],
+    "unoptimised": 0.05905264586497716,
+    "starts": [
+     0,
+     2,
+     3
+    ],
+    "evaluations": 216
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.007291938983090107,
+    "shifts": [
+     -0.4868776628598703,
+     0.18672066080865563
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 4.495293026707259e-11,
+    "parity_fix": 0.01611587573829898,
+    "lean_vs_default": 1.363308643753669e-08
+   },
+   "seconds": 36.903968249913305
+  },
+  {
+   "label": "disagree",
+   "features": {
+    "q": 3.0288287506174707,
+    "total_mass": 199.9435964367613,
+    "chi_eff": -0.06473339889275898,
+    "chi_p": 0.779518237419917,
+    "cos_inclination": -0.1794822597158319
+   },
+   "selection": 0.08183771115236493,
+   "nrsur_ours_vs_lal": -2.220446049250313e-16,
+   "lal_spintaylor": true,
+   "lal_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.08183771115236493,
+    "shifts": [
+     0.9254298476901613,
+     -1.4344493750744123
+    ],
+    "unoptimised": 0.2300954231969774,
+    "starts": [
+     2,
+     12,
+     0
+    ],
+    "evaluations": 755
+   },
+   "our_xpnr_vs_lal_nrsur": {
+    "mismatch": 0.06440628597130371,
+    "shifts": [
+     0.9453539438001958,
+     2.187581932519457
+    ],
+    "unoptimised": 0.2533113857678212,
+    "starts": [
+     5,
+     2,
+     12
+    ],
+    "evaluations": 205
+   },
+   "our_xpnr_vs_lal_xpnr": 0.039396830217742984,
+   "nrsur_conditioning": 0.0004913980774898796,
+   "our_xpnr_vs_our_nrsur": {
+    "mismatch": 0.06440628597130338,
+    "shifts": [
+     0.9453539438001958,
+     2.187581932519457
+    ],
+    "unoptimised": 0.25331138576782164,
+    "starts": [
+     5,
+     2,
+     12
+    ],
+    "evaluations": 205
+   },
+   "our_xpnr_vs_lal_nrsur_gradient": {
+    "mismatch": 0.06440628582079577,
+    "shifts": [
+     0.9453264348883719,
+     2.187613304250645
+    ]
+   },
+   "departure": {
+    "default_without_fix_vs_lal": 1.441538000079845e-10,
+    "parity_fix": 0.03941063985961901,
+    "lean_vs_default": 2.198862536495483e-09
+   },
+   "seconds": 40.56839241599664
+  }
+ ]
+}
