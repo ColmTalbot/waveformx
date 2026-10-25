@@ -68,7 +68,7 @@ BINARY_FIELDS = ("mass_1", "mass_2", "spin_1", "spin_2", "luminosity_distance", 
 #: (:func:`..pnr.st_bank`), and their sizes.
 BANK_GROUPS = (("euler", 4), ("alpha", 4), ("beta", 3), ("antisymmetric", 4))
 #: The interpolants of the smooth PNR angles (:func:`..pnr._geometric_interpolants`).
-SPLINES = ("u", "v", "w", "plus", "minus", "unwrapped")
+SPLINES = ("u", "v", "w", "gamma", "unwrapped")
 
 
 def binary_leaves(binary):
@@ -223,12 +223,12 @@ def grid_point(prec, wf, mf, st_values):
 def spline_tail(values):
     """``(alpha, beta, gamma)`` of :func:`..pnr.spline_angles` from the
     values of the interpolants (:data:`SPLINES`) at a point."""
-    u, v, w, plus, minus, unwrapped = values
+    u, v, w, g, unwrapped = values
     a = st_angles.small_atan2(v, u)
     b = st_angles._atan2(safe_sqrt(u * u + v * v, tiny()), w)
-    a_u = unwrapped + pnr._wrap(a - unwrapped)
+    d = pnr._wrap(a - unwrapped)
     weight = pa._ramp(w / safe_sqrt(u * u + v * v + w * w, tiny()), pnr.HEMISPHERE_SOFT)
-    gamma = fma(weight, plus - a_u, (1.0 - weight) * (minus + a_u))
+    gamma = fma(weight, g - d, (1.0 - weight) * (g + d))
     return a, b, gamma
 
 
@@ -493,7 +493,7 @@ def spline_point(grid, x, k, ends, curvatures):
 
 
 def spline_point6(grid, x, k, y0, y1, m0, m1):
-    """The six interpolants (:data:`SPLINES`) at ``x`` in the interval
+    """The interpolants (:data:`SPLINES`) at ``x`` in the interval
     ``k``, from their values and second derivatives at its ends, and
     whether ``x`` lies on the grid (:func:`..pnr.spline_angles`)."""
     i_start, n, h = grid[0], grid[1], grid[2]
@@ -507,7 +507,7 @@ def spline_point6(grid, x, k, y0, y1, m0, m1):
 def stage_f2_pieces(prec, wf, extra, grid, f, x, k, map_errors, kappa, st_alpha, st_inside, *pieces, modes):
     """:func:`stage_f2` with the interpolants evaluated at the frequencies
     ``x`` of the modes (Hz, in the intervals ``k``) from ``pieces``: for
-    each mode, the values and second derivatives of the six interpolants
+    each mode, the values and second derivatives of the five interpolants
     at both ends of its interval (``y0``, ``y1``, ``m0``, ``m1``)."""
     values, inside = [], []
     for m in range(len(modes)):
@@ -685,8 +685,8 @@ def _compiled(dtype_name, modes, amp_scale, reference_mf=None):
     def s(alpha, beta, grid):
         i_start, n, h = grid[0], grid[1], grid[2]
         pad = pnr.PNR_GRID_CAPACITY - alpha.shape[0]
-        return pnr._geometric_interpolants(jnp.pad(alpha, (0, pad)), jnp.pad(beta, (0, pad)), i_start, n, h, n,
-                                           jnp.asarray(False))
+        return pnr._geometric_interpolants(pnr._unit_vector(jnp.pad(alpha, (0, pad)), jnp.pad(beta, (0, pad))),
+                                           i_start, n, h, n, jnp.asarray(False))
 
     def spline_values(splines, f):
         out = [pnr._spline_at(getattr(splines, name), getattr(splines, "m_" + name), splines.n, splines.x0,

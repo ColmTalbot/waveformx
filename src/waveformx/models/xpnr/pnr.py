@@ -738,7 +738,7 @@ ST_MANY = 1024
 
 def _st_anchors(prec):
     st = prec.st
-    return (st.y, st.dense, st.h)
+    return (st.rows, st.h, st.t0)
 
 
 def _st_spline(prec, wf, mf):
@@ -1707,12 +1707,12 @@ def angle_interpolants(prec, wf, grid, version, active=True, extra_mf=None, n_ex
             st, rotation, mf_scale, _, context = _st_context(prec, wf)
             st_values = st_lean.angles(st, rotation, mf, mf_scale, context)
         alpha, beta, err = uniform_angles(prec, wf, mf, version, st_values)
-        return jnp.where(valid, alpha, 0.0), jnp.where(valid, beta, 0.0), jnp.any(err & valid)
+        return _unit_vector(jnp.where(valid, alpha, 0.0), jnp.where(valid, beta, 0.0)), jnp.any(err & valid)
 
     args = (prec, wf, i_start, n, h, node_map)
     st_extra = None
     if extra_mf is None or version != 330:
-        alpha, beta, errors = blocked_map(angles, jnp.arange(n_chunks), jnp.ceil(n_eval / chunk), args)
+        vector, errors = blocked_map(angles, jnp.arange(n_chunks), jnp.ceil(n_eval / chunk), args)
     else:
         n_extra_chunks = -(-extra_mf.shape[0] // chunk)
         padded = jnp.concatenate([extra_mf, jnp.broadcast_to(extra_mf[-1:], (n_extra_chunks * chunk - extra_mf.shape[0],))])
@@ -1738,23 +1738,23 @@ def angle_interpolants(prec, wf, grid, version, active=True, extra_mf=None, n_ex
                 mf = operands[2]
                 return jnp.zeros(mf.shape, real()), jnp.zeros(mf.shape, real()), jnp.asarray(False)
 
-            values = cond(is_extra, skip, on_grid, (prec, wf, mf, st_values, valid))
-            return values, (st_values[0], st_values[4])
+            alpha, beta, err = cond(is_extra, skip, on_grid, (prec, wf, mf, st_values, valid))
+            return (_unit_vector(alpha, beta), err), (st_values[0], st_values[4])
 
         needed = n_extra_chunks if n_extra is None else jnp.ceil(jnp.minimum(n_extra, extra_mf.shape[0]) / chunk)
-        (alpha, beta, errors), st_extra = blocked_map_extra(
+        (vector, errors), st_extra = blocked_map_extra(
             angles_or_extra, jnp.arange(n_chunks), jnp.ceil(n_eval / chunk), padded.reshape(n_extra_chunks, chunk),
             args, jnp.where(active, needed, 0))
         st_extra = tuple(x.reshape(-1)[:extra_mf.shape[0]] for x in st_extra)
     error = error | jnp.any(errors)
-    alpha, beta = alpha.reshape(-1), beta.reshape(-1)
+    vector = [x.reshape(-1) for x in vector]
     if node_map is not None:
         # splines in the index of the nodes
-        splines = _geometric_interpolants(alpha, beta, jnp.zeros((), real()), n, jnp.ones((), real()), n_eval, error)
+        splines = _geometric_interpolants(vector, jnp.zeros((), real()), n, jnp.ones((), real()), n_eval, error)
         splines.node_map = node_map
         splines.st_extra = st_extra
         return splines
-    splines = _geometric_interpolants(alpha, beta, i_start, n, h, n_eval, error)
+    splines = _geometric_interpolants(vector, i_start, n, h, n_eval, error)
     splines.st_extra = st_extra
     return splines
 
@@ -1770,12 +1770,24 @@ def _wrap(x):
     return x - 2 * PI * jnp.round(x / (2 * PI))
 
 
-def _geometric_interpolants(alpha, beta, i_start, n, h, n_eval, error):
-    """The interpolants of the PNR angles: instead of LAL's splines of
-    ``alpha``, ``beta`` and ``gamma``, splines of the unit vector ``(u, v,
-    w) = (sin(beta) cos(alpha), sin(beta) sin(alpha), cos(beta))`` and of
-    ``gamma + alpha`` and ``gamma - alpha``, from which
-    :func:`spline_angles` takes ``alpha = atan2(v, u)`` and ``gamma``.
+def _unit_vector(alpha, beta):
+    """``(u, v, w) = (sin(beta) cos(alpha), sin(beta) sin(alpha),
+    cos(beta))`` and ``alpha`` modulo ``2 pi`` from it, at the points of a
+    chunk of the grid (:func:`_geometric_interpolants`): the grid holds
+    these rather than the angles."""
+    sin_beta = jnp.sin(beta)
+    u, v, w = sin_beta * jnp.cos(alpha), sin_beta * jnp.sin(alpha), jnp.cos(beta)
+    return u, v, w, st_angles.small_atan2(v, u)
+
+
+def _geometric_interpolants(vector, i_start, n, h, n_eval, error):
+    """The interpolants of the PNR angles from the unit vector ``(u, v, w)
+    = (sin(beta) cos(alpha), sin(beta) sin(alpha), cos(beta))`` and
+    ``alpha`` modulo ``2 pi`` on the grid (``vector``, :func:`_unit_vector`):
+    instead of LAL's splines of ``alpha``, ``beta`` and ``gamma``, splines
+    of ``u``, ``v``, ``w``, of ``gamma`` and of the unwrapped ``alpha``,
+    from which :func:`spline_angles` takes ``alpha = atan2(v, u)`` and
+    ``gamma``.
 
     Where L passes close to J (or to -J), ``alpha`` swings by nearly ``pi``
     between the points of the grid, and the integrand of LAL's ``gamma``
@@ -1792,7 +1804,9 @@ def _geometric_interpolants(alpha, beta, i_start, n, h, n_eval, error):
     ``alpha' (1 -+ cos(beta)) = (u v' - v u') / (r (r +- w))`` (``r =
     |(u, v, w)|``) is regular in its hemisphere (Boole's rule, as LAL's
     ``gamma``). The two are blended across a band of ``cos(beta)``
-    (:data:`HEMISPHERE_SOFT`), where both are regular and agree. The
+    (:data:`HEMISPHERE_SOFT`), where both are regular and agree (the
+    splines of ``gamma +- alpha`` are the sums of those of ``gamma`` and of
+    ``alpha``, splines being linear in their values). The
     angles enter the waveform through integer multiples of ``alpha`` and
     ``gamma`` only, so that their branches do not matter; ``gamma`` is
     LAL's up to a constant, which the offset at the reference frequency
@@ -1800,10 +1814,8 @@ def _geometric_interpolants(alpha, beta, i_start, n, h, n_eval, error):
     chunk = PNR_GRID_CHUNK
     n_chunks = PNR_GRID_CAPACITY // chunk
     x0 = i_start * h
-    sin_beta = jnp.sin(beta)
-    u, v, w = sin_beta * jnp.cos(alpha), sin_beta * jnp.sin(alpha), jnp.cos(beta)
+    u, v, w, raw = vector
     m_u, m_v, m_w = _uniform_natural_splines([u, v, w], n, h, n_eval)
-    raw = st_angles.small_atan2(v, u)
 
     def frequencies(k, i_start, n, h):
         return (i_start + jnp.minimum(k, n - 1.0)) * h
@@ -1839,17 +1851,15 @@ def _geometric_interpolants(alpha, beta, i_start, n, h, n_eval, error):
         increments = jnp.stack([jnp.where(used, d_gamma, 0.0), jnp.where(used, d_alpha, 0.0)])
         sums = jnp.cumsum(increments, axis=1)
         values = totals[:, None] + jnp.concatenate([jnp.zeros((2, 1), real()), sums[:, :-1]], axis=1)
-        return values, totals + sums[:, -1]
+        # (two arrays: the chunks of each make the grid without a transpose)
+        return (values[0], values[1]), totals + sums[:, -1]
 
     first = jnp.stack([jnp.zeros((), real()), raw[0]])
-    values, _ = blocked_scan(boole, jnp.arange(n_chunks), jnp.ceil(n_eval / chunk), first,
-                             (u, m_u, v, m_v, w, m_w, raw, i_start, n, h, x0))
-    # (chunks, 2, chunk) -> (2, capacity)
-    values = jnp.moveaxis(values, 1, 0).reshape(2, -1)
-    gamma, alpha_unwrapped = values[0], values[1]
-    plus, minus = gamma + alpha_unwrapped, gamma - alpha_unwrapped
-    m_plus, m_minus, m_unwrapped = _uniform_natural_splines([plus, minus, alpha_unwrapped], n, h, n_eval)
-    return Struct(u=u, v=v, w=w, m_u=m_u, m_v=m_v, m_w=m_w, plus=plus, m_plus=m_plus, minus=minus, m_minus=m_minus,
+    (gamma, alpha_unwrapped), _ = blocked_scan(boole, jnp.arange(n_chunks), jnp.ceil(n_eval / chunk), first,
+                                               (u, m_u, v, m_v, w, m_w, raw, i_start, n, h, x0))
+    gamma, alpha_unwrapped = gamma.reshape(-1), alpha_unwrapped.reshape(-1)
+    m_gamma, m_unwrapped = _uniform_natural_splines([gamma, alpha_unwrapped], n, h, n_eval)
+    return Struct(u=u, v=v, w=w, m_u=m_u, m_v=m_v, m_w=m_w, gamma=gamma, m_gamma=m_gamma,
                   unwrapped=alpha_unwrapped, m_unwrapped=m_unwrapped, n=n, x0=x0, h=h, error=error)
 
 
@@ -1875,10 +1885,12 @@ def spline_angles(splines, f):
     # alpha on the branch of the unwrapped spline (which matters only
     # in the band, where both forms of gamma are used and alpha is
     # smooth)
-    unwrapped = at("unwrapped")
-    a_u = unwrapped + _wrap(a - unwrapped)
+    # (with d = a_u - unwrapped: gamma + alpha - a_u = gamma - d and
+    # gamma - alpha + a_u = gamma + d)
+    d = _wrap(a - at("unwrapped"))
     weight = pa._ramp(w / safe_sqrt(u * u + v * v + w * w, tiny()), HEMISPHERE_SOFT)
-    gamma = fma(weight, at("plus") - a_u, (1.0 - weight) * (at("minus") + a_u))
+    g = at("gamma")
+    gamma = fma(weight, g - d, (1.0 - weight) * (g + d))
     return a, b, gamma, inside
 
 

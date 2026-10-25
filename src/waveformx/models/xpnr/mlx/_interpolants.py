@@ -15,7 +15,7 @@ from typing import NamedTuple, Optional
 
 import mlx.core as mx
 
-from . import _arrays, _build
+from . import _arrays, _build, _stages
 from ._solution import _call, _small_atan2
 
 __all__ = ["Splines", "interpolants", "spline_values"]
@@ -27,10 +27,10 @@ __all__ = ["Splines", "interpolants", "spline_values"]
 
 
 class Splines(NamedTuple):
-    """The six interpolants (:data:`._stages.SPLINES`) of a batch: their
-    values and second derivatives on the grid, ``table`` (``(B, N, 12)``:
-    the six values, then the six second derivatives) and its tangents
-    ``dtable`` (``(B, N, 12, P)``), the grid ``(i_start, n, h)`` and its
+    """The five interpolants (:data:`._stages.SPLINES`) of a batch: their
+    values and second derivatives on the grid, ``table`` (``(B, N, 10)``:
+    the five values, then the five second derivatives) and its tangents
+    ``dtable`` (``(B, N, 10, P)``), the grid ``(i_start, n, h)`` and its
     tangents, and ``n`` (int)."""
 
     table: mx.array
@@ -68,19 +68,17 @@ def interpolants(alpha, beta, dalpha, dbeta, grid, dgrid, n_grid, n_directions):
     zero = mx.zeros((batch, 1))
     gamma = mx.concatenate([zero, mx.cumsum(d_gamma, axis=1)[:, :-1]], axis=1)
     unwrapped = raw[:, :1] + mx.concatenate([zero, mx.cumsum(d_alpha, axis=1)[:, :-1]], axis=1)
-    plus, minus = gamma + unwrapped, gamma - unwrapped
-    rest = [_arrays.natural_curvatures(y, n_grid, h) for y in (plus, minus, unwrapped)]
-    out_table = mx.stack([u, v, w, plus, minus, unwrapped] + [c[0] for c in curv] + [c[0] for c in rest], axis=2)
+    rest = [_arrays.natural_curvatures(y, n_grid, h) for y in (gamma, unwrapped)]
+    out_table = mx.stack([u, v, w, gamma, unwrapped] + [c[0] for c in curv] + [c[0] for c in rest], axis=2)
     out_dtable = None
     if n_directions:
         zero_t = mx.zeros((batch, 1, n_directions))
         dgamma = mx.concatenate([zero_t, mx.cumsum(out[0].tangent_tree(), axis=1)[:, :-1]], axis=1)
         dunwrapped = draw[:, :1] + mx.concatenate([zero_t, mx.cumsum(out[1].tangent_tree(), axis=1)[:, :-1]],
                                                   axis=1)
-        dplus, dminus = dgamma + dunwrapped, dgamma - dunwrapped
         rest_t = [_arrays.natural_curvatures(y, n_grid, h, dy, dh)[1]
-                  for y, dy in ((plus, dplus), (minus, dminus), (unwrapped, dunwrapped))]
-        out_dtable = mx.stack([du, dv, dw, dplus, dminus, dunwrapped] + [c[1] for c in curv] + rest_t, axis=2)
+                  for y, dy in ((gamma, dgamma), (unwrapped, dunwrapped))]
+        out_dtable = mx.stack([du, dv, dw, dgamma, dunwrapped] + [c[1] for c in curv] + rest_t, axis=2)
     return Splines(out_table, out_dtable, grid, dgrid, n_grid)
 
 
@@ -99,13 +97,14 @@ def intervals(splines, x):
 #: The gathered arguments of the values and second derivatives at both ends
 #: of an interval (``(column, tangent column, row offset, slot)``).
 def ends_gather(first_arg, slot=0):
-    return {first_arg: (0, 0, 0, slot), first_arg + 1: (0, 0, 1, slot), first_arg + 2: (6, 6, 0, slot),
-            first_arg + 3: (6, 6, 1, slot)}
+    k = len(_stages.SPLINES)
+    return {first_arg: (0, 0, 0, slot), first_arg + 1: (0, 0, 1, slot), first_arg + 2: (k, k, 0, slot),
+            first_arg + 3: (k, k, 1, slot)}
 
 
 def spline_values(splines, x, dx, n_directions):
-    """The six interpolants at ``x`` (Hz, ``(B, M)``): ``(values (B, M, 6),
-    inside (B, M), tangents (B, M, 6, P))``."""
+    """The interpolants at ``x`` (Hz, ``(B, M)``): ``(values (B, M, 5),
+    inside (B, M), tangents (B, M, 5, P))``."""
     batch, m = x.shape
     k, ki = intervals(splines, x)
     gather = dict(args=ends_gather(3), table=splines.table, table_t=splines.dtable, index=ki)
