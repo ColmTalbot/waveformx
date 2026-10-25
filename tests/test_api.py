@@ -5,6 +5,8 @@
 spherical harmonics."""
 
 import pickle
+import sys
+import threading
 
 import jax
 import jax.numpy as jnp
@@ -132,3 +134,62 @@ def test_reference_converters():
     assert np.cos(xpnr - xas) == pytest.approx(1.0, abs=1e-8)
     with pytest.raises(wf.UnknownApproximantError):
         wf.to_mass_scaled_reference(binary, approximant="SEOBNRv4_ROM")
+
+
+def test_precision_is_per_thread():
+    """The precision being traced is each thread's own: a thread tracing in
+    float32 leaves another's float64 (and the reverse)."""
+    from waveformx.models.xpnr import _math
+
+    entered, checked = threading.Barrier(2), threading.Barrier(2)
+    seen = {}
+
+    def trace(dtype):
+        with _math.precision(dtype):
+            entered.wait()
+            seen[dtype] = _math.real(), _math.complex_()
+            checked.wait()
+
+    threads = [threading.Thread(target=trace, args=(dtype,)) for dtype in (np.float32, np.float64)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert seen == {np.float32: (np.float32, np.complex64), np.float64: (np.float64, np.complex128)}
+    assert _math.real() == np.float64
+
+
+def test_concurrent_tracing():
+    """TaylorF2 traced in float32 and float64 at once, in threads, gives the
+    types and values of serial calls."""
+    frequencies = np.linspace(20.0, 200.0, 16)
+    binary = wf.Binary(36.0, 29.0, (0.0, 0.0, 0.3), (0.0, 0.0, -0.4), 500.0, 1.0, 1.2, 30.0)
+    model = wf.models.get("TaylorF2")
+
+    def evaluate(dtype):
+        # a new function each time, so that every call traces the model
+        function = jax.jit(lambda b, f: model.polarizations(b, f, wf.WaveformOptions()))
+        b = jax.tree_util.tree_map(lambda v: jnp.asarray(v, dtype), binary)
+        return [np.asarray(h) for h in function(b, jnp.asarray(frequencies, dtype))]
+
+    dtypes = [np.float32, np.float64] * 2
+    results = [None] * len(dtypes)
+
+    def run(i):
+        results[i] = evaluate(dtypes[i])
+
+    interval = sys.getswitchinterval()
+    sys.setswitchinterval(1e-6)  # interleave the tracing finely
+    try:
+        threads = [threading.Thread(target=run, args=(i,)) for i in range(len(dtypes))]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+    finally:
+        sys.setswitchinterval(interval)
+    for dtype, concurrent in zip(dtypes, results):
+        serial = evaluate(dtype)
+        for a, b in zip(concurrent, serial):
+            assert a.dtype == b.dtype == np.result_type(dtype, np.complex64)
+            np.testing.assert_array_equal(a, b)

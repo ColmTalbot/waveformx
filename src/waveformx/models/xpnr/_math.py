@@ -17,6 +17,7 @@ taken.
 from __future__ import annotations
 
 import contextlib
+import contextvars
 import functools
 
 import jax
@@ -51,42 +52,44 @@ REAL4_EPS = 1.1920928955078125e-07
 
 
 # The floating-point type of the evaluation being traced: float32 for a
-# binary of float32 parameters, else float64 (see :func:`precision`).
-_PRECISION = [np.dtype(np.float64)]
+# binary of float32 parameters, else float64 (see :func:`precision`), per
+# thread (and asyncio task), so that models traced concurrently in threads
+# keep their own.
+_PRECISION = contextvars.ContextVar("precision", default=np.dtype(np.float64))
 
 
 def real():
     """The real floating-point type of the evaluation being traced."""
-    return _PRECISION[-1]
+    return _PRECISION.get()
 
 
 def integer():
     """The integer type of counts and indices that meet the real numbers of
     the evaluation (int32 in float32, where int64 would promote them to
     float64)."""
-    return np.dtype(np.int32) if _PRECISION[-1] == np.float32 else np.dtype(np.int64)
+    return np.dtype(np.int32) if real() == np.float32 else np.dtype(np.int64)
 
 
 def complex_():
     """The complex type of the evaluation being traced."""
-    return np.dtype(np.complex64) if _PRECISION[-1] == np.float32 else np.dtype(np.complex128)
+    return np.dtype(np.complex64) if real() == np.float32 else np.dtype(np.complex128)
 
 
 def tiny():
     """A floor far below the values of the model (1e-300 in float64), still
     a normal number in float32."""
-    return 1e-37 if _PRECISION[-1] == np.float32 else 1e-300
+    return 1e-37 if real() == np.float32 else 1e-300
 
 
 def dbl_min():
     """``DBL_MIN`` of the evaluation's precision (``FLT_MIN`` in float32)."""
-    return float(np.finfo(_PRECISION[-1]).tiny)
+    return float(np.finfo(real()).tiny)
 
 
 def dbl_epsilon():
     """``DBL_EPSILON`` of the evaluation's precision (``FLT_EPSILON`` in
     float32)."""
-    return float(np.finfo(_PRECISION[-1]).eps)
+    return float(np.finfo(real()).eps)
 
 
 def narrowed(dtype):
@@ -112,11 +115,11 @@ def precision_of(tree):
 def precision(dtype):
     """Trace an evaluation in ``dtype`` (float32 or float64): :func:`real`
     and :func:`complex_` give its types."""
-    _PRECISION.append(np.dtype(dtype))
+    token = _PRECISION.set(np.dtype(dtype))
     try:
         yield
     finally:
-        _PRECISION.pop()
+        _PRECISION.reset(token)
 
 
 def fma(a, b, c):
