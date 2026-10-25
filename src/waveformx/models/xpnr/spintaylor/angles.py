@@ -15,7 +15,7 @@ import jax.numpy as jnp
 
 from .._math import real, safe_div
 
-__all__ = ["STEP_ANGLE", "small_atan2", "small_square"]
+__all__ = ["STEP_ANGLE", "polar_angle", "small_atan2", "small_square"]
 
 #: Precession angle (rad) per step of the DOP853 integration.
 STEP_ANGLE = 0.1
@@ -63,6 +63,20 @@ def small_atan2(y, x):
     y^2 < SMALL_SQUARE``."""
     small = x * x + y * y < small_square()
     return jnp.arctan2(jnp.where(small, 0.0, y), jnp.where(small, 1.0, x))
+
+
+def polar_angle(lx, ly, lz, dlx, dly, dlz):
+    """``beta = atan2(|(lx, ly)|, lz)``, the angle of LNhat from J, and its
+    derivative from those ``(dlx, dly, dlz)`` of the components: LAL's
+    ``acos(lz)`` loses half the digits of a small ``beta`` (those of small
+    in-plane spins)."""
+    r2 = lx * lx + ly * ly
+    big = r2 > small_square()
+    r = jnp.where(big, jnp.sqrt(jnp.where(big, r2, 1.0)), 0.0)
+    dr = jnp.where(big, lx * dlx + ly * dly, 0.0) / jnp.where(big, r, 1.0)
+    beta = _atan2(r, lz)
+    dbeta = safe_div(lz * dr - r * dlz, r2 + lz * lz)
+    return beta, dbeta
 
 
 def _rotate(x, y, z, phi_j, theta_j, kappa):

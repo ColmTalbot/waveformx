@@ -39,7 +39,7 @@ from .._generated import dop853
 from .._math import C_SI, MTSUN_SI, PI, Struct, g_si, integer, isolated_step, mass_unit, real, safe_div
 from .._transforms import while_loop
 from . import dynamics, trajectory
-from .angles import _du_per_step, _refined, small_atan2, small_square, _rotate
+from .angles import _du_per_step, _refined, polar_angle, small_atan2, small_square, _rotate
 
 __all__ = ["solution", "context", "angles", "CAPACITY"]
 
@@ -340,11 +340,10 @@ def _time_at_omega(sol, omega):
 
 def angles(sol, rotation, mf, mf_scale, ctx):
     """The SpinTaylor ``alpha`` (continuous, on the branch of the first
-    step) and ``cos(beta)`` and their derivatives at ``mf``: the time at
-    which ``M omega = mf / mf_scale`` on the dense output, one Newton step
-    with derivatives (those of the root), and LNhat in the J frame there.
-    Returns ``(alpha, dalpha, cosbeta, dcosbeta, inside)`` as
-    :func:`.angles.spline`."""
+    step) and ``beta`` and their derivatives at ``mf``: the time at which
+    ``M omega = mf / mf_scale`` on the dense output, one Newton step with
+    derivatives (those of the root), and LNhat in the J frame there.
+    Returns ``(alpha, dalpha, beta, dbeta, inside)``."""
     omega = mf / mf_scale
     r, t = _time_at_omega(sol, omega)
     y0 = sol.y[r][..., 1:5]
@@ -370,4 +369,5 @@ def angles(sol, rotation, mf, mf_scale, ctx):
     big = r2 > small_square()
     dalpha_dt = jnp.where(big, lx * dly - ly * dlx, 0.0) / jnp.where(big, r2, 1.0)
     inside = (mf >= ctx.first_mf) & (mf <= ctx.last_mf)
-    return alpha, safe_div(dalpha_dt, dmf_dt), lz, safe_div(dlz, dmf_dt), inside
+    beta, dbeta_dt = polar_angle(lx, ly, lz, dlx, dly, dlz)
+    return alpha, safe_div(dalpha_dt, dmf_dt), beta, safe_div(dbeta_dt, dmf_dt), inside

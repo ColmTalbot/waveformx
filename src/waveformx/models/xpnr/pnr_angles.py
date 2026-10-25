@@ -55,7 +55,7 @@ __all__ = [
     "st_beta_coeffs_0", "st_beta_coeffs_1", "st_beta_coeffs_2", "st_beta_coeffs_3",
     "beta_connection", "arctan_window", "attach_mr_beta", "attach_weight",
     "inflection_cubic", "beta_connection_frequencies",
-    "chi_calc", "pn_waveform_beta",
+    "chi_calc", "pn_waveform_beta", "pn_waveform_beta_components", "beta_window",
     "angles_window", "coprec_window",
     "linear_frequency_slope", "linear_frequency_map",
     "linear_frequency_map_transition_frequencies",
@@ -429,6 +429,33 @@ def arctan_window(beta):
     return jnp.where(inside, value, beta)
 
 
+#: The width (rad) over which :func:`beta_window` goes over into LAL's
+#: window outside ``[0, pi]`` (LAL's ``window_border``).
+BETA_WINDOW_WIDTH = 0.01
+
+
+def beta_window(beta):
+    """The window of the PNR ``beta``: ``beta`` itself within ``[0, pi]``,
+    blended (C2) into LAL's :func:`arctan_window` across
+    :data:`BETA_WINDOW_WIDTH` outside it.
+
+    LAL's window keeps ``beta`` within 0.01 of 0 and pi off the poles: it
+    lifts ``beta = 0`` to ``1.4e-3`` (and steps by ``4e-6`` at its border).
+    For a vanishing in-plane spin, where ``alpha`` is arbitrary, that lift
+    is a precession cone that does not close, and the waveform jumped by
+    ``~1e-3`` between a small in-plane spin and none. The angles are
+    interpolated as the unit vector of L (:func:`.pnr._geometric_interpolants`),
+    which is smooth through the poles, so that ``beta`` needs no window
+    there: a small negative ``beta`` (from the MR fits) is L on the other
+    side of J. LAL's window is kept where ``beta`` is well outside ``[0,
+    pi]``, where it folds the MR fits back."""
+    outside = jnp.maximum(-beta, beta - PI) / BETA_WINDOW_WIDTH
+    t = jnp.clip(outside, 0.0, 1.0)
+    weight = t * t * t * fma(t, fma(6.0, t, -15.0), 10.0)
+    windowed = arctan_window(beta)
+    return jnp.where(weight > 0.0, fma(weight, windowed - beta, beta), beta)
+
+
 def attach_mr_beta(p):
     """``IMRPhenomX_PNR_AttachMRBeta``: whether the MR ``beta`` is attached
     (a boolean): not when ``Mf_beta_lower < 0.009``, ``Mf_beta_lower ==
@@ -729,10 +756,19 @@ def pn_waveform_beta(mf, iota, m1, m2, chi, costheta):
     of the total mass) and the effective single spin ``chi`` at polar
     angle ``acos(costheta)``: ``2 atan2(N, 2 D)`` of the ratio ``N / D``
     of the PN expansions of ``h21`` and ``h22``."""
+    theta = jnp.arccos(costheta)
+    return pn_waveform_beta_components(mf, iota, m1, m2, chi * jnp.cos(theta), chi * jnp.sin(theta))
+
+
+def pn_waveform_beta_components(mf, iota, m1, m2, chi_parallel, chi_perp):
+    """:func:`pn_waveform_beta` from the components ``chi cos(theta)`` and
+    ``chi sin(theta)`` of the effective single spin, which are all it
+    depends on: no ``acos`` of ``chi_parallel / chi``, whose derivative is
+    infinite for aligned spins (and which LAL's callers keep off the
+    poles, leaving a residual ``beta`` of the size of the offset)."""
     m = m1 + m2
     nu = (m1 * m2) / (m * m)
     delta = (m1 - m2) / m
-    theta = jnp.arccos(costheta)
     w_orb = PI * mf
     v = w_orb ** (1.0 / 3.0)
     v2 = v * v
@@ -741,17 +777,17 @@ def pn_waveform_beta(mf, iota, m1, m2, chi, costheta):
     sin_iota = jnp.sin(iota)
     cos_half_iota = jnp.cos(iota / 2.0)
     sin_half_iota = jnp.sin(iota / 2.0)
-    cos_theta = jnp.cos(theta)
-    sin_theta = jnp.sin(theta)
     # numerator expansion of h21/h22
     n0 = 84.0 * sin_iota
     n2 = 2.0 * fma(55.0, nu, -107.0) * sin_iota
-    n3 = fma(-7.0 * (fma(5.0, nu, 6.0 * delta) + 6.0) * chi * fma(2.0, cos_iota, -1.0), sin_theta, 56.0 * fma(-((1.0 + delta - nu) * chi), cos_theta, 3.0 * PI) * sin_iota)
+    n3 = fma(-7.0 * (fma(5.0, nu, 6.0 * delta) + 6.0) * fma(2.0, cos_iota, -1.0), chi_perp,
+             56.0 * fma(-(1.0 + delta - nu), chi_parallel, 3.0 * PI) * sin_iota)
     n = fma(n3, v3, fma(n2, v2, n0)) / cos_half_iota
     # denominator expansion of h21/h22
     d0 = 84.0 * cos_half_iota
     d2 = 2.0 * fma(55.0, nu, -107.0) * cos_half_iota
-    d3 = fma(56.0 * fma((nu - 1.0 - delta) * chi, cos_theta, 3.0 * PI), cos_half_iota, 14.0 * fma(5.0, nu, fma(6.0, delta, 6.0)) * chi * sin_theta * sin_half_iota)
+    d3 = fma(56.0 * fma(nu - 1.0 - delta, chi_parallel, 3.0 * PI), cos_half_iota,
+             14.0 * fma(5.0, nu, fma(6.0, delta, 6.0)) * chi_perp * sin_half_iota)
     d = fma(d3, v3, fma(d2, v2, d0))
     return 2.0 * _atan2_tol(n, 2.0 * d, MAX_TOL_ATAN)
 
