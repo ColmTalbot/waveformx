@@ -449,3 +449,64 @@ def test_derivatives_continuous_as_in_plane_spins_vanish(phi):
     tangent = np.asarray(dh(jnp.float64(1e-9)))
     assert np.max(np.abs(tangent - one_sided)) < 1e-4 * np.max(np.abs(one_sided))
     assert np.all(np.isfinite(np.asarray(dh(jnp.float64(0.0)))))
+
+
+# ---------------------------------------------------------------------------
+# the NNLO and MSA prescriptions
+# ---------------------------------------------------------------------------
+
+
+@functools.lru_cache(maxsize=None)
+def _prescription(version):
+    return jax.jit(lambda b, f: model.polarizations(b, f, OPTIONS, version))
+
+
+@pytest.mark.parametrize("version", [102, 223])
+def test_prescriptions_continuous_as_spins_vanish(version):
+    """The NNLO and MSA prescriptions (``IMRPhenomXPNR_NNLO``,
+    ``IMRPhenomXPNR_MSA``) tend linearly to the waveform of aligned spins
+    as the in-plane spins vanish, as all spins vanish and across equal
+    masses. (LAL's MSA ``beta`` is not: where the two roots of the cubic of
+    ``|S|^2`` are within its rounding, ``beta`` keeps an opening angle of
+    up to ``~1e-4``; the model takes the ``beta`` of a constant ``|S|``
+    there, see ``pnr._msa_beta``.)"""
+    function = _prescription(version)
+    f = frequencies(50.0, n=256)
+
+    def ray(make):
+        h0 = function(make(0.0), f)
+        return np.array([relative(function(make(eps), f), h0) for eps in STEPS])
+
+    for phi in (0.0, 0.5 * np.pi, np.pi, 1.5 * np.pi):
+        def in_plane(eps):
+            return binary(mass_1=30.0, mass_2=20.0, spin_1=(eps * np.cos(phi), eps * np.sin(phi), 0.3),
+                          spin_2=(0.0, 0.0, -0.2), inclination=0.7)
+
+        _assert_linear(ray(in_plane))
+
+    def all_spins(eps):
+        return binary(mass_1=30.0, mass_2=20.0, spin_1=tuple(eps * np.asarray(DIRECTIONS[0][0])),
+                      spin_2=tuple(eps * np.asarray(DIRECTIONS[0][1])))
+
+    _assert_linear(ray(all_spins))
+    for sign in (1.0, -1.0):
+        def masses(eps):
+            return binary(mass_1=30.0 * (1.0 + sign * eps), mass_2=30.0, spin_1=(0.2, 0.1, 0.3),
+                          spin_2=(-0.1, 0.2, 0.3))
+
+        _assert_linear(ray(masses))
+
+
+@pytest.mark.parametrize("version", [102, 223])
+def test_prescriptions_continuous_across_lal_switches(version):
+    """Across ``chi_perp = 1e-3`` (LAL's remapped J frame) and ``q = 12``
+    (the edge of the PNR transition region), as for the SpinTaylor angles."""
+    function = _prescription(version)
+    cases = [
+        (lambda a: binary(spin_1=(0.6 * a, 0.8 * a, 0.3), spin_2=(0.0, 0.0, 0.2)), frequencies(65.0), 1e-3),
+        (lambda q: binary(mass_1=120.0 * q / (1 + q), mass_2=120.0 / (1 + q), spin_1=(0.5, 0.0, 0.3),
+                          spin_2=(0.0, 0.2, 0.1)), frequencies(120.0), 12.0),
+    ]
+    for make, f, x in cases:
+        lo, hi = np.nextafter(x, -np.inf), np.nextafter(x, np.inf)
+        assert relative(function(make(hi), f), function(make(lo), f)) < 1e-6

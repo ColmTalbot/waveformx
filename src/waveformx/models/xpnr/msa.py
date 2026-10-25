@@ -51,7 +51,7 @@ from ._math import PI, Struct, cross, dbl_epsilon, dbl_min, dot, fenced, real, t
 __all__ = [
     "msa_system", "system", "phi_zeta_costhetal", "cos_theta_l_with", "s_norm", "psi_terms", "msa_error",
     "final_spin", "cos_theta_lj", "roots", "j_norm", "l_norm_3pn", "psi_of_v", "elljac_sn", "ellint_rf",
-    "ellint_kcomp", "ellint_f", "gsl_hypot", "gsl_sign", "acos_safe",
+    "ellint_kcomp", "ellint_f", "gsl_hypot", "gsl_sign", "acos_safe", "frozen_beta", "root_resolution",
 ]
 
 TWOPI = 2.0 * PI
@@ -410,6 +410,10 @@ def msa_system(eta, m1, m2, m1_2, m2_2, chi1, chi2, pi_gm, f_ref):
         inveta4=inveta4, sqrt_inveta=sqrt_inveta, qq=q, delta_qq=delta_qq, s1_norm_2=s1_norm_2,
         s2_norm_2=s2_norm_2, s_0_norm_2=s_0_norm_2, degenerate_roots=degenerate_roots, seff=seff,
         constants_l=constants_l,
+        # the in-plane spins and the total spin in the L frame at the
+        # reference (frozen_beta, root_resolution)
+        s1_perp=_hypot0(s1v[0], s1v[1]), s2_perp=_hypot0(s2v[0], s2v[1]), s0_perp=_hypot0(s_0[0], s_0[1]),
+        s0_par=s_0[2], l_0_norm_2=l_0_norm * l_0_norm,
     )
 
     s32, smi2, spl2 = roots(system, l_0_norm, j_0_norm)
@@ -607,6 +611,42 @@ def _asin_safe(x):
     """``asin(x)`` for ``|x| <= 1`` with zero derivative at ``|x| = 1``."""
     inside = jnp.abs(x) < 1.0
     return jnp.where(inside, jnp.arcsin(jnp.where(inside, x, 0.0)), jnp.sign(x) * (0.5 * PI))
+
+
+def _hypot0(x, y):
+    """``sqrt(x^2 + y^2)``, zero with a zero derivative at zero."""
+    r2 = x * x + y * y
+    positive = r2 > 0.0
+    return jnp.where(positive, jnp.sqrt(jnp.where(positive, r2, 1.0)), 0.0)
+
+
+def frozen_beta(system, v):
+    """The angle between L and J (``acos`` of ``cos(theta_L)`` of
+    :func:`phi_zeta_costhetal`) for a total spin of constant magnitude, at
+    the orbital velocities ``v``: ``atan2(|S_perp|, L + S_par)`` with the
+    components of the total spin in the L frame at the reference and the 3PN
+    ``L`` of :func:`l_norm_3pn`. That is LAL's ``cos(theta_L)`` where the
+    roots of the cubic are degenerate (a spin aligned with L), without the
+    perturbation ``S_+^2 = S_-^2 + 1e-9`` (which leaves ``beta ~ 3e-5`` as
+    the in-plane spins vanish) and without the cancellations of
+    :func:`cos_theta_lj`."""
+    v = jnp.asarray(v, dtype=real())
+    l_norm3 = l_norm_3pn(system, v, v * v, system.eta / v)
+    return jnp.arctan2(system.s0_perp, l_norm3 + system.s0_par)
+
+
+def root_resolution(system):
+    """``4 |S1_perp| |S2_perp| 10 delta / (1 + 10 delta) / (L^2 + S1^2 +
+    S2^2)`` at the reference (``delta = (1 - q) / (1 + q)``): an estimate
+    of the separation of the two roots ``S_-^2``, ``S_+^2`` between which
+    ``|S|^2`` oscillates (the oscillation of ``2 S1 . S2``, which vanishes
+    as ``~12 delta`` at equal masses) relative to the scale of the cubic,
+    well conditioned where the roots are not: the rounding of the
+    coefficients of the cubic moves a near-double root by
+    ``~sqrt(DBL_EPSILON)`` of that scale."""
+    total = system.l_0_norm_2 + system.s1_norm_2 + system.s2_norm_2
+    delta = 10.0 * jnp.abs(system.delta_qq)
+    return 4.0 * system.s1_perp * system.s2_perp * delta / ((1.0 + delta) * total)
 
 
 def msa_error(system):

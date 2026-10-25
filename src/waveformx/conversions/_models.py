@@ -3,7 +3,8 @@
 # waveformrs: see NOTICE.md for the original code and its authors.
 """The models as the conversions see them.
 
-* :data:`XPNR`: IMRPhenomXPNR as ``SimInspiralChooseFDWaveform`` on the
+* :data:`XPNR`: IMRPhenomXPNR (and :data:`XPNR_NNLO`, :data:`XPNR_MSA`,
+  its NNLO and MSA prescriptions) as ``SimInspiralChooseFDWaveform`` on the
   uniform grid ``k delta_f`` (multibanding off): the set-up of
   ``IMRPhenomXSetWaveformVariables`` with ``delta_f``, ``f_min`` and
   ``f_max``, evaluated at the frequencies of the band (waveformrs's
@@ -22,15 +23,16 @@ import numpy as np
 
 from . import _conditioning as c
 
-__all__ = ["XPNR", "NRSUR7DQ4", "GENERATORS"]
+__all__ = ["XPNR", "XPNR_NNLO", "XPNR_MSA", "NRSUR7DQ4", "GENERATORS"]
 
 
 _UNIFORM = {}
 
 
-def _uniform_function(options):
+def _uniform_function(options, version):
     """:meth:`_XPNR.uniform` of ``((binary, delta_f, f_min, f_max),
-    frequencies)`` for ``options``: the derivatives of the model are
+    frequencies)`` for ``options`` and the precession prescription
+    ``version``: the derivatives of the model are
     forward-mode Jacobians (:func:`waveformx.models.xpnr._transforms.differentiable`),
     here with respect to the binary and the three scalars of the set-up."""
     from ..models.xpnr import model, pnr
@@ -41,7 +43,7 @@ def _uniform_function(options):
         pnr.clear_cache()
         modes = model.coprecessing_modes(options.mode_array)
         hp, hc, error = model._polarizations_of(binary, frequencies, delta_f, f_min, f_max, modes,
-                                                phase_grid=options.extended_phase_grid)
+                                                phase_grid=options.extended_phase_grid, version=version)
         nan = jnp.asarray(jnp.nan + 1j * jnp.nan, jnp.complex128)
         return jnp.where(error, nan, hp), jnp.where(error, nan, hc)
 
@@ -49,13 +51,16 @@ def _uniform_function(options):
 
 
 class _XPNR:
-    """IMRPhenomXPNR on LAL's uniform grid."""
+    """IMRPhenomXPNR with the precession prescription ``version`` on LAL's
+    uniform grid, as the approximant ``name``."""
 
-    name = "IMRPhenomXPNR"
     domain = "frequency"
 
-    @staticmethod
-    def uniform(binary, frequencies, delta_f, f_min, f_max, options):
+    def __init__(self, version=330, name="IMRPhenomXPNR"):
+        self.version = version
+        self.name = name
+
+    def uniform(self, binary, frequencies, delta_f, f_min, f_max, options):
         """``(h_+, h_x)`` at ``frequencies`` with LAL's set-up for the
         uniform grid of spacing ``delta_f`` from ``f_min`` to ``f_max`` (all
         may be traced); NaN where LAL fails. The values depend on the whole
@@ -65,10 +70,11 @@ class _XPNR:
         ``jax.vmap``, with derivatives from forward-mode Jacobians with
         respect to the binary and to ``delta_f``, ``f_min`` and ``f_max``
         (which may depend on the binary)."""
-        if options not in _UNIFORM:
-            _UNIFORM[options] = _uniform_function(options)
+        key = (options, self.version)
+        if key not in _UNIFORM:
+            _UNIFORM[key] = _uniform_function(options, self.version)
         scalars = tuple(jnp.asarray(x, jnp.float64) for x in (delta_f, f_min, f_max))
-        return _UNIFORM[options]((binary,) + scalars, jnp.asarray(frequencies, jnp.float64))
+        return _UNIFORM[key]((binary,) + scalars, jnp.asarray(frequencies, jnp.float64))
 
     @staticmethod
     def cutoff(binary):
@@ -92,12 +98,11 @@ class _XPNR:
 
         return f_max_prime
 
-    @staticmethod
-    def validate(binary, f_min, f_max_prime, options):
+    def validate(self, binary, f_min, f_max_prime, options):
         """LAL's checks of the model for the band ``[f_min, f_max']``."""
-        from ..models.xpnr import MODEL
+        from .. import models
 
-        MODEL.validate(binary, np.array([f_min, f_max_prime]), options)
+        models.get(self.name).validate(binary, np.array([f_min, f_max_prime]), options)
 
 
 class _NRSur7dq4:
@@ -143,5 +148,7 @@ class _NRSur7dq4:
 
 
 XPNR = _XPNR()
+XPNR_NNLO = _XPNR(102, "IMRPhenomXPNR_NNLO")
+XPNR_MSA = _XPNR(223, "IMRPhenomXPNR_MSA")
 NRSUR7DQ4 = _NRSur7dq4()
-GENERATORS = {model.name: model for model in (XPNR, NRSUR7DQ4)}
+GENERATORS = {model.name: model for model in (XPNR, XPNR_NNLO, XPNR_MSA, NRSUR7DQ4)}

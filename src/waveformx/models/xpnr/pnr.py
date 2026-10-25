@@ -163,8 +163,10 @@ def common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, phase_grid=False, gr
     s2y = chi2y * m2_2
     s_tot_perp = hypot2(s1x + s2x, s1y + s2y)
     chi_tot_perp = s_tot_perp * (big_m * big_m) / m1_2
-    s1_perp = m1_2 * hypot2(chi1x, chi1y)
-    s2_perp = m2_2 * hypot2(chi2x, chi2y)
+    # (zero for aligned spins, not hypot2's floor of ~1e-154: the PNR
+    # beta of versions 102 and 223, from chi_p, divides by its square)
+    s1_perp = m1_2 * _prec.hypot_safe(chi1x, chi1y)
+    s2_perp = m2_2 * _prec.hypot_safe(chi2x, chi2y)
     a1 = 2.0 + (3.0 * m2) / (2.0 * m1)
     a2 = 2.0 + (3.0 * m1) / (2.0 * m2)
     asp1 = a1 * s1_perp
@@ -183,8 +185,8 @@ def common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, phase_grid=False, gr
         chi2=list(chi2),
         chi1_norm=chi1_norm,
         chi2_norm=chi2_norm,
-        chi1_perp=hypot2(chi1x, chi1y),
-        chi2_perp=hypot2(chi2x, chi2y),
+        chi1_perp=_prec.hypot_safe(chi1x, chi1y),
+        chi2_perp=_prec.hypot_safe(chi2x, chi2y),
         s1_perp=s1_perp,
         s2_perp=s2_perp,
         chi_tot_perp=chi_tot_perp,
@@ -1078,6 +1080,46 @@ def pn_alpha(prec, wf, mf, version):
     return _by_version(version, nnlo, lambda: (_msa_angles(prec.msa, mf).phiz, no_error), st)
 
 
+#: The MSA ``beta`` of version 223 (:func:`_msa_beta`) goes from that of the
+#: roots of the cubic of ``|S|^2`` to that of a total spin of constant
+#: magnitude as their estimated relative separation falls from
+#: ``MSA_RESOLVED * sqrt(DBL_EPSILON)`` to a tenth of it.
+MSA_RESOLVED = 1000.0
+
+
+def _msa_beta(prec, mf):
+    """The MSA ``beta`` of version 223 at ``mf``: LAL's ``acos(cos(theta_L))``
+    where the oscillation of ``|S|^2`` between two roots of its cubic is
+    resolved, :func:`.msa.frozen_beta` (a total spin of constant magnitude,
+    LAL's construction for degenerate roots without their perturbation)
+    where it is small, blended (C2) across a decade of
+    :func:`.msa.root_resolution` (:data:`MSA_RESOLVED`, in-plane spins of
+    ``~3e-3`` to ``1e-2``).
+
+    LAL's ``beta`` does not vanish with the in-plane spins: where the two
+    roots are within ``~sqrt(DBL_EPSILON)`` their rounding leaves an
+    opening angle of up to ``~1e-4``, and late in the inspiral of binaries
+    whose heavier spin points along L and lighter one against it (the
+    up-down instability, where the third root of the cubic rises through
+    the two) the oscillation spans a range of ``|S|^2`` that does not
+    shrink with the in-plane spins (``beta ~ 0.1``), as the MSA has the
+    instability grow at once from any misalignment. Below in-plane spins
+    of ``~1e-2`` the model departs from LAL by up to a mismatch of
+    ``~2e-3`` for up-down binaries and ``~1e-5`` for others (seen nearly
+    edge-on; the oscillations of ``|S|`` it drops)."""
+    system = prec.msa
+    roots_beta = acos_safe(_msa_angles(system, mf).cos_theta_l)
+    frozen = _msa.frozen_beta(system, jnp.cbrt(PI * mf))
+    r = _msa.root_resolution(system)
+    resolved = MSA_RESOLVED * float(np.sqrt(dbl_epsilon()))
+    positive = r > 0.0
+    x = jnp.where(positive, jnp.log10(jnp.where(positive, r, 1.0) / resolved), -100.0)
+    w = pa._ramp(x + 0.5, 0.5)
+    # (selected: where w = 0, for aligned spins, the derivatives of the
+    # roots' beta are not finite)
+    return jnp.where(w > 0.0, fma(w, roots_beta - frozen, frozen), frozen)
+
+
 def _single_beta(prec, mf):
     """``acos(cos(theta_L))`` of the single-spin system (``SingleSpin``) at
     ``v = (pi Mf)^(1/3)``: ``atan2(S_perp, L + S_par)``.
@@ -1121,7 +1163,7 @@ def pn_beta(prec, wf, mf, bp, version, use_mr_beta):
 
     return _by_version(
         version, lambda: (nnlo_beta(prec, jnp.cbrt(PI * mf)), no_error),
-        lambda: (tapered(acos_safe(_msa_angles(prec.msa, mf).cos_theta_l), 223), no_error), st)
+        lambda: (tapered(_msa_beta(prec, mf), 223), no_error), st)
 
 
 def pn_beta_fulltwospin(prec, wf, mf, bp, version, use_mr_beta):
@@ -1133,7 +1175,7 @@ def pn_beta_fulltwospin(prec, wf, mf, bp, version, use_mr_beta):
         return beta, error | ~jnp.isfinite(beta)
 
     return _by_version(version, lambda: (nnlo_beta(prec, jnp.cbrt(PI * mf)), no_error),
-                       lambda: (acos_safe(_msa_angles(prec.msa, mf).cos_theta_l), no_error), st)
+                       lambda: (_msa_beta(prec, mf), no_error), st)
 
 
 def waveform_beta(prec, wf, mf, pn_beta_value):

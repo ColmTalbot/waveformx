@@ -12,10 +12,13 @@ of release 122019), :mod:`.precession`, :mod:`.nnlo`, :mod:`.msa`,
 :mod:`.spintaylor` (the SpinTaylor angles), :mod:`.pnr_angles`,
 :mod:`.pnr` (the PNR machinery), :mod:`.antisymmetric`, :mod:`.model` (the
 polarizations and J-frame modes), :mod:`.reference` (the reference
-conventions) and :mod:`.api` (``MODEL``). The fits are generated from
-waveformrs into :mod:`._generated`.
+conventions) and :mod:`.api` (``MODEL``, and ``MODEL_NNLO`` and
+``MODEL_MSA``, the approximants ``IMRPhenomXPNR_NNLO`` and
+``IMRPhenomXPNR_MSA``: the PNR angles built on the NNLO and MSA angles,
+LAL's ``PhenomXPrecVersion`` 102 and 223, rather than the SpinTaylor
+angles). The fits are generated from waveformrs into :mod:`._generated`.
 """
 
-from .api import MODEL
+from .api import MODEL, MODEL_MSA, MODEL_NNLO
 
-__all__ = ["MODEL"]
+__all__ = ["MODEL", "MODEL_MSA", "MODEL_NNLO"]
