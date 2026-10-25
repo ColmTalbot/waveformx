@@ -97,19 +97,17 @@ def _intrinsic(binary) -> tuple:
 
 def _host_labels(values: tuple):
     """``PrecessingNRSur_switch_labels_if_needed`` and the derived masses, in
-    numpy, from :func:`_intrinsic`: ``(switched, m1_si, m2_si, chi_a, chi_b,
-    q, m_tot_sec)``."""
-    m1 = values[0] * _waveform.MSUN_SI
-    m2 = values[1] * _waveform.MSUN_SI
+    numpy, from :func:`_intrinsic`: ``(switched, chi_a, chi_b, q,
+    m_tot_sec)``, with the masses in solar masses."""
+    m1 = values[0]
+    m2 = values[1]
     s1 = np.array(values[2:5])
     s2 = np.array(values[5:8])
     switched = m1 < m2
     if switched:
         m1, m2 = m2, m1
         s1, s2 = np.array([-s2[0], -s2[1], s2[2]]), np.array([-s1[0], -s1[1], s1[2]])
-    mass_a = m1 / _waveform.MSUN_SI
-    mass_b = m2 / _waveform.MSUN_SI
-    return switched, m1, m2, s1, s2, mass_a / mass_b, (mass_a + mass_b) * _waveform.MTSUN_SI
+    return switched, s1, s2, m1 / m2, (m1 + m2) * _waveform.MTSUN_SI
 
 
 @jax.jit
@@ -177,7 +175,7 @@ def setup(binary, delta_t: float, f_min: float, options, data: Optional[NRSurDat
 def _grid(values: tuple, delta_t: float, f_min: float, data: NRSurData) -> tuple:
     """:func:`setup` for the intrinsic parameters ``values``
     (:func:`_intrinsic`): ``(f_ref, t0, dt, n, epoch, m_tot_sec)``."""
-    switched, m1_si, m2_si, chi_a, chi_b, q, m_tot_sec = _host_labels(values)
+    switched, chi_a, chi_b, q, m_tot_sec = _host_labels(values)
     f_ref = values[8]
     # get_dimless_omega
     omega_min = (m_tot_sec * f_min) * np.pi
@@ -199,14 +197,8 @@ def _grid(values: tuple, delta_t: float, f_min: float, data: NRSurData) -> tuple
     t_ds = np.asarray(data.t_ds)
     omegas = np.asarray(_omegas(data, q, chi_a, chi_b))
     _reference_time(t_ds, omegas, omega_ref)
-    # the start of the output (PrecessingNRSur_StartFrequency with the
-    # masses in kg)
-    q_start = m1_si / m2_si
-    if q_start == q:
-        omega_start = omegas[0]
-    else:
-        omega_start = float(_omegas(data, q_start, chi_a, chi_b)[0])
-    start_freq = omega_start / (np.pi * (((m1_si + m2_si) / _waveform.MSUN_SI) * _waveform.MTSUN_SI))
+    # the start of the output (PrecessingNRSur_StartFrequency)
+    start_freq = omegas[0] / (np.pi * m_tot_sec)
     if f_min >= start_freq:
         t0 = _reference_time(t_ds, omegas, omega_min)
     elif f_min > 0:
@@ -227,9 +219,9 @@ def start_frequency(binary, data: Optional[NRSurData] = None) -> float:
     (Hz) at the first dynamics node for the reference spins, the smallest
     non-zero ``f_min`` allowed for this binary."""
     data = default_data() if data is None else data
-    _, m1_si, m2_si, chi_a, chi_b, _, _ = _host_labels(_intrinsic(binary))
-    omega = float(_omegas(data, m1_si / m2_si, chi_a, chi_b)[0])
-    return omega / (np.pi * (((m1_si + m2_si) / _waveform.MSUN_SI) * _waveform.MTSUN_SI))
+    _, chi_a, chi_b, q, m_tot_sec = _host_labels(_intrinsic(binary))
+    omega = float(_omegas(data, q, chi_a, chi_b)[0])
+    return omega / (np.pi * m_tot_sec)
 
 
 def bucket(n: int) -> int:

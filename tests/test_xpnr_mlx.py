@@ -570,7 +570,10 @@ def test_mass_scaled_reference(mlx_model, modes):
         single = model.polarizations(as_dtype(binary, jnp.float32), jnp.asarray(f, jnp.float32), options)[0]
         got = np.asarray(hp)
         assert np.all(np.isfinite(got)), name
-        assert mismatch(got, want) <= max(3 * mismatch(single, want), 1e-8), (name, mismatch(got, want),
+        # (the floor: float32 rounding moves the mismatches of "unequal",
+        # q = 18 with its reference below the band, between ~1e-7 and 4e-6
+        # in both MLX and JAX)
+        assert mismatch(got, want) <= max(3 * mismatch(single, want), 4e-6), (name, mismatch(got, want),
                                                                                 mismatch(single, want))
     hp, _ = mlx_model.polarizations(BINARIES["generic"], f, mode_array=modes, reference_mf=ref)
     assert np.all(np.isnan(np.asarray(hp)))

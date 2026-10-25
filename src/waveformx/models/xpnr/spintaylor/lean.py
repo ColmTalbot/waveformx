@@ -36,7 +36,7 @@ import jax.numpy as jnp
 from jax.flatten_util import ravel_pytree
 
 from .._generated import dop853
-from .._math import C_SI, MTSUN_SI, PI, Struct, g_si, integer, isolated_step, mass_unit, real, safe_div
+from .._math import MTSUN_SI, PI, Struct, integer, isolated_step, real, safe_div
 from .._transforms import while_loop
 from . import dynamics, trajectory
 from .angles import _du_per_step, _refined, polar_angle, small_atan2, small_square, _rotate
@@ -136,7 +136,7 @@ def _integrate(c, y_ref, k_ref, du_back, n_back, du_fwd, beyond, active):
 
 def solution(m1, m2, chi1, chi2, f_ref, f_low, f_cut, active=True):
     """The SpinTaylor solution from ``f_low - 0.5 Hz`` through ``f_ref`` to
-    the end of the inspiral, for masses in :func:`.._math.mass_unit`
+    the end of the inspiral, for masses in solar masses
     (heavier first) and the spins ``chi1``, ``chi2`` (3-vectors in the L
     frame at ``f_ref``); ``f_cut`` (Hz) bounds the frequency. Returns a
     :class:`~.._math.Struct` with what :func:`context` and :func:`angles`
@@ -145,8 +145,8 @@ def solution(m1, m2, chi1, chi2, f_ref, f_low, f_cut, active=True):
     (the capacity was exceeded). Where ``active`` (traced) is false, no
     steps are taken."""
     m_tot = m1 + m2
-    msec = m_tot / mass_unit() * MTSUN_SI
-    pi_gm = PI * m_tot * (g_si() / C_SI) / (C_SI * C_SI)
+    msec = m_tot * MTSUN_SI
+    pi_gm = PI * m_tot * MTSUN_SI
     # LAL's fine sampling of the end of the inspiral
     dt_fine = 0.5 / f_cut / msec
     y_ref = _initial_state(m1, m2, chi1, chi2, f_ref, msec)

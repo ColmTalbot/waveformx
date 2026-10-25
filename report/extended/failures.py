@@ -44,7 +44,7 @@ def lal_status(d):
 
 
 def diagnosis():
-    from waveformx.models.xpnr._math import MSUN_SI, MTSUN_SI
+    from waveformx.models.xpnr._math import MTSUN_SI
     from waveformx.models.xpnr.spintaylor import angles, dynamics, replica
 
     def f(b, frequencies):
@@ -52,7 +52,7 @@ def diagnosis():
         w, m1_si, m2_si, chi1, chi2 = x.model.setup_waveform(b, 0.0, frequencies[0], frequencies[-1])
         w.hm_release = 122019
         base, wf0 = x.pnr.common_setup(w, m1_si, m2_si, chi1, chi2, x.pnr.mode_range(x.MODES), True)
-        msec = (m1_si + m2_si) / MSUN_SI * MTSUN_SI
+        msec = (m1_si + m2_si) * MTSUN_SI
         y_ref = angles._initial_state(m1_si, m2_si, base.chi1, base.chi2, wf0.f_ref, msec)
         c_back = dynamics.coefficients(m1_si, m2_si, wf0.f_ref, base.st_flow - 0.5)
         start = replica.evolve(c_back, y_ref, -0.5 * 10.0 / base.st_fcut / msec, 8)

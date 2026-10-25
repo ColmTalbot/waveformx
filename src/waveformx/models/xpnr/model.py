@@ -56,7 +56,7 @@ from ..._options import REFERENCE_MF, strain_scale
 from . import hm, pnr
 from . import pnr_angles as pa
 from ._math import (
-    MTSUN_SI, Struct, barrier, complex_, hz_to_mf, mass_unit, materialized, mf_to_hz, precision, precision_of, real,
+    MTSUN_SI, Struct, barrier, complex_, hz_to_mf, materialized, mf_to_hz, precision, precision_of, real,
 )
 from ._transforms import differentiable
 from .antisymmetric import antisymmetric_waveform
@@ -123,12 +123,12 @@ def setup_waveform(binary, delta_f, f_min, f_max, amp_scale=1.0, reference_mf=No
         binary, reference_mf = to_canonical(binary, reference_mf), REFERENCE_MF
     m1, m2, chi1, chi2 = ordered_binary(binary)
     wf = waveform_struct(
-        m1 * mass_unit(), m2 * mass_unit(), chi1[2], chi2[2], delta_f, reference_frequency(binary, reference_mf),
+        m1, m2, chi1[2], chi2[2], delta_f, reference_frequency(binary, reference_mf),
         jnp.asarray(binary.phi_ref, dtype=real()), f_min, f_max,
         jnp.asarray(binary.luminosity_distance, dtype=real()),
         jnp.asarray(binary.inclination, dtype=real()), amp_scale,
     )
-    return wf, m1 * mass_unit(), m2 * mass_unit(), [chi1[0], chi1[1], chi1[2]], [chi2[0], chi2[1], chi2[2]]
+    return wf, m1, m2, [chi1[0], chi1[1], chi1[2]], [chi2[0], chi2[1], chi2[2]]
 
 
 # ---------------------------------------------------------------------------
