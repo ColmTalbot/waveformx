@@ -37,7 +37,7 @@ import jax.numpy as jnp
 
 from ._generated.utilities import final_spin_2017
 from ._math import (
-    C_SI, FRAC_PI_2, PC_SI, PI, POWERS_OF_LALPI, Struct, g_si, hz_to_mf, mass_unit, real, rotate_y, rotate_z,
+    FRAC_PI_2, MTSUN_SI, PI, POWERS_OF_LALPI, Struct, hz_to_mf, real, rotate_y, rotate_z,
 )
 from .internals import set_ringdown_frequencies, waveform_struct
 from .msa import acos_safe, msa_system, phi_zeta_costhetal
@@ -226,14 +226,14 @@ def precessing_final_spin_2017(eta, chi1l, chi2l, chi_perp):
 
 def chirp_time_bound(f_start, m1, m2, s1, s2):
     """``XLALSimInspiralChirpTimeBound``: an upper bound on the chirp time (s)
-    from ``f_start`` (Hz) for the masses ``m1``, ``m2`` in kg and the aligned
+    from ``f_start`` (Hz) for the masses ``m1``, ``m2`` in solar masses and the aligned
     spins ``s1``, ``s2``."""
     m = m1 + m2
     mu = m1 * m2 / m
     eta = mu / m
     chi = jnp.abs(jnp.where(jnp.abs(s1) > jnp.abs(s2), s1, s2))
     # XLALSimInspiralTaylorT2Timing_0PNCoeff, _2PNCoeff, _4PNCoeff
-    total_mass = m * (g_si() / C_SI ** 3.0)
+    total_mass = m * MTSUN_SI
     c0 = jnp.abs(-5. * total_mass / (256. * eta))
     c2 = 7.43 / 2.52 + 11. / 3. * eta
     c3 = (226.0 / 15.0) * chi
@@ -329,8 +329,8 @@ def polarization_angle(inclination, phi_ref, theta_j_sf, phi_j_sf, kappa, nx_jf,
 
 
 def pi_gm(m1_si, m2_si):
-    """``pPrec->piGM = pi G M / c^3`` (s) for the masses in kg."""
-    return PI * (m1_si + m2_si) * (g_si() / C_SI) / (C_SI * C_SI)
+    """``pPrec->piGM = pi G M / c^3`` (s) for the masses in solar masses."""
+    return PI * (m1_si + m2_si) * MTSUN_SI
 
 
 def angle_offsets(wf, use_msa, msa, nnlo, alpha0, epsilon0, mprime=2):
@@ -357,7 +357,7 @@ def precession_struct(wf, m1_si, m2_si, chi1, chi2, version=223):
     as LAL does it for IMRPhenomXP/XPHM.
 
     ``wf`` is the waveform struct of :func:`.internals.waveform_struct`,
-    ``m1_si >= m2_si`` (kg) and the spins ordered as by
+    ``m1_si >= m2_si`` (solar masses) and the spins ordered as by
     :func:`check_masses_and_spins`.
 
     Returns ``(prec, wf)``: the precession :class:`~._math.Struct` and the
@@ -469,11 +469,11 @@ def check_masses_and_spins(m1, m2, chi1, chi2):
 
 def _angles_setup(frequencies, m1, m2, chi1, chi2, inclination, f_ref, version):
     frequencies = jnp.asarray(frequencies, dtype=real())
-    m1_si, m2_si, chi1, chi2 = check_masses_and_spins(m1 * mass_unit(), m2 * mass_unit(), chi1, chi2)
+    m1_si, m2_si, chi1, chi2 = check_masses_and_spins(m1, m2, chi1, chi2)
     f_ref = jnp.where(f_ref == 0.0, frequencies[0], f_ref)
-    # (the distance does not matter: 1 m, in Mpc)
+    # (the distance does not matter: 1 Mpc)
     wf = waveform_struct(m1_si, m2_si, chi1[2], chi2[2], 0.0, f_ref, 0.0, frequencies[0], frequencies[-1],
-                         1.0e-6 / PC_SI,
+                         1.0,
                          inclination)
     prec, wf = precession_struct(wf, m1_si, m2_si, chi1, chi2, version)
     return frequencies, prec, wf

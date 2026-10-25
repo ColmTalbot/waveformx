@@ -25,11 +25,11 @@ import numpy as np
 
 __all__ = [
     "PI", "FRAC_PI_2", "FRAC_PI_4", "LN_2", "EGAMMA", "DBL_MIN", "DBL_EPSILON", "NAN", "INF",
-    "MSUN_SI", "MTSUN_SI", "MRSUN_SI", "PC_SI", "MPC_SI", "G_SI", "C_SI", "REAL4_EPS",
+    "MTSUN_SI", "MRSUN_SI", "PC_SI", "MPC_SI", "REAL4_EPS",
     "fma", "fms", "fnms", "Struct", "powers", "POWERS_OF_LALPI", "safe_div", "safe_sqrt",
     "safe_log", "safe_arccos", "where", "dot", "cross", "norm", "rotate_y", "rotate_z",
-    "hz_to_mf", "mf_to_hz", "materialized", "real", "integer", "complex_", "precision", "precision_of", "mass_unit",
-    "g_si", "tiny", "dbl_min", "dbl_epsilon", "narrowed",
+    "hz_to_mf", "mf_to_hz", "materialized", "real", "integer", "complex_", "precision", "precision_of",
+    "tiny", "dbl_min", "dbl_epsilon", "narrowed",
 ]
 
 PI = float(np.pi)
@@ -45,11 +45,8 @@ INF = float("inf")
 # LAL's constants (lal 7.7)
 PC_SI = 3.085677581491367278913937957796471611e16
 MPC_SI = 1.0e6 * PC_SI
-MSUN_SI = 1.988409870698050731911960804878414216e30
 MRSUN_SI = 1.476625038050124729627979840144936351e3
 MTSUN_SI = 4.925490947641266978197229498498379006e-6
-G_SI = 6.67430e-11
-C_SI = 299792458.0
 REAL4_EPS = 1.1920928955078125e-07
 
 
@@ -73,17 +70,6 @@ def integer():
 def complex_():
     """The complex type of the evaluation being traced."""
     return np.dtype(np.complex64) if _PRECISION[-1] == np.float32 else np.dtype(np.complex128)
-
-
-def mass_unit():
-    """The unit of the masses that LAL gives in kg: the solar mass (the
-    models do not reproduce LAL's round trips through ``MSUN_SI``)."""
-    return 1.0
-
-
-def g_si():
-    """The gravitational constant for masses in :func:`mass_unit`."""
-    return G_SI * MSUN_SI if mass_unit() == 1.0 else G_SI
 
 
 def tiny():

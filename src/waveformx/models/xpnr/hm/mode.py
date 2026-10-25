@@ -17,7 +17,7 @@ from jax import lax
 from .. import amp22 as amp22_module
 from .. import phase22 as phase22_module
 from .. import xas
-from .._math import Struct, mass_unit, powers, real
+from .._math import Struct, powers, real
 from ..internals import waveform_struct
 from .amplitude import amplitude, amplitude_coefficients, amplitude_fits, choose_polynomial, finish_amplitude
 from .inspiral import pn21_coefficients
@@ -308,7 +308,7 @@ def frequency_sequence_one_mode(frequencies, mass_1, mass_2, chi_1, chi_2, ell, 
         h = xas.frequency_sequence(frequencies, mass_1, mass_2, chi_1, chi_2, distance, phi_ref, f_ref)
         return jnp.conj(h) if emm > 0 else h
     wf = waveform_struct(
-        mass_1 * mass_unit(), mass_2 * mass_unit(), chi_1, chi_2, 0.0, f_ref, phi_ref, frequencies[0], frequencies[-1],
+        mass_1, mass_2, chi_1, chi_2, 0.0, f_ref, phi_ref, frequencies[0], frequencies[-1],
         distance, 0.0,
     )
     wf.hm_release = RELEASE

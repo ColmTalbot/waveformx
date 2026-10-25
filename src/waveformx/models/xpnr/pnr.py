@@ -37,8 +37,8 @@ from ._generated import pnr_fits as _pnr_fits
 from ._generated import qnm as _qnm
 from ._generated import utilities as _utilities
 from ._math import (
-    C_SI, FRAC_PI_2, MTSUN_SI, PI, FencedModule, Struct, barrier, blocked_map, blocked_map_extra, blocked_scan,
-    chunked_map, dbl_epsilon, fenced, fma, fnms, g_si, hz_to_mf, integer, mf_to_hz, real, rotate_y, rotate_z, safe_div,
+    FRAC_PI_2, MTSUN_SI, PI, FencedModule, Struct, barrier, blocked_map, blocked_map_extra, blocked_scan,
+    chunked_map, dbl_epsilon, fenced, fma, fnms, hz_to_mf, integer, mf_to_hz, real, rotate_y, rotate_z, safe_div,
     safe_sqrt, tiny,
 )
 from .hm import qnm as _hm_qnm
@@ -125,7 +125,7 @@ def common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, phase_grid=False, gr
     SpinTaylor integration: the spin quantities and the start of the
     integration that the PNR angle interpolants need.
 
-    ``m1_si``, ``m2_si`` (:func:`._math.mass_unit`) and the spins
+    ``m1_si``, ``m2_si`` (solar masses) and the spins
     (3-vectors) are ordered as ``XLALIMRPhenomXPCheckMassesAndSpins`` orders
     them; ``mode_range_`` is :func:`mode_range` of the co-precessing modes
     (static, or traced with ``M_MAX = L_MAX_PNR``, as for the J-frame
@@ -154,7 +154,7 @@ def common_setup(wf, m1_si, m2_si, chi1, chi2, mode_range_, phase_grid=False, gr
     m2_2 = m2 * m2
     q = m1 / m2
     eta = wf.eta
-    pi_gm = PI * (m1_si + m2_si) * (g_si() / C_SI) / (C_SI * C_SI)
+    pi_gm = PI * (m1_si + m2_si) * MTSUN_SI
     chi1_norm = safe_sqrt(fma(chi1z, chi1z, fma(chi1x, chi1x, chi1y * chi1y)), tiny())
     chi2_norm = safe_sqrt(fma(chi2z, chi2z, fma(chi2x, chi2x, chi2y * chi2y)), tiny())
     s1x = chi1x * m1_2
