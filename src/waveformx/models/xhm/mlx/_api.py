@@ -13,7 +13,7 @@ import functools
 import mlx.core as mx
 
 from ...._options import STRAIN_SCALE
-from ...xas.mlx._api import _complex, _inputs, _real
+from ...xas.mlx._api import _complex, _inputs, _real, reference, scaled_jacobian
 from .. import core
 from ._kernels import kernels
 
@@ -76,7 +76,7 @@ def _scale(scaled_strain):
     return STRAIN_SCALE if scaled_strain else 1.0
 
 
-def polarizations(binary, frequencies, scaled_strain=True):
+def polarizations(binary, frequencies, scaled_strain=True, reference_mf=None):
     """``(h_+, h_x)`` (complex64 MLX arrays) of IMRPhenomXHM at
     ``frequencies`` (Hz, positive and increasing; ``(N,)`` or, for a batch,
     ``(B, N)``): ``(N,)`` each for one binary, ``(B, N)`` for a batch (a
@@ -84,33 +84,36 @@ def polarizations(binary, frequencies, scaled_strain=True):
     aligned components of the spins enter. The strain is multiplied by
     ``1e21`` unless ``scaled_strain`` is false; NaN where LAL fails.
     Differentiable with ``mx.grad`` with respect to the fields of the
-    binary."""
-    x, f, has_batch = _inputs(binary, frequencies)
+    binary. With ``reference_mf`` the binary is given at ``M f_ref =
+    reference_mf`` (``WaveformOptions.reference_mf``; its ``f_ref`` zero,
+    NaN otherwise)."""
+    x, f, has_batch = _inputs(binary, frequencies, reference(reference_mf))
     hp, hc = _core(_scale(scaled_strain))(x, f)
     return (hp, hc) if has_batch else (hp[0], hc[0])
 
 
-def modes(binary, frequencies, scaled_strain=True):
+def modes(binary, frequencies, scaled_strain=True, reference_mf=None):
     """The modes ``{(l, m): h_{l,-m}(f)}`` (``m > 0``: the modes of
     negative ``m`` at the positive frequencies; ``h_{l,m}(-f) = (-1)^l
     conj(h_{l,-m}(f))``), those whose sum with the spherical harmonics is
     :func:`polarizations` (the (3,2) recycling the (2,2) in its ringdown;
     the higher modes at every frequency). Differentiable with ``mx.grad``."""
-    x, f, has_batch = _inputs(binary, frequencies)
+    x, f, has_batch = _inputs(binary, frequencies, reference(reference_mf))
     _, _, h = _core_modes(_scale(scaled_strain))(x, f)
     out = {mode: h[..., k] for k, mode in enumerate(core.MODES)}
     return out if has_batch else {mode: value[0] for mode, value in out.items()}
 
 
-def polarizations_and_jacobian(binary, frequencies, scaled_strain=True):
+def polarizations_and_jacobian(binary, frequencies, scaled_strain=True, reference_mf=None):
     """``(h_+, h_x)`` and their Jacobians with respect to the twelve
     parameters of the binary: each ``(..., N, 12)`` complex64 (zero for the
     in-plane spins)."""
-    x, f, has_batch = _inputs(binary, frequencies)
+    reference_mf = reference(reference_mf)
+    x, f, has_batch = _inputs(binary, frequencies, reference_mf)
     k = kernels(_scale(scaled_strain))
     tables, dtables = k.tables_jvp(mx.stop_gradient(x))
     hp, hc, jp, jc = k.polarizations_and_jacobian(tables, dtables, f)
-    out = (_complex(hp), _complex(hc)), (_complex(jp), _complex(jc))
+    out = (_complex(hp), _complex(hc)), scaled_jacobian(binary, (_complex(jp), _complex(jc)), reference_mf)
     if has_batch:
         return out
     return (out[0][0][0], out[0][1][0]), (out[1][0][0], out[1][1][0])
