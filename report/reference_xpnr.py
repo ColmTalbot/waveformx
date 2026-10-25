@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
-"""The mass-scaled reference frequency of the lean IMRPhenomXPNR
-(``WaveformOptions(lean=True, reference_mf=0.01)``): writes
+"""The mass-scaled reference frequency of IMRPhenomXPNR
+(``WaveformOptions(reference_mf=0.01)``): writes
 ``report/data/reference_xpnr.json``.
 
 * finite waveforms per mode array, over random binaries (mass ratios to
@@ -13,14 +13,14 @@
 * against LAL with the parity fix (``PATCHED_LALSIMULATION``, optional):
   binaries drawn at ``f_ref = 20 Hz`` (q to 12, 20-90 solar masses, spins
   to 0.9) converted to the mass-scaled reference
-  (``to_mass_scaled_reference``); the lean model with it against LAL given
+  (``to_mass_scaled_reference``); the model with it against LAL given
   the binary converted to ``f_ref = 0.01 / M`` (inside the band), and LAL
   at that reference against LAL at 20 Hz (the model's own dependence on
   the reference). Mismatches with white noise, 20-1024 Hz in steps of
   1/8 Hz, maximised over time and phase, the polarizations in the same
   basis;
   LAL at 20 Hz is also compared with the consistent model directly
-  (``lal_20_vs_lean``: the lean model given the binary at 20 Hz carries it
+  (``lal_20_vs_lean``: the model given the binary at 20 Hz carries it
   to its canonical reference, so this is the distance from LAL's test
   point), and LAL at a test point near the canonical reference (the same
   spins and angles given at ``f_ref = M_near / M``, ``M_near`` off 0.01
@@ -59,11 +59,11 @@ TIMING = r'''
 import json, sys, time
 import jax, jax.numpy as jnp, numpy as np
 jax.config.update("jax_enable_x64", True)
-from waveformx import Binary
-from waveformx.models.xpnr import lean
+from waveformx import Binary, WaveformOptions
+from waveformx.models.xpnr import model
 ref = None if sys.argv[1] == "lal" else float(sys.argv[1])
 F = jnp.asarray(np.arange(20.0, 1024.0, 0.125))
-f = jax.jit(lambda b, F: lean.polarizations(b, F, reference_mf=ref))
+f = jax.jit(lambda b, F: model.polarizations(b, F, WaveformOptions(reference_mf=ref)))
 def binary(M, q=2.0):
     a = lambda x: jnp.asarray(x, jnp.float64)
     return Binary(a(M * q / (1 + q)), a(M / (1 + q)), a([0.5, -0.3, 0.2]), a([0.2, 0.3, -0.4]), a(500.), a(0.8),
@@ -88,8 +88,8 @@ def finite_counts(n, seed):
     import jax
     import jax.numpy as jnp
 
-    from waveformx import Binary
-    from waveformx.models.xpnr import lean
+    from waveformx import Binary, WaveformOptions
+    from waveformx.models.xpnr import model
 
     rng = np.random.default_rng(seed)
     q = np.exp(rng.uniform(0, np.log(30), n))
@@ -108,8 +108,8 @@ def finite_counts(n, seed):
     for key, modes in MODES.items():
         for convention, ref in (("lal", None), ("scaled", REF)):
             b = batch if ref is None else batch._replace(f_ref=jnp.zeros(n))
-            hp, hc = jax.jit(jax.vmap(lambda b, f: lean.polarizations(b, f, mode_array=modes, reference_mf=ref)))(
-                b, frequencies)
+            options = WaveformOptions(mode_array=modes, reference_mf=ref)
+            hp, hc = jax.jit(jax.vmap(lambda b, f: model.polarizations(b, f, options)))(b, frequencies)
             finite = np.all(np.isfinite(np.asarray(hp)), axis=1) & np.all(np.isfinite(np.asarray(hc)), axis=1)
             counts[f"{convention}_{key}"] = int(finite.sum())
             print(convention, key, counts[f"{convention}_{key}"], "/", n, flush=True)
@@ -136,7 +136,8 @@ def against_lal(n, seed, library):
     import lalsimulation as lalsim
 
     import waveformx as wf
-    from waveformx.models.xpnr import lean
+    from waveformx import WaveformOptions
+    from waveformx.models.xpnr import model
 
     waveformrs = HERE.parents[1] / "waveformrs" / "scripts"
     sys.path.insert(0, str(waveformrs))
@@ -156,7 +157,7 @@ def against_lal(n, seed, library):
 
     to_scaled = jax.jit(lambda b: wf.to_mass_scaled_reference(b, return_angle=True))
     to_physical = jax.jit(lambda b, f: wf.to_physical_reference(b, f, return_angle=True))
-    scaled = jax.jit(lambda b, f: lean.polarizations(b, f, reference_mf=REF))
+    scaled = jax.jit(lambda b, f: model.polarizations(b, f, WaveformOptions(reference_mf=REF)))
     rng = np.random.default_rng(seed)
     records = []
     while len(records) < n:

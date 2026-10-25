@@ -73,8 +73,8 @@ def accuracy():
     fig, axes = plt.subplots(1, 2, figsize=(8.4, 3.2), sharey=True)
     ax = axes[0]
     for key, label, colour, marker in (
-        ("jax_vs_lal", "without the fix, against LAL 6.2.0", BLUE, "o"),
-        ("jax_fix_vs_lal_fix", "with the fix, against 6.2.0 + !2593", ORANGE, "s"),
+        ("jax_vs_rs_fix", "LAL keeps the SpinTaylor angles", BLUE, "o"),
+        ("jax_vs_rs_fix_fallback", "LAL leaves them", ORANGE, "s"),
     ):
         points = [(r["mass_1"] + r["mass_2"], r[key]["relative_error"]) for r in xpnr["records"] if r.get(key)]
         if points:

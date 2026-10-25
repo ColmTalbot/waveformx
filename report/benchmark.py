@@ -50,7 +50,8 @@ import numpy as np
 from common import (BENCHMARK_FREQUENCIES, BINARY, NRSUR, binary_of, cpu_share, environment, lal_sequence,
                     lal_td_arguments, median_time, rs, wf, write)
 
-XPNR_OPTIONS = dict(pnr_parity_fix=False)
+#: (IMRPhenomXPNR with the parity fix, as waveformx and waveformrs default to)
+XPNR_OPTIONS = dict()
 
 
 def draws(binary, n, seed=7):

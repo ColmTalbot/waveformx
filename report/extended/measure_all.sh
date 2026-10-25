@@ -5,6 +5,8 @@
 #
 # Re-run every measurement of the report on the extended SpinTaylor angles,
 # then rebuild it (the timings last: run on an otherwise idle machine).
+# The variants it compares exist up to the tag lal-faithful only: run it from
+# a checkout of that tag.
 #
 #     bash report/extended/measure_all.sh
 set -euo pipefail

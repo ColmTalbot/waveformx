@@ -55,47 +55,34 @@ The package has the same interface as the Python bindings of
   - The conversions between the time and frequency domains are not
     implemented.
 - **IMRPhenomXPNR** (frequency domain): precessing spins with higher modes,
-  tuned to numerical relativity. By default it includes the parity fix from
-  the development version of LALSuite; the behaviour of the LALSimulation
-  releases is available as an option. Its derivatives are computed in
-  forward mode, so `jax.jvp` and `jax.jacfwd` work as well as `jax.grad`,
-  and `jax.vmap` evaluates a batch of binaries together.
-  - By default the model only uses LALSimulation's SpinTaylor precession
-    angles, and reports an error (NaN from the pure functions) where
-    LALSimulation would switch to other angles, such as for binaries with
-    aligned spins. LALSimulation's switches to the other angles are
-    available as an option (`version_fallback=True`); the model then
-    compiles more slowly.
-  - One of LALSimulation's checks of the higher modes, whether the
-    amplitude polynomial of the intermediate region crosses zero, reads
-    the wrong roots in LALSimulation; it is corrected here, which changes
-    the higher modes of a few binaries slightly.
-  - An extended variant (`extended_spintaylor=True`), which is not
-    LALSimulation's waveform: it uses the SpinTaylor angles for every
-    binary, including those LALSimulation cannot evaluate with them,
-    replaces LALSimulation's discrete switches in the precession angles
-    with continuous versions, and interpolates the angles in a form that
-    stays smooth where the orbital angular momentum passes close to the
-    total one, so that the waveform and its derivatives are continuous in
-    the binary's parameters. The discrete choices that the higher modes
-    make in their amplitudes are kept as in LALSimulation. By default it
-    takes the precession angles directly from the solution of the
-    precession equations rather than from LALSimulation's splines through
-    samples of it (`extended_direct_angles`), which is much faster for
-    light binaries; a coarser grid for interpolating the angles
-    (`extended_phase_grid`) makes light binaries faster still.
-  - A lean variant (`lean=True`): the extended variant with the parity fix,
-    without the parts that only reproduce LALSimulation's numerical
-    procedure. It solves the precession equations once with an accurate
-    integrator instead of repeating LALSimulation's integration step by
-    step, takes the derivatives in the higher modes exactly, and keeps
-    masses and stored coefficients at full precision. LALSimulation's
-    physics is unchanged, and the waveform is the extended variant's up
-    to the accuracy of the integration. It compiles and runs faster than
-    the other variants, and works in single precision.
-  - The lean variant can take the binary at a reference frequency scaled
-    by its total mass (`reference_mf`, recommended `REFERENCE_MF`) instead
-    of a reference frequency in Hz: the spins and the orientation are then
+  tuned to numerical relativity. It keeps LALSimulation's physics (its
+  fits, ansatzes and construction of the precession angles) with the
+  parity fix from the development version of LALSuite, but not its
+  numerical procedure, so it is close to LALSimulation rather than equal
+  to it. Its derivatives are computed in forward mode, so `jax.jvp` and
+  `jax.jacfwd` work as well as `jax.grad`, and `jax.vmap` evaluates a
+  batch of binaries together.
+  - It uses the SpinTaylor precession angles for every binary, also where
+    LALSimulation switches to other angles (small in-plane spins, a failed
+    integration of the precession equations), and LALSimulation's discrete
+    switches in the precession angles are replaced by continuous versions,
+    so that the waveform and its derivatives are continuous in the
+    binary's parameters.
+  - It solves the precession equations once with an accurate integrator
+    and takes the angles from that solution, rather than repeating
+    LALSimulation's integration step by step and interpolating its
+    samples, and it takes the derivatives in the higher modes exactly
+    where LALSimulation uses finite differences.
+  - The discrete choices that the higher modes make in their amplitudes
+    are kept as in LALSimulation, except that the test of whether the
+    amplitude polynomial of the intermediate region crosses zero checks
+    the polynomial itself (LALSimulation reads the wrong roots), which
+    changes the higher modes of a few binaries slightly.
+  - A coarser grid for interpolating the precession angles
+    (`extended_phase_grid`) makes light binaries faster.
+  - It can take the binary at a reference frequency scaled by its total
+    mass (`reference_mf`, recommended `REFERENCE_MF`) instead of a
+    reference frequency in Hz: the spins and the orientation are then
     given late in the inspiral, near merger, for every binary, and the
     waveform works for every choice of modes, including those whose only
     modes are the (2,1) ones, and whether or not the reference lies in the
@@ -107,21 +94,22 @@ The package has the same interface as the Python bindings of
     `to_physical_reference` convert binaries between the two conventions,
     as pure functions that can be differentiated (also in MLX: the option
     is available there too).
-  - The lean variant is also available in
-    [MLX](https://github.com/ml-explore/mlx), in single precision on Apple
-    GPUs (optional dependency `mlx`): the polarizations at given
-    frequencies for one binary or a batch, with derivatives with respect
-    to every parameter of the binary. It is produced from the JAX model
-    itself rather than written again, so the two compute the same
-    waveform.
+  - It is also available in [MLX](https://github.com/ml-explore/mlx), in
+    single precision on Apple GPUs (optional dependency `mlx`): the
+    polarizations at given frequencies for one binary or a batch, with
+    derivatives with respect to every parameter of the binary. It is
+    produced from the JAX model itself rather than written again, so the
+    two compute the same waveform.
   - Its output is the strain multiplied by 10^21, so that it can be used in
     single precision; the option `scaled_strain=False` gives the strain
     itself, as LALSimulation does.
   - Its pure function runs in single precision (float32) when the binary's
-    parameters are float32, including its derivatives. The extended variant
-    stays close to its double-precision waveform there; the default model,
-    which repeats LALSimulation's integration of the precession equations
-    step by step, is much less accurate in single precision.
+    parameters are float32, including its derivatives, and stays close to
+    its double-precision waveform there.
+  - The version that reproduces LALSimulation's numerics step for step
+    (with its switches to other precession angles and the behaviour of the
+    LALSimulation releases without the parity fix as options) is commit
+    `0bbd3c5`, tag `lal-faithful`.
 - **NRSur7dq4** (time domain): numerical-relativity surrogate for precessing
   binaries with higher modes. It gives LALSimulation's polarizations and
   modes, with the same length and start time; its pure function evaluates

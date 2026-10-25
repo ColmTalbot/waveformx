@@ -2,14 +2,14 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
-"""The lean IMRPhenomXPNR in MLX on the Apple GPU against the JAX lean
+"""IMRPhenomXPNR in MLX on the Apple GPU against the JAX
 model on the CPU: the accuracy of the float32 MLX waveform and of its
 derivatives, and its cost. Writes ``report/data/mlx_xpnr.json``.
 
 * Accuracy on the random binaries of ``report/extended`` (their own
   frequencies, 1024 linear from ``f_min``): the weighted mismatch (aLIGO
   design, the larger of the polarizations) of the MLX waveform and of
-  JAX's float32 lean waveform against JAX's float64 lean waveform; where
+  JAX's float32 waveform against JAX's float64 waveform; where
   each is finite.
 * Derivatives on the first of those binaries: the gradient of the
   noise-free log-likelihood of ``tests/test_xpnr_float32.py`` (the data
@@ -19,7 +19,7 @@ derivatives, and its cost. Writes ``report/data/mlx_xpnr.json``.
 * Timings on the benchmark grid (8033 frequencies, 20-1024 Hz): the pure
   function and the gradient of the power against the number of binaries
   per call (random binaries of 20-120 solar masses), MLX on the GPU and
-  the JAX lean model on the CPU (``jax.jit``, ``jax.vmap``), and the first
+  the JAX model on the CPU (``jax.jit``, ``jax.vmap``), and the first
   calls of MLX in a new process (tracing the model and compiling its
   kernels).
 
@@ -52,7 +52,8 @@ import numpy as np  # noqa: E402
 
 import waveformx as wf  # noqa: E402
 import xcommon  # noqa: E402
-from waveformx.models.xpnr import lean  # noqa: E402
+from waveformx import WaveformOptions  # noqa: E402
+from waveformx.models.xpnr import model  # noqa: E402
 from waveformx.models.xpnr import mlx as xpnr_mlx  # noqa: E402
 
 
@@ -86,7 +87,7 @@ def batch_of(binaries, dtype=np.float32):
 
 def accuracy(n, seed, chunk=32):
     draws = xcommon.draws(n, seed)
-    lean64 = jax.jit(lambda b, f: lean.polarizations(b, f))
+    lean64 = jax.jit(lambda b, f: model.polarizations(b, f, WaveformOptions()))
     records = []
     start = time.perf_counter()
     for first in range(0, n, chunk):
@@ -129,12 +130,12 @@ def gradients(n, seed):
     draws = xcommon.draws(n, seed)
 
     def log_likelihood(b, f, data):
-        hp, hc = lean.polarizations(b, f)
+        hp, hc = model.polarizations(b, f, WaveformOptions())
         overlap = jnp.vdot(data[0].astype(hp.dtype), hp) + jnp.vdot(data[1].astype(hc.dtype), hc)
         return jnp.real(overlap) - 0.5 * jnp.sum(jnp.abs(hp) ** 2 + jnp.abs(hc) ** 2)
 
     grad = jax.jit(jax.grad(log_likelihood))
-    lean64 = jax.jit(lambda b, f: lean.polarizations(b, f))
+    lean64 = jax.jit(lambda b, f: model.polarizations(b, f, WaveformOptions()))
     out = []
     start = time.perf_counter()
     for k, d in enumerate(draws):
@@ -255,7 +256,7 @@ def timings():
         fj = jnp.asarray(f, dtype)
 
         def waveform(b):
-            return lean.polarizations(b, fj)
+            return model.polarizations(b, fj, WaveformOptions())
 
         def total_power(b):
             hp, hc = waveform(b)

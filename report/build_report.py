@@ -41,7 +41,7 @@ import make_figures  # noqa: E402
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 TEST_FILES = {
-    "test_quick.py": "The quick tier (<code>pytest</code>): IMRPhenomXPNR and the extended model with its derivative, NRSur7dq4",
+    "test_quick.py": "The quick tier (<code>pytest</code>): IMRPhenomXPNR with its derivative, NRSur7dq4",
     "test_api.py": "The interface: options, arguments, errors, spherical harmonics",
     "test_xpnr_xas.py": "IMRPhenomXPNR's (2,2) mode without precession against <code>SimIMRPhenomXASFrequencySequence</code>",
     "test_xas.py": "IMRPhenomXAS against LAL through the public functions, float32 (binary neutron stars too), batches, LAL's errors, the QNM fits",
@@ -53,16 +53,20 @@ TEST_FILES = {
     "test_xpnr_hm.py": "Higher modes (release 122019) against <code>SimIMRPhenomXHMFrequencySequenceOneMode</code>",
     "test_xpnr_msa.py": "MSA and NNLO angles and the precession set-up, GSL's elliptic functions",
     "test_xpnr_pnr_helpers.py": "PNR fits and angle helpers against LAL's internal functions (ctypes)",
-    "test_xpnr.py": "IMRPhenomXPNR polarizations: waveformrs's reference suite, with and without the parity fix",
-    "test_xpnr_modes.py": "IMRPhenomXPNR J-frame modes, <code>ChooseFDModes</code>, version fallbacks, checks",
-    "test_xpnr_random.py": "IMRPhenomXPNR, 64 random binaries against LAL (slow)",
+    "test_xpnr.py": "IMRPhenomXPNR polarizations against LAL with the parity fix: waveformrs's reference suite, mirror symmetry",
+    "test_xpnr_modes.py": "IMRPhenomXPNR J-frame modes, <code>ChooseFDModes</code>, checks",
+    "test_xpnr_model.py": "IMRPhenomXPNR at special spins, in float32, through the public functions, under <code>vmap</code> and <code>grad</code>",
+    "test_xpnr_smooth.py": "IMRPhenomXPNR across LAL's switches, the interpolants of the PNR angles, the phase grid, gradients",
+    "test_xpnr_reference.py": "IMRPhenomXPNR with the mass-scaled reference frequency, the converters, invariance, against LAL",
+    "test_xpnr_float32.py": "IMRPhenomXPNR in float32 (no float64 operation, accuracy, gradients) and the scale of its output",
+    "test_xpnr_random.py": "IMRPhenomXPNR, 64 random binaries against LAL with the parity fix (slow)",
     "test_transforms_xpnr.py": "IMRPhenomXPNR under <code>jit</code>, <code>vmap</code>, <code>grad</code> and <code>jvp</code>",
     "test_nrsur7dq4.py": "NRSur7dq4 polarizations, modes, dynamics, errors, data file, batches",
     "test_nrsur7dq4_random.py": "NRSur7dq4, 64 random binaries against LAL (slow)",
     "test_transforms_nrsur7dq4.py": "NRSur7dq4 under <code>jit</code>, <code>vmap</code> and <code>grad</code>, removable singularities",
     "test_nrsur7dq4_float32.py": "NRSur7dq4 in float32 (no float64 operation, accuracy, <code>jit</code>, <code>vmap</code>, <code>grad</code>) and the scale of its output",
     "test_nrsur7dq4_mlx.py": "NRSur7dq4 in MLX against JAX: waveform, modes, batches, gradients, the Metal kernels, LAL's grids and the conditioned waveforms",
-    "test_xpnr_mlx.py": "The lean IMRPhenomXPNR in MLX against JAX: the stages, the generated kernels, the SpinTaylor kernel, waveform, Jacobian and gradients",
+    "test_xpnr_mlx.py": "IMRPhenomXPNR in MLX against JAX: the stages, the generated kernels, the SpinTaylor kernel, waveform, Jacobian and gradients",
     "test_conversions.py": "<code>simulate_td</code> and <code>simulate_fd</code>: lengths, epochs, filters, tapers against LAL",
     "test_transforms_conversions.py": "The conversions as pure functions under <code>jit</code>, <code>vmap</code> and <code>grad</code>",
 }
@@ -179,33 +183,18 @@ def failure_text(data, how):
             f"({agree}/{n} agree).")
 
 
-def lean_values(values):
-    """The lean IMRPhenomXPNR (``report/lean_xpnr.py``)."""
-    names = ["lean_vs_extended", "lean_n"] + [f"{m}_compile_{k}" for m in ("lean", "default")
-                                              for k in ("eval", "vmap", "grad")]
-    names += ["lean_runtime", "default_runtime", "extended_runtime"]
-    if not (DATA / "lean_xpnr.json").exists():
+def cost_values(values):
+    """The cost of compiling and running IMRPhenomXPNR (``report/xpnr_cost.py``)."""
+    names = [f"cost_compile_{g}_{k}" for g in ("uniform", "phase") for k in ("eval", "vmap", "grad")]
+    names += [f"cost_runtime_{c}_{g}" for c in ("benchmark", "light") for g in ("uniform", "phase")]
+    if not (DATA / "xpnr_cost.json").exists():
         values.update({name: "–" for name in names})
-        values.update(lean_vs_lal_n="–", lean_vs_lal_median="–", lean_vs_lal_max="–")
         return
-    lean = load("lean_xpnr.json")
-    values["lean_vs_extended"] = sci(max(lean["mismatches"]))
-    values["lean_n"] = f"{len(lean['mismatches']) + lean['finite_differs']:,}"
-    for key, seconds in lean["compile_seconds"].items():
-        model_name, kind = key.split("_")
-        values[f"{model_name}_compile_{kind}"] = duration(seconds)
-    for name in ("lean", "default", "extended"):
-        values[f"{name}_runtime"] = duration(lean["runtime"][name])
-    # against LAL where LAL uses the SpinTaylor angles (report/extended/validate.py --variant lean)
-    path = HERE / "extended" / "data" / "validation_lean.json"
-    if path.exists():
-        lal = json.loads(path.read_text())
-        mm = [m for m in next(iter(lal["mismatches"].values())) if m is not None]
-        values["lean_vs_lal_n"] = str(len(mm))
-        values["lean_vs_lal_median"] = sci(sorted(mm)[len(mm) // 2])
-        values["lean_vs_lal_max"] = sci(max(mm))
-    else:
-        values.update(lean_vs_lal_n="–", lean_vs_lal_median="–", lean_vs_lal_max="–")
+    cost = load("xpnr_cost.json")
+    for key, seconds in cost["compile_seconds"].items():
+        values[f"cost_compile_{key}"] = duration(seconds)
+    for key, seconds in cost["runtime"].items():
+        values[f"cost_runtime_{key}"] = duration(seconds)
 
 
 def reference_values(values):
@@ -654,33 +643,39 @@ def build(args):
     s = xpnr["summary"]
     values["xpnr_draws"] = str(xpnr["n_draws"])
     values["xpnr_nf"] = f"{xpnr['n_frequencies']:,}"
-    values["xpnr_n"] = str(s["jax_vs_lal"]["n"])
-    values["xpnr_max_rel"] = sci(s["jax_vs_lal"]["max_relative_error"])
-    values["xpnr_median_rel"] = sci(s["jax_vs_lal"]["median_relative_error"])
-    values["xpnr_p90_rel"] = sci(s["jax_vs_lal"]["p90_relative_error"])
-    values["xpnr_max_mm"] = sci(s["jax_vs_lal"]["max_mismatch"])
-    values["xpnr_median_mm"] = sci(s["jax_vs_lal"]["median_mismatch"])
-    fix = s.get("jax_fix_vs_lal_fix")
-    values["xpnr_fix_n"] = str(fix["n"]) if fix else "0"
-    values["xpnr_fix_max_rel"] = sci(fix["max_relative_error"]) if fix else "–"
-    values["xpnr_fix_median_rel"] = sci(fix["median_relative_error"]) if fix else "–"
-    values["xpnr_fix_max_mm"] = sci(fix["max_mismatch"]) if fix else "–"
+    main = s["jax_vs_rs_fix"]
+    values["xpnr_n"] = str(main["n"])
+    values["xpnr_n_st"] = str(xpnr["n_lal_spintaylor"])
+    values["xpnr_max_rel"] = sci(main["max_relative_error"])
+    values["xpnr_median_rel"] = sci(main["median_relative_error"])
+    values["xpnr_p90_rel"] = sci(main["p90_relative_error"])
+    values["xpnr_max_mm"] = sci(main["max_mismatch"])
+    values["xpnr_median_mm"] = sci(main["median_mismatch"])
+    fallback = s.get("jax_vs_rs_fix_fallback")
+    values["xpnr_fallback_n"] = str(fallback["n"]) if fallback else "0"
+    values["xpnr_fallback_median_mm"] = sci(fallback["median_mismatch"]) if fallback else "–"
+    values["xpnr_fallback_max_mm"] = sci(fallback["max_mismatch"]) if fallback else "–"
+    unfixed = s.get("jax_vs_lal")
+    values["xpnr_unfixed_median_mm"] = sci(unfixed["median_mismatch"]) if unfixed else "–"
+    values["xpnr_unfixed_max_mm"] = sci(unfixed["max_mismatch"]) if unfixed else "–"
     rsfix = s.get("rs_fix_vs_lal_fix")
     values["xpnr_rs_fix_max_rel"] = sci(rsfix["max_relative_error"]) if rsfix else "–"
     build_info = xpnr.get("patched_build") or {}
     values["xpnr_patched_build"] = html.escape(build_info.get("vcsStatus", "") or "not measured")
-    values["xpnr_failure_text"] = failure_text(xpnr, "raises or returns NaN")
-    compared = [r for r in xpnr["records"] if r.get("jax_vs_lal")]
+    n_failed = xpnr["n_lal_failures"]
+    values["xpnr_failure_text"] = (f"LAL evaluates all {xpnr['n_draws']} draws." if n_failed == 0 else
+                                   f"LAL fails for {n_failed} of the {xpnr['n_draws']} draws.")
+    compared = [r for r in xpnr["records"] if r.get("jax_vs_rs_fix")]
     masses = np.array([r["mass_1"] + r["mass_2"] for r in compared])
-    errors = np.array([r["jax_vs_lal"]["relative_error"] for r in compared])
-    values["xpnr_median_light"] = sci(float(np.median(errors[masses < 20])))
-    values["xpnr_median_heavy"] = sci(float(np.median(errors[masses >= 150])))
-    share = float(np.mean(errors > 1e-5))
-    values["xpnr_frac_1e5"] = f"{share * 100:.0f}%" if share > 0 else "None"
+    mismatches = np.array([r["jax_vs_rs_fix"]["mismatch"] for r in compared])
+    values["xpnr_median_light"] = sci(float(np.median(mismatches[masses < 20])))
+    values["xpnr_median_heavy"] = sci(float(np.median(mismatches[masses >= 150])))
+    share = float(np.mean(mismatches > 1e-4))
+    values["xpnr_frac_1e4"] = f"{share * 100:.0f}%" if share > 0 else "None"
     seconds = xpnr["median_seconds"]
     values["xpnr_draw_jax"] = duration(seconds.get("jax"))
     values["xpnr_draw_lal"] = duration(seconds.get("lal"))
-    values["xpnr_draw_rs"] = duration(seconds.get("rs"))
+    values["xpnr_draw_rs"] = duration(seconds.get("rs_fix"))
 
     # --- NRSur7dq4 random draws
     s = nrsur["summary"]["jax_vs_lal"]
@@ -694,7 +689,7 @@ def build(args):
     rs_nrsur = nrsur["summary"].get("jax_vs_rs")
     values["nrsur_rs_max_rel"] = sci(rs_nrsur["max_relative_error"]) if rs_nrsur else "–"
     float32_values(values)
-    lean_values(values)
+    cost_values(values)
     reference_values(values)
     mlx_values(values)
     mlx_xpnr_values(values)
@@ -703,9 +698,12 @@ def build(args):
 
     rows = []
     for label, data, key in (
-        ("IMRPhenomXPNR without the parity fix, against LALSimulation 6.2.0", xpnr, "jax_vs_lal"),
-        ("IMRPhenomXPNR with the parity fix, against 6.2.0 + lalsuite !2593", xpnr, "jax_fix_vs_lal_fix"),
-        ("IMRPhenomXPNR without the fix, against waveformrs", xpnr, "jax_vs_rs"),
+        ("IMRPhenomXPNR, where LAL keeps the SpinTaylor angles, against 6.2.0 + lalsuite !2593 (waveformrs)", xpnr,
+         "jax_vs_rs_fix"),
+        ("IMRPhenomXPNR, where LAL leaves them, against 6.2.0 + lalsuite !2593 (waveformrs)", xpnr,
+         "jax_vs_rs_fix_fallback"),
+        ("IMRPhenomXPNR, where LAL keeps the SpinTaylor angles, against 6.2.0 + lalsuite !2593", xpnr,
+         "jax_vs_lal_fix"),
         ("NRSur7dq4, against LALSimulation 6.2.0", nrsur, "jax_vs_lal"),
         ("NRSur7dq4, against waveformrs", nrsur, "jax_vs_rs"),
     ):

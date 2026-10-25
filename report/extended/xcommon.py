@@ -4,11 +4,13 @@
 """Shared set-up of the measurements of the report on IMRPhenomXPNR without
 fallbacks and with the extended SpinTaylor angles (``report/extended``).
 
-The model is called through :func:`waveformx.models.xpnr.model._decide`
-with the static flags of the three variants: LAL's (``fallback=True``),
-LAL's SpinTaylor angles only (``fallback=False``) and the extended, smooth
-angles (``extended=True``), as ``WaveformOptions`` selects them, and the
-lean model (``lean=True``).
+That report compares variants of the model that exist only up to the tag
+``lal-faithful`` (LAL's numerics with and without its fallbacks, the
+extended and the lean angles): its measurements run from that tag, and
+``extended-spintaylor-report.html`` and ``data/`` are kept as they were
+measured there. What remains here are the random draws and the weighted
+comparisons, which ``report/mlx_xpnr.py`` and ``scripts/mlx_xpnr_reference.py``
+share.
 """
 
 import json
@@ -25,44 +27,11 @@ import jax.numpy as jnp  # noqa: E402
 import numpy as np  # noqa: E402
 
 import waveformx as wf  # noqa: E402
-from waveformx.models.xpnr import model, pnr  # noqa: E402
+from waveformx.models.xpnr import model  # noqa: E402
 
 DATA = HERE / "data"
 DATA.mkdir(exist_ok=True)
 MODES = model.DEFAULT_MODES
-VARIANTS = {"lal": dict(fallback=True), "strict": dict(fallback=False), "extended": dict(fallback=False, extended=True),
-            "lean": dict(fallback=False, lean=True)}
-
-
-def polarizations_fn(variant):
-    """``f(binary, frequencies) -> (h_+, h_x)`` of a variant, NaN where it
-    fails (unjitted)."""
-    flags = VARIANTS[variant]
-
-    def f(b, frequencies):
-        with model.lean_mode(flags.get("lean", False)):
-            pnr.clear_cache()
-            data = model._decide(b, frequencies, 0.0, frequencies[0], frequencies[-1], MODES, True, **flags)
-            hp, hc = model._twist_polarizations(data, MODES, frequencies)
-        nan = jnp.asarray(jnp.nan + 1j * jnp.nan, jnp.complex128)
-        return jnp.where(data.error, nan, hp), jnp.where(data.error, nan, hc)
-
-    return f
-
-
-def setup_fn(extended=False, smooth=None):
-    """``f(binary, frequencies) -> (prec, wf, grid, flags)``: the set-up of
-    version 330 (:func:`.model._spintaylor_setup`) as the model does it."""
-    smooth = extended if smooth is None else smooth
-
-    def f(b, frequencies):
-        pnr.clear_cache()
-        w, m1_si, m2_si, chi1, chi2 = model.setup_waveform(b, 0.0, frequencies[0], frequencies[-1])
-        w.hm_release = 122019
-        base, wf0 = pnr.common_setup(w, m1_si, m2_si, chi1, chi2, pnr.mode_range(MODES), True, extended, smooth)
-        return model._spintaylor_setup(base, wf0, m1_si, m2_si, MODES, jnp.asarray(True))
-
-    return f
 
 
 def binary(d, **changes):

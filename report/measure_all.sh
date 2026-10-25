@@ -40,6 +40,6 @@ fi
 "$PY" report/validate_conversions.py
 "$PY" report/gradients.py
 "$PY" report/benchmark.py
-"$PY" report/lean_xpnr.py
+"$PY" report/xpnr_cost.py
 "$PY" report/reference_xpnr.py
 "$PY" report/build_report.py

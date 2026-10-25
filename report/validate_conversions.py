@@ -9,10 +9,11 @@ LALSimulation is called with multibanding off (``SimInspiralTD`` and
 ``SimInspiralFD`` call ``SimInspiralChooseFDWaveform``, where it is on by
 default for IMRPhenomXPNR; waveformx and waveformrs do not implement it):
 how far LAL's default is from that is recorded too.
-IMRPhenomXPNR is compared without the parity fix (as LALSimulation 6.2.0),
-with all its modes and with the (2,2) mode alone (which isolates the
-conversions: the JAX (2,2) mode agrees with LAL to ~1e-9, the higher modes
-to ~1e-5). Recorded for each case: whether the lengths, the epochs and the
+IMRPhenomXPNR has the parity fix of lalsuite !2593, as waveformrs, which
+reproduces LALSimulation with the fix, has by default: its waveforms are
+compared with waveformrs, and LAL 6.2.0 (without the fix) checks the
+grids (lengths, epochs, sampling), with all its modes and with the (2,2)
+mode alone. Recorded for each case: whether the lengths, the epochs and the
 sampling are LAL's exactly, the largest relative error and the mismatch of
 both polarizations (uniform weights), and the wall-clock times (waveformx
 after its first call, which compiles).
@@ -91,8 +92,6 @@ def call_lal(approximant, function, keywords, arguments, mode_array, multibandin
 
 def call_package(package, approximant, function, keywords, arguments, mode_array):
     options = dict(mode_array=mode_array)
-    if approximant == "IMRPhenomXPNR":
-        options["pnr_parity_fix"] = False
     if package is wf:
         # waveformx gives the strain times 1e21 by default
         options["scaled_strain"] = False

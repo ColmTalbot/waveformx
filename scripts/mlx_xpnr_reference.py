@@ -24,7 +24,8 @@ import jax.numpy as jnp
 import numpy as np
 
 import waveformx as wf
-from waveformx.models.xpnr import lean
+from waveformx import WaveformOptions
+from waveformx.models.xpnr import model
 from waveformx.models.xpnr.mlx import _stages
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "report" / "extended"))
@@ -81,7 +82,7 @@ def main():
     cases = list(EDGE_CASES)
     for i, d in enumerate(xcommon.draws(args.n, args.seed)):
         cases.append((f"random{i:02d}", d, d["fmin"]))
-    jacobian = jax.jit(lambda x, f: jax.jacfwd(lambda x: lean.polarizations(of(x), f))(x))
+    jacobian = jax.jit(lambda x, f: jax.jacfwd(lambda x: model.polarizations(of(x), f, WaveformOptions()))(x))
     out = {"parameters": np.array(PARAMETERS)}
     names = []
     for name, d, fmin in cases:

@@ -14,22 +14,22 @@ log-uniform in 100-3000 Mpc and isotropic lines of sight. The frequencies are
 M, 2048 Hz)``: one length, so one compilation serves every draw (waveformrs
 used a spacing of 0.25 Hz, which gives each draw its own length).
 
-For each draw this compares, through the public ``waveformx.polarizations``
-(LAL's checks on the host, then the compiled model):
-
-* the model without the parity fix with LALSimulation 6.2.0
-  (``SimInspiralChooseFDWaveformSequence``);
-* the model with the fix (the default) with waveformrs's (which agrees with
-  LALSimulation 6.2.0 + lalsuite !2593 to ~3e-15) and, if a patched
-  liblalsimulation is given (``--lalsimulation-library`` or
-  ``PATCHED_LALSIMULATION``, built by waveformrs's
-  ``scripts/build_patched_lalsimulation.sh``), with that library directly;
-* both with waveformrs, which reproduces LAL's arithmetic bit for bit.
+For each draw this compares the model, through the public
+``waveformx.polarizations`` (the checks on the host, then the compiled
+model), with LALSimulation 6.2.0 with the parity fix of lalsuite !2593:
+waveformrs (which agrees with the patched LALSimulation to ~3e-15) and, if
+a patched liblalsimulation is given (``--lalsimulation-library`` or
+``PATCHED_LALSIMULATION``, built by waveformrs's
+``scripts/build_patched_lalsimulation.sh``), that library directly. The
+draws are split by whether LAL keeps the SpinTaylor angles (waveformrs
+without version fallbacks evaluates them) or leaves them for the MSA or
+NNLO angles, which the model does not use. The installed LALSimulation
+6.2.0 (without the fix) is timed, and compared for reference.
 
 Recorded: the largest relative error ``max |h - h_ref| / max |h_ref|`` and the
 noise-weighted mismatch (aLIGO design sensitivity, no maximisation) of both
-polarizations, and the wall-clock times. Where LAL fails, waveformx must
-raise or give NaN.
+polarizations, and the wall-clock times. Where LAL fails, waveformx may
+raise, give NaN or keep the SpinTaylor angles.
 
 Usage::
 
@@ -132,16 +132,15 @@ def main():
         weights = 1 / psd(frequencies)
         record = dict(case, index=index)
         results = {
-            "jax": evaluate(lambda: wf.polarizations("IMRPhenomXPNR", frequencies, pnr_parity_fix=False,
-                                                          scaled_strain=False, **keywords)),
-            "jax_fix": evaluate(lambda: wf.polarizations("IMRPhenomXPNR", frequencies, scaled_strain=False,
-                                                              **keywords)),
+            "jax": evaluate(lambda: wf.polarizations("IMRPhenomXPNR", frequencies, scaled_strain=False, **keywords)),
             "lal": evaluate(lambda: lal_sequence(keywords, frequencies)),
         }
         if rs is not None:
-            results["rs"] = evaluate(lambda: rs.polarizations("IMRPhenomXPNR", frequencies, pnr_parity_fix=False,
-                                                              **keywords))
             results["rs_fix"] = evaluate(lambda: rs.polarizations("IMRPhenomXPNR", frequencies, **keywords))
+            # (an error where LAL leaves the SpinTaylor angles)
+            strict = evaluate(lambda: rs.polarizations("IMRPhenomXPNR", frequencies, version_fallback=False,
+                                                       **keywords), repeats=1)
+            record["lal_spintaylor"] = strict[0] is not None
         if patched is not None:
             results["lal_fix"] = evaluate(lambda: lal_sequence(keywords, frequencies, module=patched))
         for name, (hp, hc, info) in results.items():
@@ -159,20 +158,20 @@ def main():
                 return None
             return compare(a[:2], b[:2], weights)
 
-        record["jax_vs_lal"] = against("jax", "lal")
-        record["jax_fix_vs_lal_fix"] = against("jax_fix", "lal_fix")
-        record["jax_vs_rs"] = against("jax", "rs")
-        record["jax_fix_vs_rs_fix"] = against("jax_fix", "rs_fix")
+        st = record.get("lal_spintaylor", True)
+        record["jax_vs_rs_fix" if st else "jax_vs_rs_fix_fallback"] = against("jax", "rs_fix")
+        record["jax_vs_lal_fix" if st else "jax_vs_lal_fix_fallback"] = against("jax", "lal_fix")
+        record["jax_vs_lal" if st else "jax_vs_lal_fallback"] = against("jax", "lal")
         record["rs_fix_vs_lal_fix"] = against("rs_fix", "lal_fix")
-        # LAL fails: waveformx must reject the binary or give NaN
         lal_failed = results["lal"][0] is None
         jax_failed = results["jax"][0] is None or not record["finite_jax"]
         record["failure_agrees"] = lal_failed == jax_failed
         records.append(record)
-        cmp = record["jax_vs_lal"]
+        cmp = record.get("jax_vs_rs_fix") or record.get("jax_vs_rs_fix_fallback")
         print(f"{index:4d} M={case['mass_1'] + case['mass_2']:7.2f} q={case['mass_2'] / case['mass_1']:.3f} "
+              + ("" if st else "(LAL leaves the SpinTaylor angles) ")
               + (f"error {cmp['relative_error']:.2e} mismatch {cmp['mismatch']:.2e}" if cmp else
-                 f"not compared ({record.get('error_lal') or record.get('error_jax') or 'non-finite'})"),
+                 f"not compared ({record.get('error_rs_fix') or record.get('error_jax') or 'non-finite'})"),
               flush=True)
 
     payload = dict(
@@ -180,10 +179,12 @@ def main():
         patched_build=patched_build,
         n_lal_failures=sum(1 for r in records if "error_lal" in r),
         n_failures_agree=sum(1 for r in records if r["failure_agrees"]),
-        summary={key: summary(records, key) for key in ("jax_vs_lal", "jax_fix_vs_lal_fix", "jax_vs_rs",
-                                                         "jax_fix_vs_rs_fix", "rs_fix_vs_lal_fix")},
+        n_lal_spintaylor=sum(1 for r in records if r.get("lal_spintaylor", True)),
+        summary={key: summary(records, key) for key in ("jax_vs_rs_fix", "jax_vs_rs_fix_fallback", "jax_vs_lal_fix",
+                                                         "jax_vs_lal_fix_fallback", "jax_vs_lal",
+                                                         "jax_vs_lal_fallback", "rs_fix_vs_lal_fix")},
         median_seconds={name: float(np.median([r[f"seconds_{name}"] for r in records if f"seconds_{name}" in r]))
-                        for name in ("jax", "jax_fix", "lal", "rs", "rs_fix", "lal_fix")
+                        for name in ("jax", "lal", "rs_fix", "lal_fix")
                         if any(f"seconds_{name}" in r for r in records)},
         records=records,
     )
