@@ -10,6 +10,9 @@ and are checked against it.
 Every model is also available in [MLX](https://github.com/ml-explore/mlx),
 in single precision on Apple GPUs.
 
+Every model can also be called from [PyTorch](https://pytorch.org), with
+gradients for PyTorch's autograd.
+
 The package has the same interface as the Python bindings of
 [waveformrs](https://github.com/ColmTalbot/waveformrs).
 
@@ -25,6 +28,12 @@ The MLX versions of the models need the optional dependency `mlx`:
 
 ```bash
 pip install ".[mlx]"
+```
+
+The PyTorch interface needs the optional dependency `torch`:
+
+```bash
+pip install ".[torch]"
 ```
 
 NRSur7dq4 needs its data file, `NRSur7dq4_v1.0.h5`, from LALSuite's data
@@ -101,6 +110,27 @@ def power(mass_1):
     return mx.sum(mx.abs(hplus) ** 2)
 
 derivative = mx.grad(power)(binaries.mass_1)
+```
+
+The same pure functions are available to PyTorch in `waveformx.torch`.
+They take a `Binary` of torch tensors (or plain numbers), for one binary or
+a batch along a leading axis, and give torch tensors that PyTorch's
+autograd can differentiate:
+
+```python
+import torch
+import waveformx
+import waveformx.torch
+
+model = waveformx.torch.polarizations_function("IMRPhenomXAS")
+frequencies = torch.linspace(20.0, 1024.0, 4017, dtype=torch.float64)
+mass_1 = torch.tensor(36.0, dtype=torch.float64, requires_grad=True)
+binary = waveformx.Binary(
+    mass_1=mass_1, mass_2=29.0, spin_1=(0.0, 0.0, 0.3),
+    spin_2=(0.0, 0.0, -0.1), luminosity_distance=500.0, f_ref=20.0,
+)
+hplus, hcross = model(binary, frequencies)
+(hplus.abs() ** 2).sum().backward()  # the derivative is in mass_1.grad
 ```
 
 ## Models
@@ -319,6 +349,11 @@ derivative = mx.grad(power)(binaries.mass_1)
   with LALSimulation's names, parameters and options.
 - Pure JAX functions of a `Binary` for use inside your own `jit`, `vmap` and
   `grad` code.
+- PyTorch functions of every model (`waveformx.torch`), computed by the
+  JAX models and differentiated by them for PyTorch's autograd: for one
+  binary or a batch, in single or double precision, sharing memory with
+  PyTorch where the device allows it. They cannot be traced by
+  `torch.compile` or `torch.func`, and give first derivatives only.
 - LALSimulation's conditioned waveforms and its conversions between the time
   and frequency domains (`SimInspiralTD` and `SimInspiralFD`):
   IMRPhenomXPNR in the time domain and NRSur7dq4 in the frequency domain,
