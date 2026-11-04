@@ -46,7 +46,7 @@ class Binary(NamedTuple):
 
 BINARY_NAMES = Binary._fields
 
-#: The columns of a table of binaries (``parameter_table``), as in waveformrs.
+#: The columns of a table of binaries (``parameter_table``).
 COLUMNS = (
     "mass_1",
     "mass_2",

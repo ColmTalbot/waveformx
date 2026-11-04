@@ -323,8 +323,8 @@ def batch_polarizations(
     fail the checks, or whose waveform is not finite, are reported in
     ``ok`` and ``errors`` and left as zeros, unless ``strict`` (then the
     first error is raised). ``chunk_size`` bounds the binaries evaluated at
-    once. ``threads`` and ``exact`` are accepted for compatibility with
-    waveformrs and ignored: XLA parallelises the computation itself.
+    once. ``threads`` and ``exact`` are accepted for compatibility and
+    ignored: XLA parallelises the computation itself.
     """
     model = _model(approximant, "frequency")
     options = parse_options(options, option_keywords)

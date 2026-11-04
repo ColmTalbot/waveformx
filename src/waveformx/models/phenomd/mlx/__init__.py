@@ -32,28 +32,44 @@ __all__ = ["polarizations", "polarizations_and_jacobian", "to_mass_scaled_refere
 
 
 def polarizations(binary, frequencies, scaled_strain=True, reference_mf=None):
-    """``(h_+, h_x)`` of IMRPhenomD (see :func:`._api.polarizations`)."""
+    """``(h_+, h_x)`` (complex64 MLX arrays) of IMRPhenomD at
+    ``frequencies`` (Hz, positive and increasing; ``(N,)`` or, for a batch,
+    ``(B, N)``): ``(N,)`` each for one binary, ``(B, N)`` for a batch (a
+    :class:`~waveformx.Binary` whose fields have a leading axis). Only the
+    aligned components of the spins enter. The strain is multiplied by
+    ``1e21`` unless ``scaled_strain`` is false; NaN where LAL fails.
+    Differentiable with ``mx.grad`` with respect to the fields of the
+    binary. With ``reference_mf`` the binary is given at ``M f_ref =
+    reference_mf`` (``WaveformOptions.reference_mf``; its ``f_ref`` zero,
+    NaN otherwise)."""
     from ._api import polarizations as function
 
     return function(binary, frequencies, scaled_strain, reference_mf)
 
 
 def polarizations_and_jacobian(binary, frequencies, scaled_strain=True, reference_mf=None):
-    """``(h_+, h_x)`` and their Jacobians (see :func:`._api.polarizations_and_jacobian`)."""
+    """``(h_+, h_x)`` and their Jacobians with respect to the twelve
+    parameters of the binary (``mass_1``, ``mass_2``, ``spin_1``,
+    ``spin_2``, ``luminosity_distance``, ``inclination``, ``phi_ref``,
+    ``f_ref``): each ``(..., N, 12)`` complex64 (zero for the in-plane
+    spins). ``reference_mf`` as for :func:`polarizations`."""
     from ._api import polarizations_and_jacobian as function
 
     return function(binary, frequencies, scaled_strain, reference_mf)
 
 
 def to_mass_scaled_reference(binary, reference_mf=REFERENCE_MF, f_min=None):
-    """``binary`` at the mass-scaled reference (see :func:`._api.to_mass_scaled_reference`)."""
+    """:func:`waveformx.to_mass_scaled_reference` in MLX (float32, the
+    fields of the binary MLX arrays or numbers, one binary or a batch):
+    differentiable with ``mx.grad``."""
     from ._api import to_mass_scaled_reference as function
 
     return function(binary, reference_mf, f_min)
 
 
 def to_physical_reference(binary, f_ref, reference_mf=REFERENCE_MF):
-    """``binary`` at ``f_ref`` in Hz (see :func:`._api.to_physical_reference`)."""
+    """:func:`waveformx.to_physical_reference` in MLX (see
+    :func:`to_mass_scaled_reference`)."""
     from ._api import to_physical_reference as function
 
     return function(binary, f_ref, reference_mf)

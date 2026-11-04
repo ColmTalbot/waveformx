@@ -9,13 +9,16 @@ From PyPI, once released, or from a clone of the repository::
 waveformx needs Python 3.12 or later, JAX, NumPy and h5py. The optional
 extras are
 
-* ``mlx``: the MLX versions of the models (:doc:`mlx`), on Apple silicon;
-* ``torch``: the PyTorch functions of :mod:`waveformx.torch` (:doc:`api`);
+* ``torch``: the PyTorch functions of :mod:`waveformx.torch`
+  (:doc:`api/torch`);
+* ``mlx``: the MLX versions of the models (:doc:`api/mlx`), on Apple
+  silicon;
 * ``test``: pytest, for the tests;
 * ``docs``: Sphinx, for this documentation.
 
 For example::
 
+    pip install "waveformx[torch]"
     pip install "waveformx[mlx]"
 
 NRSur7dq4 needs its data file, ``NRSur7dq4_v1.0.h5``, from LALSuite's data

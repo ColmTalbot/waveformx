@@ -29,6 +29,7 @@ intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
     "numpy": ("https://numpy.org/doc/stable", None),
     "jax": ("https://docs.jax.dev/en/latest", None),
+    "torch": ("https://docs.pytorch.org/docs/stable", None),
 }
 
 exclude_patterns = ["_build"]

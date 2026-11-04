@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
-"""Exceptions raised by waveformx (the same as those of waveformrs).
+"""Exceptions raised by waveformx.
 
 Every error is raised as a subclass
 of :class:`WaveformError`, which also derives from the matching built-in
