@@ -1,0 +1,92 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
+# waveformrs: see NOTICE.md for the original code and its authors.
+#
+# Releases to PyPI with trusted publishing (no token: PyPI trusts this
+# workflow in the `pypi` environment). A GitHub release published from a tag
+# vX.Y.Z builds the sdist and wheel, version X.Y.Z (setuptools-scm), and
+# uploads them to PyPI. Running the workflow by hand uploads a development
+# version of the chosen branch to TestPyPI instead (the `testpypi`
+# environment), to try the release out.
+name: release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # setuptools-scm reads the version from the tags
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Build
+        run: |
+          # TestPyPI takes no local versions (0.2.dev3+g1234567): drop the
+          # commit from a development version
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            export SETUPTOOLS_SCM_OVERRIDES_FOR_WAVEFORMX='{local_scheme = "no-local-version"}'
+          fi
+          python -m pip install build twine
+          python -m build
+          python -m twine check --strict dist/*
+          python .github/scripts/check_dist.py dist
+
+      - name: Check the version against the tag
+        if: github.event_name == 'release'
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version=$(basename dist/waveformx-*.tar.gz .tar.gz | sed 's/^waveformx-//')
+          echo "tag $TAG, version $version"
+          test "v$version" = "$TAG"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  testpypi:
+    if: github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/waveformx/
+    permissions:
+      id-token: write  # trusted publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          skip-existing: true
+
+  pypi:
+    if: github.event_name == 'release'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/waveformx/
+    permissions:
+      id-token: write  # trusted publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

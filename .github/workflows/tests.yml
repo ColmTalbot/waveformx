@@ -1,0 +1,124 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
+# waveformrs: see NOTICE.md for the original code and its authors.
+#
+# The quick tier of the tests (``pytest``: tests/test_quick.py and
+# tests/test_api.py) against LALSimulation (lalsuite) and waveformrs, with
+# the NRSur7dq4 data file, and a check of the sdist and wheel. The MLX tests
+# are not in the quick tier (GitHub's macOS runners have no Metal GPU).
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NRSUR7DQ4_FILE: NRSur7dq4_v1.0.h5
+  NRSUR7DQ4_URL: https://zenodo.org/records/14999310/files/NRSur7dq4_v1.0.h5
+  NRSUR7DQ4_MD5: ec4a0a9c6af39ad14dc91d42957144e9
+
+jobs:
+  quick:
+    name: quick tier (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # the oldest Python, and the newest with lalsuite 7.26.1 (the
+          # last with LALSimulation 6.2.0, which the tests compare with)
+          - {os: ubuntu-latest, python: "3.11"}
+          - {os: ubuntu-latest, python: "3.13"}
+          - {os: macos-latest, python: "3.13"}
+    env:
+      NRSUR7DQ4_DATA: ${{ github.workspace }}/../lal_data/NRSur7dq4_v1.0.h5
+      WAVEFORMX_TEST_CACHE: ${{ github.workspace }}/../jax_cache
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # setuptools-scm reads the version from the tags
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install waveformx with the test dependencies
+        # lalsuite and waveformrs (the `compare` extra) for the comparisons;
+        # waveformrs has wheels for some Pythons only: elsewhere pip builds
+        # it with the runner's Rust (and the pip cache keeps the wheel)
+        run: python -m pip install ".[test,compare]"
+
+      - name: Versions
+        run: python -m pip list | grep -i -E "^(jax|jaxlib|numpy|h5py|lalsuite|waveformrs|waveformx|pytest) "
+
+      - name: Cache the NRSur7dq4 data file
+        id: nrsur
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/../lal_data
+          key: nrsur7dq4-${{ env.NRSUR7DQ4_MD5 }}
+
+      - name: Download the NRSur7dq4 data file
+        if: steps.nrsur.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p "$(dirname "$NRSUR7DQ4_DATA")"
+          curl -sSfL --retry 5 -o "$NRSUR7DQ4_DATA" "$NRSUR7DQ4_URL"
+          python -c "import hashlib, sys; d = hashlib.md5(open(sys.argv[1], 'rb').read()).hexdigest(); sys.exit(d != '$NRSUR7DQ4_MD5' and f'md5 {d}')" "$NRSUR7DQ4_DATA"
+
+      # JAX's compiled code depends on the CPU, so the key names it
+      - name: Identify the CPU
+        id: cpu
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then cpu=$(sysctl -n machdep.cpu.brand_string); else cpu=$(grep -m1 "model name" /proc/cpuinfo); fi
+          echo "$cpu"
+          echo "hash=$(echo "$cpu" | python -c "import hashlib, sys; print(hashlib.sha256(sys.stdin.read().encode()).hexdigest()[:12])")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache JAX's compiled code
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.WAVEFORMX_TEST_CACHE }}
+          key: jax-${{ runner.os }}-py${{ matrix.python }}-${{ steps.cpu.outputs.hash }}-${{ hashFiles('src/**/*.py', 'tests/test_quick.py', 'tests/test_api.py') }}
+          restore-keys: jax-${{ runner.os }}-py${{ matrix.python }}-${{ steps.cpu.outputs.hash }}-
+
+      - name: Quick tier
+        run: python -m pytest -rs --durations=5
+
+  package:
+    name: sdist and wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Build
+        run: |
+          python -m pip install build twine
+          python -m build
+
+      - name: Check
+        run: |
+          python -m twine check --strict dist/*
+          python .github/scripts/check_dist.py dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
