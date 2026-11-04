@@ -1,7 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Colm Talbot. waveformx follows LALSuite, GSL and
 # waveformrs: see NOTICE.md for the original code and its authors.
-"""IMRPhenomXPNR and NRSur7dq4 in JAX, with the interface of waveformrs.
+"""Gravitational-wave waveform models in JAX, with the interface of waveformrs.
+
+The models are TaylorF2, IMRPhenomD, IMRPhenomXAS, IMRPhenomXHM,
+IMRPhenomXPNR (with IMRPhenomXPNR_NNLO and IMRPhenomXPNR_MSA) and
+NRSur7dq4 (:func:`approximants`); each is also available in MLX, for Apple
+GPUs, in ``waveformx.models.<model>.mlx``.
 
 The models are pure JAX functions of a :class:`Binary`: they can be compiled
 with ``jax.jit``, mapped over many binaries with ``jax.vmap`` and

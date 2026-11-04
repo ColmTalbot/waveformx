@@ -7,8 +7,77 @@ compiled with `jax.jit`, evaluated for many binaries at once with
 `jax.grad`. They follow [LALSimulation](https://git.ligo.org/lscsoft/lalsuite)
 and are checked against it.
 
+Every model is also available in [MLX](https://github.com/ml-explore/mlx),
+in single precision on Apple GPUs.
+
 The package has the same interface as the Python bindings of
 [waveformrs](https://github.com/ColmTalbot/waveformrs).
+
+## Installation
+
+From a clone of the repository:
+
+```bash
+pip install .
+```
+
+The MLX versions of the models need the optional dependency `mlx`:
+
+```bash
+pip install ".[mlx]"
+```
+
+NRSur7dq4 needs its data file, `NRSur7dq4_v1.0.h5`, from LALSuite's data
+(also on [Zenodo](https://zenodo.org/records/14999310)). Set
+`NRSUR7DQ4_DATA` to the file, or `LAL_DATA_PATH` to the directory that
+holds it.
+
+## Usage
+
+The functions of the package take the binary as keyword arguments, with the
+masses in solar masses and the distance in Mpc, and LALSimulation's names
+for the models:
+
+```python
+import numpy as np
+import waveformx
+
+frequencies = np.linspace(20.0, 1024.0, 4017)
+hplus, hcross = waveformx.polarizations(
+    "IMRPhenomXPNR", frequencies, mass_1=36.0, mass_2=29.0,
+    spin_1=(0.4, 0.2, 0.3), spin_2=(-0.2, 0.3, -0.1),
+    luminosity_distance=500.0, inclination=0.7, phi_ref=1.2, f_ref=20.0,
+)
+```
+
+`waveformx.approximants()` lists the models. Besides `polarizations`, there
+are the modes (`modes`, `td_modes`), the time-domain models
+(`td_polarizations`), batches of binaries (`batch_polarizations`,
+`batch_td_polarizations`) and LALSimulation's conditioned waveforms
+(`simulate_td`, `simulate_fd`).
+
+For your own compiled, vectorised or differentiated code, the pure function
+of a model takes a `waveformx.Binary`:
+
+```python
+import jax
+import jax.numpy as jnp
+
+model = waveformx.polarizations_function("IMRPhenomXAS")
+binary = waveformx.Binary(
+    mass_1=36.0, mass_2=29.0, spin_1=jnp.array([0.0, 0.0, 0.3]),
+    spin_2=jnp.array([0.0, 0.0, -0.1]), luminosity_distance=500.0, f_ref=20.0,
+)
+
+def power(mass_1):
+    hplus, _ = model(binary._replace(mass_1=mass_1), frequencies)
+    return jnp.sum(jnp.abs(hplus) ** 2)
+
+derivative = jax.jit(jax.grad(power))(36.0)
+```
+
+The MLX versions are in `waveformx.models.<model>.mlx`, for instance
+`waveformx.models.xas.mlx.polarizations(binary, frequencies)`.
 
 ## Models
 
