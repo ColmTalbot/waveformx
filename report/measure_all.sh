@@ -21,10 +21,13 @@ PY="${PYTHON:-python}"
 MLX_PY="${MLX_PYTHON:-$PY}"
 # (the whole suite: plain pytest runs the quick tier only)
 WAVEFORMX_SLOW=1 "$PY" -m pytest -q -p no:cacheprovider --junitxml=report/data/pytest.xml tests
+# (the paths of the checkout out of the published results)
+sed -i.bak "s|$PWD/||g" report/data/pytest.xml && rm report/data/pytest.xml.bak
 if "$MLX_PY" -c "import mlx.core" 2>/dev/null; then
     "$MLX_PY" -m pytest -q -p no:cacheprovider tests/test_nrsur7dq4_mlx.py tests/test_xpnr_mlx.py tests/test_xas_mlx.py tests/test_xhm_mlx.py \
         tests/test_taylorf2_mlx.py tests/test_phenomd_mlx.py \
         --junitxml=report/data/pytest_mlx.xml
+    sed -i.bak "s|$PWD/||g" report/data/pytest_mlx.xml && rm report/data/pytest_mlx.xml.bak
 fi
 "$PY" report/validate_xpnr.py --n-draws 200
 "$PY" report/validate_nrsur7dq4.py --n-draws 200
