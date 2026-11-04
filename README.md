@@ -76,8 +76,32 @@ def power(mass_1):
 derivative = jax.jit(jax.grad(power))(36.0)
 ```
 
-The MLX versions are in `waveformx.models.<model>.mlx`, for instance
-`waveformx.models.xas.mlx.polarizations(binary, frequencies)`.
+The MLX versions are in `waveformx.models.<model>.mlx` (`taylorf2`,
+`phenomd`, `xas`, `xhm`, `xpnr`, `nrsur7dq4`). They take the same `Binary`,
+for one binary or a batch along a leading axis, and work with MLX's own
+derivatives:
+
+```python
+import mlx.core as mx
+import numpy as np
+import waveformx
+from waveformx.models.xpnr import mlx as xpnr_mlx
+
+frequencies = mx.array(np.linspace(20.0, 1024.0, 4017), dtype=mx.float32)
+binaries = waveformx.Binary(
+    mass_1=mx.array([36.0, 30.0, 50.0]), mass_2=mx.array([29.0, 25.0, 20.0]),
+    spin_1=mx.array([[0.4, 0.2, 0.3], [0.1, 0.0, 0.5], [0.0, 0.3, -0.2]]),
+    spin_2=mx.array([[-0.2, 0.3, -0.1], [0.0, 0.1, 0.2], [0.2, 0.0, 0.1]]),
+    luminosity_distance=500.0, inclination=0.7, phi_ref=1.2, f_ref=20.0,
+)
+hplus, hcross = xpnr_mlx.polarizations(binaries, frequencies)
+
+def power(mass_1):
+    hplus, _ = xpnr_mlx.polarizations(binaries._replace(mass_1=mass_1), frequencies)
+    return mx.sum(mx.abs(hplus) ** 2)
+
+derivative = mx.grad(power)(binaries.mass_1)
+```
 
 ## Models
 
