@@ -23,6 +23,8 @@ binary neutron stars.
 
 from __future__ import annotations
 
+import inspect
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -103,9 +105,8 @@ def converters(phase_of, zero_is, period=2.0 * np.pi):
 
 
 to_mass_scaled_reference, to_physical_reference = converters(phase, "coalescence")
-to_mass_scaled_reference.__doc__ += """
-
-    For TaylorF2 ``f_ref = 0`` is the reference at coalescence (no
-    reference phase); ``f_min`` is not used."""
-to_physical_reference.__doc__ += """ ``f_ref = 0`` is the reference at
-    coalescence."""
+# (cleaned first: Python 3.13 removes the indentation of docstrings itself)
+to_mass_scaled_reference.__doc__ = inspect.cleandoc(to_mass_scaled_reference.__doc__) + (
+    "\n\nFor TaylorF2 ``f_ref = 0`` is the reference at coalescence (no reference phase); ``f_min`` is not used.")
+to_physical_reference.__doc__ = inspect.cleandoc(to_physical_reference.__doc__) + (
+    " ``f_ref = 0`` is the reference at coalescence.")

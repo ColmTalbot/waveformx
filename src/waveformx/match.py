@@ -153,7 +153,7 @@ def polarization_match(signal, hplus, hcross, frequencies, psd, *, time=True, pa
     """The match of ``signal`` with the template ``F_+ hplus + F_x hcross``
     maximised over time and over ``F_+`` and ``F_x``: the norm of the
     projection of ``signal`` onto the real span of the two polarizations,
-    over the norm of ``signal`` (Harry et al. 2016),
+    over the norm of ``signal`` (Harry et al. 2016)::
 
         sqrt((rho_+^2 + rho_x^2 - 2 rho_+ rho_x I) / (1 - I^2)) / |signal|,
 
