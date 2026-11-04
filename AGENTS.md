@@ -25,11 +25,11 @@
   cached across runs in `~/.cache/waveformx/jax` (`WAVEFORMX_TEST_CACHE`
   moves it, empty turns it off): time compilation with the cache off.
 - **CI** (`.github/workflows/tests.yml`) runs the quick tier on Linux and
-  macOS with the `compare` extra (`lalsuite==7.26.1`, the last with
-  LALSimulation 6.2.0, and waveformrs from PyPI) and the NRSur7dq4 data
-  file, and checks the sdist and wheel (`.github/scripts/check_dist.py`).
-  waveformrs 0.2 always has LAL's IMRPhenomXPNR parity fix and no
-  `pnr_parity_fix` keyword: pass it through `conftest.parity_fix`.
+  macOS with conda-forge's `python-lalsimulation=6.2.0`, waveformrs from
+  git at the commit before 0.2 and the NRSur7dq4 data file, and checks the
+  sdist and wheel (`.github/scripts/check_dist.py`). Not PyPI's `lalsuite`
+  (its LALSimulation differs in the time-domain conversion) nor waveformrs
+  0.2 (no `pnr_parity_fix`, and a different IMRPhenomXPNR).
 - **Docs** (`docs/`, Sphinx, `pip install ".[docs]"`): `docs.yml` builds
   them with warnings as errors and publishes them to GitHub Pages from
   `main`. A new public function goes in `docs/api.rst`, a new MLX module in

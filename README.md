@@ -24,7 +24,7 @@ The documentation, with the API, is at
 
 ## Installation
 
-waveformx needs Python 3.11 or later. From a clone of the repository:
+waveformx needs Python 3.12 or later. From a clone of the repository:
 
 ```bash
 pip install .
@@ -388,8 +388,8 @@ hplus, hcross = model(binary, frequencies)
 ## Development
 
 `pytest` runs the quick tests and `pytest tests` all of them. The tests
-compare with LALSimulation and waveformrs when they are installed
-(`pip install ".[test,compare]"`). GitHub Actions runs the quick tests and
+compare with LALSimulation (`python-lalsimulation` from conda-forge) and
+waveformrs when they are installed. GitHub Actions runs the quick tests and
 builds the documentation for every pull request. A release is made by
 publishing a GitHub release from a tag `vX.Y.Z`, which uploads that version
 to PyPI.

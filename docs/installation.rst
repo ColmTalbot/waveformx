@@ -6,13 +6,11 @@ From PyPI, once released, or from a clone of the repository::
     pip install waveformx
     pip install .
 
-waveformx needs Python 3.11 or later, JAX, NumPy and h5py. The optional
+waveformx needs Python 3.12 or later, JAX, NumPy and h5py. The optional
 extras are
 
 * ``mlx``: the MLX versions of the models (:doc:`mlx`), on Apple silicon;
 * ``test``: pytest, for the tests;
-* ``compare``: LALSimulation (``lalsuite``) and waveformrs, which the tests
-  compare with (without them those comparisons are skipped);
 * ``docs``: Sphinx, for this documentation.
 
 For example::

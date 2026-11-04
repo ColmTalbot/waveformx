@@ -7,7 +7,8 @@ Tests
 ``pytest`` runs the quick tier (``tests/test_quick.py`` and
 ``tests/test_api.py``); ``pytest tests`` runs everything, which takes an
 hour or more. The tests compare with LALSimulation and waveformrs where
-they are installed (``pip install ".[test,compare]"``) and use NRSur7dq4's
+they are installed (``python-lalsimulation`` 6.2.0 from conda-forge, and
+waveformrs at the commit in ``.github/workflows/tests.yml``) and use NRSur7dq4's
 data file where it is found (:doc:`installation`); otherwise those tests
 are skipped. ``AGENTS.md`` in the repository has the details.
 

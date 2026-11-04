@@ -8,17 +8,17 @@ name = "waveformx"
 dynamic = ["version"]
 description = "Gravitational-wave waveform models (IMRPhenomXAS, IMRPhenomXHM, IMRPhenomXPNR, NRSur7dq4) in JAX and MLX: compiled, vectorised and differentiable, with the API of waveformrs"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 # derived from LALSuite and GSL (see NOTICE.md)
 license = "GPL-3.0-or-later"
 license-files = ["LICENSE", "NOTICE.md"]
-dependencies = ["jax>=0.4.30", "numpy>=1.24", "h5py>=3.8"]
+dependencies = ["jax>=0.11", "numpy>=1.24", "h5py>=3.8"]
 
 [project.optional-dependencies]
+# the comparisons with LALSimulation also need python-lalsimulation 6.2.0
+# (conda-forge) and waveformrs (the commit in .github/workflows/tests.yml);
+# without them they are skipped
 test = ["pytest"]
-# what the tests compare with: LALSimulation 6.2.0 (lalsuite 7.26.1, the
-# last with it) and waveformrs; without them those comparisons are skipped
-compare = ["lalsuite==7.26.1", "waveformrs>=0.1"]
 # NRSur7dq4, the lean IMRPhenomXPNR, IMRPhenomXAS and IMRPhenomXHM on Apple
 # GPUs (waveformx.models.nrsur7dq4.mlx, xpnr.mlx, xas.mlx, xhm.mlx)
 mlx = ["mlx>=0.32.4"]
