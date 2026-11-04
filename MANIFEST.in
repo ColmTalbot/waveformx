@@ -1,0 +1,6 @@
+# The sdist holds the package, its tests and the documentation's sources;
+# the report (with its measurements and figures) stays in the repository.
+prune report
+prune scripts
+prune .github
+exclude AGENTS.md .gitignore

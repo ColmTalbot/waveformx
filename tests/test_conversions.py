@@ -43,8 +43,10 @@ TD_TOLERANCE = 5e-12
 FD_TOLERANCE = 1e-13
 #: with ``f_ref = 0`` LAL's model starts at the start frequency of the plan,
 #: which the bounds in solar masses move by rounding (4e-16), and LAL's
-#: IMRPhenomXPNR changes by ~6e-7 for that shift of ``f_min``
-TD_TOLERANCE_FREF_FMIN = 1e-5
+#: IMRPhenomXPNR changes by ~6e-7 for that shift of ``f_min``; through the
+#: conversion that is 7e-6 on macOS and 1.5e-5 on Linux (its libm rounds
+#: differently)
+TD_TOLERANCE_FREF_FMIN = 3e-5
 
 
 def binary_of(keywords):

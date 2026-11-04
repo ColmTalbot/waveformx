@@ -1,5 +1,8 @@
 # waveformx
 
+[![tests](https://github.com/ColmTalbot/waveformx/actions/workflows/tests.yml/badge.svg)](https://github.com/ColmTalbot/waveformx/actions/workflows/tests.yml)
+[![docs](https://github.com/ColmTalbot/waveformx/actions/workflows/docs.yml/badge.svg)](https://colmtalbot.github.io/waveformx/)
+
 Gravitational-wave waveform models for compact binaries, implemented in
 [JAX](https://github.com/jax-ml/jax). The models can be
 compiled with `jax.jit`, evaluated for many binaries at once with
@@ -16,13 +19,19 @@ gradients for PyTorch's autograd.
 The package has the same interface as the Python bindings of
 [waveformrs](https://github.com/ColmTalbot/waveformrs).
 
+The documentation, with the API, is at
+[colmtalbot.github.io/waveformx](https://colmtalbot.github.io/waveformx/).
+
 ## Installation
 
-From a clone of the repository:
+waveformx needs Python 3.12 or later. From a clone of the repository:
 
 ```bash
 pip install .
 ```
+
+Releases will be published on PyPI as `waveformx` (`pip install waveformx`);
+none has been made yet.
 
 The MLX versions of the models need the optional dependency `mlx`:
 
@@ -375,6 +384,15 @@ hplus, hcross = model(binary, frequencies)
   the orientation conventions, but not the definition of the orbital
   phase at the reference: the same binary in IMRPhenomXPNR and NRSur7dq4
   still differs by a reference phase that depends on the binary.
+
+## Development
+
+`pytest` runs the quick tests and `pytest tests` all of them. The tests
+compare with LALSimulation (`python-lalsimulation` from conda-forge) and
+waveformrs when they are installed. GitHub Actions runs the quick tests and
+builds the documentation for every pull request. A release is made by
+publishing a GitHub release from a tag `vX.Y.Z`, which uploads that version
+to PyPI.
 
 ## Report
 

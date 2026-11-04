@@ -1,30 +1,42 @@
 [build-system]
-requires = ["setuptools>=77"]
+requires = ["setuptools>=77", "setuptools-scm>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "waveformx"
-version = "0.1.0"
+# from the git tag (setuptools-scm): a release is tagged vX.Y.Z
+dynamic = ["version"]
 description = "Gravitational-wave waveform models (IMRPhenomXAS, IMRPhenomXHM, IMRPhenomXPNR, NRSur7dq4) in JAX and MLX: compiled, vectorised and differentiable, with the API of waveformrs"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 # derived from LALSuite and GSL (see NOTICE.md)
 license = "GPL-3.0-or-later"
 license-files = ["LICENSE", "NOTICE.md"]
-dependencies = ["jax>=0.4.30", "numpy>=1.24", "h5py>=3.8"]
+dependencies = ["jax>=0.11", "numpy>=1.24", "h5py>=3.8"]
 
 [project.optional-dependencies]
 # the comparisons with LALSimulation also need python-lalsimulation 6.2.0
-# (conda-forge)
+# (conda-forge) and waveformrs (the commit in .github/workflows/tests.yml);
+# without them they are skipped
 test = ["pytest"]
 # NRSur7dq4, the lean IMRPhenomXPNR, IMRPhenomXAS and IMRPhenomXHM on Apple
 # GPUs (waveformx.models.nrsur7dq4.mlx, xpnr.mlx, xas.mlx, xhm.mlx)
 mlx = ["mlx>=0.32.4"]
 # the PyTorch interface (waveformx.torch)
 torch = ["torch>=2.1"]
+# the documentation (docs/, built with Sphinx)
+docs = ["sphinx>=7", "furo"]
+
+[project.urls]
+Documentation = "https://colmtalbot.github.io/waveformx/"
+Repository = "https://github.com/ColmTalbot/waveformx"
+Issues = "https://github.com/ColmTalbot/waveformx/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools_scm]
+version_file = "src/waveformx/_version.py"
 
 [tool.pytest.ini_options]
 testpaths = ["tests/test_quick.py", "tests/test_api.py"]

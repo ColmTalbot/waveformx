@@ -24,6 +24,21 @@
   `WAVEFORMX_SLOW=1` adds the random-binary suites). Compiled code is
   cached across runs in `~/.cache/waveformx/jax` (`WAVEFORMX_TEST_CACHE`
   moves it, empty turns it off): time compilation with the cache off.
+- **CI** (`.github/workflows/tests.yml`) runs the quick tier on Linux and
+  macOS with conda-forge's `python-lalsimulation=6.2.0`, waveformrs from
+  git at the commit before 0.2 and the NRSur7dq4 data file, and checks the
+  sdist and wheel (`.github/scripts/check_dist.py`). Not PyPI's `lalsuite`
+  (its LALSimulation differs in the time-domain conversion) nor waveformrs
+  0.2 (no `pnr_parity_fix`, and a different IMRPhenomXPNR).
+- **Docs** (`docs/`, Sphinx, `pip install ".[docs]"`): `docs.yml` builds
+  them with warnings as errors and publishes them to GitHub Pages from
+  `main`. A new public function goes in `docs/api.rst`, a new MLX module in
+  `docs/mlx.rst`.
+- **Versions and releases**: the version comes from the git tag
+  (setuptools-scm, `waveformx/_version.py` is generated): never write it
+  by hand. A GitHub release from a tag `vX.Y.Z` publishes to PyPI
+  (`release.yml`, trusted publishing); running that workflow by hand
+  publishes a development version to TestPyPI.
 - **The quick tier's budget** is a minute with the cache off and about
   20 s with it (`conftest.py` warns beyond 90 s). It compiles each model
   once, as one function (values and derivatives for a batch of binaries),
