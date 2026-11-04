@@ -6,7 +6,8 @@
 The models are TaylorF2, IMRPhenomD, IMRPhenomXAS, IMRPhenomXHM,
 IMRPhenomXPNR (with IMRPhenomXPNR_NNLO and IMRPhenomXPNR_MSA) and
 NRSur7dq4 (:func:`approximants`); each is also available in MLX, for Apple
-GPUs, in ``waveformx.models.<model>.mlx``.
+GPUs, in ``waveformx.models.<model>.mlx``, and as PyTorch functions in
+``waveformx.torch`` (optional dependency ``torch``).
 
 The models are pure JAX functions of a :class:`Binary`: they can be compiled
 with ``jax.jit``, mapped over many binaries with ``jax.vmap`` and

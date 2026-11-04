@@ -20,6 +20,8 @@ test = ["pytest"]
 # NRSur7dq4, the lean IMRPhenomXPNR, IMRPhenomXAS and IMRPhenomXHM on Apple
 # GPUs (waveformx.models.nrsur7dq4.mlx, xpnr.mlx, xas.mlx, xhm.mlx)
 mlx = ["mlx>=0.32.4"]
+# the PyTorch interface (waveformx.torch)
+torch = ["torch>=2.1"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
