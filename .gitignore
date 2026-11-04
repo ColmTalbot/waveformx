@@ -12,3 +12,8 @@ dist/
 /*_PLAN.md
 # macOS Finder metadata
 .DS_Store
+# written by setuptools-scm
+/src/waveformx/_version.py
+# the documentation, built
+/docs/_build/
+/docs/api/generated/

@@ -79,7 +79,10 @@ from .exceptions import (  # noqa: E402
 
 from ._reference import to_mass_scaled_reference, to_physical_reference  # noqa: E402
 
-__version__ = "0.1.0"
+try:  # written by setuptools-scm when the package is built or installed
+    from ._version import __version__  # noqa: E402
+except ImportError:  # pragma: no cover (a source tree that was never installed)
+    __version__ = "unknown"
 
 __all__ = [
     "__version__",
