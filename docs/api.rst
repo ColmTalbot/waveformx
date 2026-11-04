@@ -4,8 +4,8 @@ API
 .. currentmodule:: waveformx
 
 Everything below is importable from ``waveformx`` (its ``__all__``), but
-for :mod:`waveformx.match`, :mod:`waveformx.conversions` and the
-``reference`` module of each model.
+for :mod:`waveformx.match`, :mod:`waveformx.conversions`,
+:mod:`waveformx.torch` and the ``reference`` module of each model.
 
 Models and options
 ------------------
@@ -108,6 +108,12 @@ Matches
 -------
 
 .. automodule:: waveformx.match
+   :members:
+
+PyTorch
+-------
+
+.. automodule:: waveformx.torch
    :members:
 
 Exceptions

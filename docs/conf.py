@@ -18,8 +18,9 @@ extensions = [
     "sphinx.ext.viewcode",
 ]
 
-# the MLX ports import mlx, which is only for Apple silicon
-autodoc_mock_imports = ["mlx"]
+# the MLX ports import mlx, which is only for Apple silicon, and
+# waveformx.torch imports torch
+autodoc_mock_imports = ["mlx", "torch"]
 autodoc_member_order = "bysource"
 autodoc_typehints = "description"
 autodoc_default_options = {"exclude-members": "__init__, __new__"}

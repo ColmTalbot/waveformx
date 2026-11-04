@@ -10,6 +10,7 @@ waveformx needs Python 3.12 or later, JAX, NumPy and h5py. The optional
 extras are
 
 * ``mlx``: the MLX versions of the models (:doc:`mlx`), on Apple silicon;
+* ``torch``: the PyTorch functions of :mod:`waveformx.torch` (:doc:`api`);
 * ``test``: pytest, for the tests;
 * ``docs``: Sphinx, for this documentation.
 
