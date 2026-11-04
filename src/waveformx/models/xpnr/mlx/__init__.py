@@ -43,7 +43,18 @@ __all__ = ["polarizations", "polarizations_and_jacobian"]
 
 def polarizations(binary, frequencies, mode_array=None, scaled_strain=True, reference_mf=None,
                   approximant="IMRPhenomXPNR"):
-    """``(h_+, h_x)`` of IMRPhenomXPNR (see :func:`._api.polarizations`)."""
+    """``(h_+, h_x)`` (complex64 MLX arrays) of IMRPhenomXPNR at
+    ``frequencies`` (Hz, positive and increasing; ``(N,)`` or, for a batch,
+    ``(B, N)``): ``(N,)`` each for one binary, ``(B, N)`` for a batch (a
+    :class:`~waveformx.Binary` whose fields have a leading axis). The
+    strain is multiplied by ``1e21`` unless ``scaled_strain`` is false;
+    NaN where the model fails. Differentiable with ``mx.grad`` with
+    respect to the fields of the binary. With ``reference_mf``
+    (``WaveformOptions.reference_mf``), the binary is given at the
+    mass-scaled reference frequency ``reference_mf / M`` (``f_ref`` zero).
+    ``approximant`` selects the precession prescription:
+    ``"IMRPhenomXPNR"`` (the SpinTaylor angles), ``"IMRPhenomXPNR_NNLO"``
+    or ``"IMRPhenomXPNR_MSA"``."""
     from ._api import polarizations as function
 
     return function(binary, frequencies, mode_array, scaled_strain, reference_mf, approximant)
@@ -51,7 +62,10 @@ def polarizations(binary, frequencies, mode_array=None, scaled_strain=True, refe
 
 def polarizations_and_jacobian(binary, frequencies, mode_array=None, scaled_strain=True, reference_mf=None,
                                approximant="IMRPhenomXPNR"):
-    """``(h_+, h_x)`` and their Jacobian (see :func:`._api.polarizations_and_jacobian`)."""
+    """``(h_+, h_x)`` and their forward-mode Jacobian with respect to the
+    twelve parameters of the binary (``mass_1``, ``mass_2``, ``spin_1``,
+    ``spin_2``, ``luminosity_distance``, ``inclination``, ``phi_ref``,
+    ``f_ref``): each ``(..., N, 12)`` complex64."""
     from ._api import polarizations_and_jacobian as function
 
     return function(binary, frequencies, mode_array, scaled_strain, reference_mf, approximant)

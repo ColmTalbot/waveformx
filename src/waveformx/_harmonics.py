@@ -46,8 +46,7 @@ def polarizations_from_modes(modes):
         h_+ = 1/2 sum (h_lm(f) Y + conj(h_lm(-f) Y))
         h_x = i/2 sum (h_lm(f) Y - conj(h_lm(-f) Y))
 
-    rotated by twice the polarization angle, as waveformrs's
-    ``FrequencyModes::polarizations``.
+    rotated by twice the polarization angle.
     """
     frequencies = jnp.asarray(modes.frequencies)
     n2 = frequencies.shape[0]

@@ -47,10 +47,35 @@ of a model takes a :class:`waveformx.Binary`:
 ``jax.vmap`` maps over a leading axis of the fields of the binary;
 :func:`waveformx.batch_polarizations` does that for a table of binaries.
 
+PyTorch
+-------
+
+The same pure functions are available to PyTorch in :mod:`waveformx.torch`
+(:doc:`api/torch`). They take a :class:`~waveformx.Binary` of torch tensors
+(or plain numbers), for one binary or a batch along a leading axis, and
+give torch tensors that PyTorch's autograd can differentiate. The waveform
+and its derivatives are computed by the JAX model:
+
+.. code-block:: python
+
+    import torch
+    import waveformx
+    import waveformx.torch
+
+    model = waveformx.torch.polarizations_function("IMRPhenomXAS")
+    frequencies = torch.linspace(20.0, 1024.0, 4017, dtype=torch.float64)
+    mass_1 = torch.tensor(36.0, dtype=torch.float64, requires_grad=True)
+    binary = waveformx.Binary(
+        mass_1=mass_1, mass_2=29.0, spin_1=(0.0, 0.0, 0.3),
+        spin_2=(0.0, 0.0, -0.1), luminosity_distance=500.0, f_ref=20.0,
+    )
+    hplus, hcross = model(binary, frequencies)
+    (hplus.abs() ** 2).sum().backward()  # the derivative is in mass_1.grad
+
 MLX
 ---
 
-The MLX versions (:doc:`mlx`) take the same :class:`~waveformx.Binary`, for
+The MLX versions (:doc:`api/mlx`) take the same :class:`~waveformx.Binary`, for
 one binary or a batch along a leading axis, in single precision, and work
 with MLX's own derivatives:
 
